@@ -44,8 +44,16 @@ class UsbViewModel @Inject constructor(
     val uiState: StateFlow<UsbUiState> = _uiState.asStateFlow()
 
     init {
-        repository.startMonitoring()
         observeEvents()
+    }
+
+    fun startMonitoring() {
+        repository.startMonitoring()
+    }
+
+    fun restartMonitoring() {
+        repository.stopMonitoring()
+        repository.startMonitoring()
     }
 
     private fun observeEvents() {

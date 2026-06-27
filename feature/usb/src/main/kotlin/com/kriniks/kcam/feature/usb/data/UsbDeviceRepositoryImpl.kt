@@ -63,7 +63,7 @@ class UsbDeviceRepositoryImpl @Inject constructor(
 
     override fun startMonitoring() {
         KLog.i(TAG, "Starting USB monitor")
-        multiCameraClient = MultiCameraClient(context, object : IDeviceConnectCallBack {
+        multiCameraClient = MultiCameraClient(ReceiverFlagFixContext(context), object : IDeviceConnectCallBack {
 
             override fun onAttachDev(device: UsbDevice?) {
                 device ?: return

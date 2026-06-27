@@ -15,6 +15,7 @@
 
 package com.kriniks.kcam.feature.usb.ui
 
+import android.graphics.SurfaceTexture
 import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -39,19 +40,30 @@ fun UvcPreviewView(
     AndroidView(
         factory = { context ->
             TextureView(context).also { tv ->
-                try {
-                    camera.openCamera(
-                        tv,
-                        CameraRequest.Builder()
-                            .setPreviewWidth(1920)
-                            .setPreviewHeight(1080)
-                            .setFrontCamera(false)
-                            .create(),
-                    )
-                    KLog.d(TAG, "openCamera called with 1920x1080 request")
-                    onSurfaceReady(tv)
-                } catch (e: Exception) {
-                    KLog.e(TAG, "Failed to open camera", e)
+                // SurfaceTexture is null until the view is laid out — wait for the callback.
+                tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, w: Int, h: Int) {
+                        try {
+                            camera.openCamera(
+                                tv,
+                                CameraRequest.Builder()
+                                    .setPreviewWidth(1920)
+                                    .setPreviewHeight(1080)
+                                    .setFrontCamera(false)
+                                    .create(),
+                            )
+                            KLog.d(TAG, "openCamera called: 1920x1080")
+                            onSurfaceReady(tv)
+                        } catch (e: Exception) {
+                            KLog.e(TAG, "Failed to open camera", e)
+                        }
+                    }
+                    override fun onSurfaceTextureSizeChanged(s: SurfaceTexture, w: Int, h: Int) {}
+                    override fun onSurfaceTextureDestroyed(s: SurfaceTexture): Boolean {
+                        camera.closeCamera()
+                        return true
+                    }
+                    override fun onSurfaceTextureUpdated(s: SurfaceTexture) {}
                 }
             }
         },

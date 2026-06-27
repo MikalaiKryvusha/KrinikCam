@@ -27,14 +27,40 @@
 ### Tools ✅
 - `tools/graphics/render.mjs` — SVG → PNG рендерер (`@resvg/resvg-js`)
 - `tools/graphics/batch.mjs` — пакетный рендер → Android mipmap-*
+- `tools/adb.mjs` — ADB vision + interaction tool (screen/tap/logcat/install/start/stop)
 - `AGENT_GUIDE.md` — инструкция для AI-агента
 - `plans/graphics_tool.md` — план graphics tool
+
+### Device Testing ✅
+Три бага найдено и исправлено на устройстве (Headwolf Titan1, Android 14):
+
+1. **`SecurityException: RECEIVER_NOT_EXPORTED`** — `USBMonitor.register()` вызывал `registerReceiver()` без флагов Android 13+.
+   Фикс: `ReceiverFlagFixContext` (ContextWrapper) в `feature/usb`.
+
+2. **`UsbUserPermissionManager: Camera permission required for UVC`** — Android 14 блокирует USB UVC без `CAMERA` permission.
+   Фикс: добавлен `<uses-permission android:name="android.permission.CAMERA"/>`, runtime request в `MainActivity`, мониторинг запускается после выдачи прав.
+
+3. **`IllegalArgumentException: surfaceTexture must not be null`** — `openCamera()` вызывался в `factory {}` до рендера `TextureView`.
+   Фикс: перенос `openCamera()` в `TextureView.SurfaceTextureListener.onSurfaceTextureAvailable`.
+
+**Результат: USB-камера Emeet Piko+ 4K показывает live preview на Headwolf Titan1. ✅**
+
+### Tools ✅
+- `tools/adb.mjs` — ADB vision + interaction (screen/tap/logcat/install/start/stop)
+- ADB WiFi режим: `adb tcpip 5555` → `adb connect 192.168.1.3:5555`
 
 ---
 
 ## Текущая позиция
 
-**Phase 1 завершена и закоммичена (v0.2).**
+**Phase 1 завершена и протестирована на устройстве. USB preview работает.**
+
+**С чего продолжить в следующей сессии:**
+1. Проверить качество превью: направить камеру на что-то — убедиться, что картинка чёткая и без артефактов
+2. Проверить USB permission диалог при первом запуске (без ранее выданных прав)
+3. Проверить работу FAB-меню и overlay платформ
+4. Провести интервью Phase 2 → `interviews/interview_003_phase2_*.md`
+5. Начать Phase 2
 
 Графика приложения ещё не создана:
 - [ ] App icon (`ic_launcher.svg` → mipmap-*)

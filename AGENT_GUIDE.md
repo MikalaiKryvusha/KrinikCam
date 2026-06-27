@@ -117,6 +117,27 @@ export JAVA_HOME="..." && node tools/build.mjs --no-ui 2>&1 | grep "^e:"
 | `node tools/build.mjs --no-ui` | headless сборка |
 | `node tools/graphics/render.mjs --input x.svg --output x.png --width N --height N` | SVG→PNG |
 | `node tools/graphics/batch.mjs --input x.svg --android` | SVG→Android mipmap set |
+| `node tools/adb.mjs screen` | скриншот устройства → `tools/adb_screen.png` (читай через Read — AI видит экран) |
+| `node tools/adb.mjs tap <x> <y>` | тап по экрану (координаты из скриншота × 1.28 для 1600px девайса) |
+| `node tools/adb.mjs logcat [tag] [lines]` | дамп logcat с устройства |
+| `node tools/adb.mjs install` | установить debug APK |
+| `node tools/adb.mjs start` | запустить MainActivity |
+| `node tools/adb.mjs stop` | force-stop приложения |
+
+### ADB workflow для отладки на девайсе
+
+```bash
+# 1. Сделать скриншот → посмотреть через Read
+node tools/adb.mjs screen
+# Read tools/adb_screen.png — AI видит экран
+
+# 2. Запустить и поймать краш
+node tools/adb.mjs stop && node tools/adb.mjs start && sleep 3 && node tools/adb.mjs logcat AndroidRuntime 40
+
+# 3. Пересобрать и переустановить
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+node tools/build.mjs --no-ui && node tools/adb.mjs install && node tools/adb.mjs start
+```
 
 ---
 

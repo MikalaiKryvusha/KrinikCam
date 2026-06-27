@@ -15,6 +15,9 @@
     <!-- Required for Android 13+ notification permission (stream status notification) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Camera — required by Android 14+ UsbUserPermissionManager for UVC (USB video class) devices -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <!-- USB host mode — connect external webcams via OTG -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
