@@ -2,17 +2,16 @@
  * StreamViewModel — UI state for the streaming feature.
  *
  * Exposes:
- *   streamState — current StreamState (Idle / Connecting / Live / Error)
- *   profiles    — list of all configured streaming platforms
+ *   streamState   — current StreamState (Idle / Connecting / Live / Error)
+ *   profiles      — list of all configured streaming platforms
  *   activeProfile — the profile selected for the next / current stream
  *
- * Actions:
- *   startStream(profile) — validate + start RTMP
- *   stopStream()         — graceful stop
- *   saveProfile(profile) — add/edit a platform profile
- *   deleteProfile(p)     — remove a platform profile
+ * Actions (called from :app — MainScreen):
+ *   setVideoSource(source)      — set the USB camera VideoSource (UvcVideoSource)
+ *   startPreviewOnView(tv)      — start GL preview on a TextureView
+ *   startStream() / stopStream()
  *
- * Related: StreamingRepository, RtmpStreamer, StreamPlatformsOverlay (UI)
+ * Related: StreamingRepository, RtmpStreamer, UvcVideoSource (:app), StreamPlatformsOverlay (UI)
  */
 
 package com.kriniks.kcam.feature.streaming.ui
@@ -20,6 +19,7 @@ package com.kriniks.kcam.feature.streaming.ui
 import android.view.TextureView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pedro.library.util.sources.video.VideoSource
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.feature.streaming.domain.StreamingRepository
@@ -47,7 +47,6 @@ class StreamViewModel @Inject constructor(
     private val _snackbar = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val snackbar: SharedFlow<String> = _snackbar.asSharedFlow()
 
-    // Set automatically when profiles load — pick first enabled profile
     init {
         viewModelScope.launch {
             repository.enabledProfiles.collect { list ->
@@ -58,9 +57,31 @@ class StreamViewModel @Inject constructor(
         }
     }
 
-    fun attachPreviewSurface(textureView: TextureView) {
-        repository.attachPreviewSurface(textureView)
+    /**
+     * Set the video source for the GL encoder pipeline.
+     * Must be called before startPreviewOnView() when the USB camera connects,
+     * or after it (changeVideoSource handles live-swap).
+     */
+    fun setVideoSource(source: VideoSource) {
+        repository.setVideoSource(source)
+        KLog.d(TAG, "VideoSource set: ${source::class.simpleName}")
     }
+
+    /**
+     * Start GL preview output on [textureView]. Also starts the VideoSource
+     * (i.e. opens the USB camera if UvcVideoSource is active).
+     */
+    fun startPreviewOnView(textureView: TextureView) {
+        repository.startPreview(textureView)
+        KLog.d(TAG, "Preview started on TextureView")
+    }
+
+    fun clearVideoSource() {
+        repository.clearVideoSource()
+        KLog.d(TAG, "VideoSource cleared")
+    }
+
+    fun stopPreview() = repository.stopPreview()
 
     fun startStream() {
         val profile = _activeProfile.value

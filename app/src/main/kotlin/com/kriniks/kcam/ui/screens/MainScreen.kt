@@ -2,14 +2,24 @@
  * MainScreen — fullscreen camera viewfinder with floating overlay controls.
  *
  * Layout:
- *   Layer 0: fullscreen viewfinder (UVC preview or phone camera or black screen)
+ *   Layer 0: fullscreen viewfinder (UVC preview via GL pipeline or black screen)
  *   Layer 1: StandbyPlaceholder (when no source available)
  *   Layer 2: Live status indicator (top-left when streaming)
- *   Layer 3: FloatingRadialMenu (bottom-right FAB + radial actions)
- *   Layer 4: StreamPlatformsOverlay (modal, shown on demand)
+ *   Layer 3: Rotation hot button (top-right, when camera active)
+ *   Layer 4: FloatingRadialMenu (bottom-right FAB + radial actions)
+ *   Layer 5: StreamPlatformsOverlay (modal, shown on demand)
  *
- * Source priority (Q1 answer) is managed by DeviceManager.
- * Related: UsbViewModel, StreamViewModel, DeviceManager, FloatingRadialMenu
+ * Camera → RTMP bridge (Phase 2 architecture):
+ *   1. USB camera connects → UsbViewModel.activeCamera is set
+ *   2. MainScreen creates UvcVideoSource(camera) and calls streamViewModel.setVideoSource()
+ *   3. TextureView becomes available → streamViewModel.startPreviewOnView(tv)
+ *   4. GL pipeline starts: UvcVideoSource.start(glSurfaceTexture) opens USB camera
+ *      Camera frames → GL input → GL preview on TextureView + encoder when streaming
+ *   5. User presses Go Live → streamViewModel.startStream()
+ *
+ * Both orderings handled (camera before TextureView, and TextureView before camera).
+ *
+ * Related: UsbViewModel, StreamViewModel, UvcVideoSource, DeviceManager, FloatingRadialMenu
  */
 
 package com.kriniks.kcam.ui.screens
@@ -19,6 +29,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,9 +47,9 @@ import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isLive
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
-import com.kriniks.kcam.feature.usb.ui.NoSourceView
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import com.kriniks.kcam.feature.usb.ui.UvcPreviewView
+import com.kriniks.kcam.streaming.UvcVideoSource
 import com.kriniks.kcam.ui.overlay.FloatingRadialMenu
 import com.kriniks.kcam.ui.overlay.StandbyPlaceholder
 
@@ -59,6 +71,9 @@ fun MainScreen(
 
     var showPlatformsOverlay by remember { mutableStateOf(false) }
 
+    // TextureView from UvcPreviewView — held so we can re-start preview when camera connects
+    var previewTextureView by remember { mutableStateOf<TextureView?>(null) }
+
     // Bridge USB events → DeviceManager (keeps :feature:usb decoupled from :feature:capture)
     LaunchedEffect(usbState.activeCameraId) {
         val id = usbState.activeCameraId
@@ -66,7 +81,7 @@ fun MainScreen(
             val device = usbState.connectedDevices.firstOrNull { it.deviceId == id }
             if (device != null) {
                 deviceManager.notifyUvcConnected(
-                    com.kriniks.kcam.feature.capture.model.VideoSource.UvcCamera(
+                    VideoSource.UvcCamera(
                         id          = id.toString(),
                         displayName = device.productName ?: "USB Camera",
                         vendorId    = device.vendorId,
@@ -77,39 +92,52 @@ fun MainScreen(
         }
     }
     LaunchedEffect(usbState.connectedDevices.size) {
-        // Detect disconnection: if activeCameraId is no longer in connectedDevices
         val active = usbState.activeCameraId ?: return@LaunchedEffect
         if (usbState.connectedDevices.none { it.deviceId == active }) {
             deviceManager.notifyUvcDisconnected(active.toString())
         }
     }
 
-    // TextureView reference from UVC preview — shared with RtmpStreamer
-    var previewTexture by remember { mutableStateOf<TextureView?>(null) }
+    // Wire USB camera → RtmpStream GL pipeline.
+    // When camera connects → create UvcVideoSource → setVideoSource on stream.
+    // When TextureView is already ready, also kick off startPreview.
+    // When camera disconnects → clear source (closes USB camera cleanly).
+    LaunchedEffect(usbState.activeCamera) {
+        val camera = usbState.activeCamera
+        if (camera != null) {
+            val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
+            val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
+            val source = UvcVideoSource(camera, previewWidth = w, previewHeight = h)
+            streamViewModel.setVideoSource(source)
+            previewTextureView?.let { tv -> streamViewModel.startPreviewOnView(tv) }
+        } else {
+            streamViewModel.clearVideoSource()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
         // ── Layer 0: Viewfinder ──────────────────────────────────────
-        when (val source = activeSource) {
+        when (activeSource) {
             is VideoSource.UvcCamera -> {
-                val camera = usbState.activeCamera
-                if (camera != null) {
+                if (usbState.activeCamera != null) {
+                    // GL pipeline renders its output (camera frames) into this TextureView
                     UvcPreviewView(
-                        camera = camera,
-                        modifier = Modifier.fillMaxSize(),
-                        onSurfaceReady = { tv ->
-                            previewTexture = tv
-                            streamViewModel.attachPreviewSurface(tv)
+                        onTextureViewReady = { tv ->
+                            previewTextureView = tv
+                            // If camera source is already set, start preview now.
+                            // Otherwise, LaunchedEffect(activeCamera) will start it when ready.
+                            if (usbState.activeCamera != null) {
+                                streamViewModel.startPreviewOnView(tv)
+                            }
                         },
+                        modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    // Camera source registered but not yet opened
                     StandbyPlaceholder(modifier = Modifier.fillMaxSize())
                 }
             }
             is VideoSource.PhoneCamera -> {
-                // TODO Phase 1: phone camera preview via Camera2 / CameraX
-                // For now show standby with a hint
                 StandbyPlaceholder(
                     message = "Phone camera preview coming soon",
                     modifier = Modifier.fillMaxSize(),
@@ -123,7 +151,23 @@ fun MainScreen(
             }
         }
 
-        // ── Layer 1: Live indicator (top-left) ───────────────────────
+        // ── Layer 1: Rotation hot button (top-right, camera active only) ────
+        AnimatedVisibility(
+            visible = usbState.activeCamera != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+        ) {
+            SmallFloatingActionButton(
+                onClick = { usbViewModel.rotatePreview() },
+                containerColor = AcidPink.copy(alpha = 0.85f),
+                contentColor = Color.White,
+            ) {
+                Icon(Icons.Filled.ScreenRotation, contentDescription = "Rotate preview")
+            }
+        }
+
+        // ── Layer 2: Live indicator (top-left) ───────────────────────
         AnimatedVisibility(
             visible = streamState.isLive,
             enter = fadeIn() + slideInHorizontally(),
@@ -133,7 +177,7 @@ fun MainScreen(
             LiveBadge(streamState)
         }
 
-        // ── Layer 2: Snackbar for stream errors / warnings ───────────
+        // ── Layer 3: Snackbar for stream errors / warnings ───────────
         val snackbarHostState = remember { SnackbarHostState() }
         LaunchedEffect(Unit) {
             streamViewModel.snackbar.collect { msg ->
@@ -145,7 +189,7 @@ fun MainScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp),
         )
 
-        // ── Layer 3: Radial FAB menu (bottom-right) ──────────────────
+        // ── Layer 4: Radial FAB menu (bottom-right) ──────────────────
         FloatingRadialMenu(
             streamState = streamState,
             onStartStream = { streamViewModel.startStream() },
@@ -156,7 +200,7 @@ fun MainScreen(
         )
     }
 
-    // ── Layer 4: Platforms modal overlay ────────────────────────────
+    // ── Layer 5: Platforms modal overlay ────────────────────────────
     if (showPlatformsOverlay) {
         StreamPlatformsOverlay(
             profiles = profiles,

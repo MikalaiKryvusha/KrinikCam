@@ -48,6 +48,6 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
 
-    // RTMP / streaming engine
-    implementation(libs.root.encoder)
+    // RTMP / streaming engine — api so :app can use VideoSource for UvcVideoSource
+    api(libs.root.encoder)
 }

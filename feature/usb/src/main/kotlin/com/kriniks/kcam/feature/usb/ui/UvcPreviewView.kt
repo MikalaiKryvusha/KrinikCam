@@ -1,16 +1,22 @@
 /**
- * UvcPreviewView — Compose wrapper for AndroidUSBCamera's TextureView preview.
+ * UvcPreviewView — Compose wrapper that provides a TextureView for the GL preview pipeline.
  *
- * AndroidUSBCamera renders frames into an Android TextureView (not a Compose surface),
- * so we use AndroidView to embed it. When the factory runs, we call camera.openCamera()
- * which starts USB negotiation, opens the UVC pipeline, and renders into the texture.
+ * In Phase 2, the USB camera no longer renders directly into this TextureView.
+ * Instead, the GL pipeline (RtmpStream / StreamBase) renders its output here.
+ * The camera writes to the GL pipeline's input SurfaceTexture (via UvcVideoSource in :app).
  *
- * The ICameraStateCallBack.OPENED event fires (on the camera object in the repository)
- * after openCamera completes successfully — UsbViewModel updates activeCameraWidth/Height.
+ * Usage:
+ *   UvcPreviewView(
+ *       onTextureViewReady = { tv -> streamViewModel.startPreviewOnView(tv) }
+ *   )
  *
- * For streaming, RtmpStreamer reads from the same SurfaceTexture via a shared Surface.
+ * When the TextureView's surface is ready, [onTextureViewReady] is called so the
+ * caller can start the GL preview pipeline (which in turn opens the USB camera).
  *
- * Related: UsbViewModel, RtmpStreamer (:feature:streaming), StandbyPlaceholder
+ * Rotation / AR: handled by the GL pipeline (GlStreamInterface.setAutoHandleOrientation).
+ * No Matrix transform needed here — it's now done at the GL level.
+ *
+ * Related: UsbViewModel, UvcVideoSource (:app), RtmpStreamer (:feature:streaming)
  */
 
 package com.kriniks.kcam.feature.usb.ui
@@ -20,49 +26,42 @@ import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
-import com.jiangdg.ausbc.MultiCameraClient
-import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.kriniks.kcam.core.logging.KLog
 
 private const val TAG = "UvcPreviewView"
 
+/**
+ * TextureView container that notifies [onTextureViewReady] when the surface is available.
+ * The GL preview pipeline (RtmpStream) renders into this TextureView.
+ */
 @Composable
 fun UvcPreviewView(
-    camera: MultiCameraClient.Camera,
+    onTextureViewReady: (TextureView) -> Unit = {},
     modifier: Modifier = Modifier.fillMaxSize(),
-    onSurfaceReady: (TextureView) -> Unit = {},
 ) {
     AndroidView(
         factory = { context ->
             TextureView(context).also { tv ->
-                // SurfaceTexture is null until the view is laid out — wait for the callback.
                 tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, w: Int, h: Int) {
-                        try {
-                            camera.openCamera(
-                                tv,
-                                CameraRequest.Builder()
-                                    .setPreviewWidth(1920)
-                                    .setPreviewHeight(1080)
-                                    .setFrontCamera(false)
-                                    .create(),
-                            )
-                            KLog.d(TAG, "openCamera called: 1920x1080")
-                            onSurfaceReady(tv)
-                        } catch (e: Exception) {
-                            KLog.e(TAG, "Failed to open camera", e)
-                        }
+                        KLog.d(TAG, "SurfaceTexture available: ${w}x${h}")
+                        onTextureViewReady(tv)
                     }
-                    override fun onSurfaceTextureSizeChanged(s: SurfaceTexture, w: Int, h: Int) {}
+
+                    override fun onSurfaceTextureSizeChanged(s: SurfaceTexture, w: Int, h: Int) {
+                        KLog.d(TAG, "SurfaceTexture size changed: ${w}x${h}")
+                    }
+
                     override fun onSurfaceTextureDestroyed(s: SurfaceTexture): Boolean {
-                        camera.closeCamera()
+                        KLog.d(TAG, "SurfaceTexture destroyed")
                         return true
                     }
+
                     override fun onSurfaceTextureUpdated(s: SurfaceTexture) {}
                 }
             }

@@ -2,6 +2,7 @@
 
 > Этот файл читается AI-агентом перед каждой задачей.
 > Обновляй его при каждом значимом изменении состояния.
+> Читай описание твоего рабочего фреймворка в AGENT_GUIDE.md
 
 ---
 
@@ -53,14 +54,14 @@
 
 ## Текущая позиция
 
-**Phase 1 завершена и протестирована на устройстве. USB preview работает.**
+**Phase 2 в работе. БАГ 1 (RTMP краш) архитектурно исправлен. Тестируется на устройстве.**
 
 **С чего продолжить в следующей сессии:**
-1. Проверить качество превью: направить камеру на что-то — убедиться, что картинка чёткая и без артефактов
-2. Проверить USB permission диалог при первом запуске (без ранее выданных прав)
-3. Проверить работу FAB-меню и overlay платформ
-4. Провести интервью Phase 2 → `interviews/interview_003_phase2_*.md`
-5. Начать Phase 2
+1. Собрать и установить APK: `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleDebug`
+2. Установить на Headwolf Titan1, подключить Emeet Piko+ 4K
+3. Проверить: появляется ли превью камеры на экране (GL pipeline fix)
+4. Если превью работает → тестировать "Go Live" кнопку
+5. Если чёрный экран — смотреть logcat: ищи `scheduleVideoSourceRetryIfNeeded` и `GL ready after Xms`
 
 Графика приложения ещё не создана:
 - [ ] App icon (`ic_launcher.svg` → mipmap-*)
@@ -83,16 +84,18 @@
 
 ### Баги ❌
 
-**БАГ 1 — КРИТИЧЕСКИЙ: RTMP краш при нажатии "Go Live"**
-- Из лога: `Starting RTMP stream → rtmp://a.rtmp.youtube.com/live2/***` → немедленный краш (нет stack trace в лог — нативный краш)
-- Причина: `RtmpCamera1` (RootEncoder) = класс для телефонной камеры. При `prepareVideo()` + `startStream()` пытается открыть Camera1/Camera2 API → конфликт с USB-камерой → краш
-- **Фикс Phase 2**: перейти на `GenericStream` (RootEncoder) с ручным push кадров из USB SurfaceTexture
+**БАГ 1 — КРИТИЧЕСКИЙ: RTMP краш → архитектурно исправлен, тестируется**
+- Оригинальная причина: `RtmpCamera1` открывал Camera1/Camera2 API → конфликт с USB-камерой → краш
+- Фикс: `RtmpCamera1` → `RtmpStream` + `UvcVideoSource` (VideoSource API). Камера открывается через AUSBC прямо в GL SurfaceTexture, Camera API не используется.
+- **Чёрный экран (текущий баг, фикс написан, не протестирован)**:
+  - Причина: race condition в RootEncoder. `StreamBase.startPreview()` вызывает `videoSource.start(getSurfaceTexture())` сразу после `glInterface.start()` — до того как GL render loop установил `running=true`. `GlStreamInterface.onFrameAvailable()` дропает кадры пока `isRunning()=false`.
+  - Фикс: `RtmpStreamer.scheduleVideoSourceRetryIfNeeded()` — после `startPreview()` ждёт (корутина, 50ms intervals) пока `glInterface.isRunning=true`, затем вызывает `stream.changeVideoSource(src)` для пересоздания камеры с корректной SurfaceTexture.
+  - Файл: `feature/streaming/src/main/kotlin/com/kriniks/kcam/feature/streaming/rtmp/RtmpStreamer.kt`
 
-**БАГ 2: Видео повёрнуто на 90° в ландшафтной ориентации телефона**
-- UVC камера всегда отдаёт 1920×1080 горизонтальные кадры
-- Телефон в пейзаже → видео нормально, но повёрнуто под 90°
-- Телефон в портрете → видео растянуто по вертикали (aspect ratio сломан)
-- **Фикс**: применять `Matrix` трансформацию к `TextureView` на основе `Display.rotation`
+**БАГ 2: Видео повёрнуто / растянуто** ✅ ИСПРАВЛЕН (портрет)
+- `TextureView.setTransform(Matrix)` с letterbox AR-фиксом в `UvcPreviewView`
+- Портрет: `baseDegrees=0f` → 1600×900 стрип, letterboxed, без дистortion ✅
+- Ландшафт: `baseDegrees=-90f` → не тестировался (кнопка ротации для ручного фикса если нужно)
 
 **БАГ 3: USB permission диалог каждый раз при переподключении**
 - При каждом reconnect камеры — системный диалог "Разрешить доступ к USB?"
@@ -111,8 +114,7 @@
 
 ### Следующая сессия — приоритеты
 1. **Провести интервью Phase 2** → `interviews/interview_003_phase2.md`
-2. **Фикс видео-ротации** (БАГ 2) — быстрый фикс, Matrix трансформация в UvcPreviewView
-3. **Архитектура RTMP для USB** — перейти на `GenericStream` или frame push подход
+2. **Архитектура RTMP для USB** — перейти на `GenericStream` или frame push подход (БАГ 1)
 
 ### Phase 2 (не начато)
 - **RTMP от USB камеры**: `GenericStream` + захват кадров из `SurfaceTexture`

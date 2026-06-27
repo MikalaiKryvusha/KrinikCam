@@ -1,37 +1,44 @@
 /**
- * RtmpStreamer — RTMP streaming engine wrapping RootEncoder's RtmpCamera1.
+ * RtmpStreamer — RTMP streaming engine using RootEncoder's RtmpStream.
  *
- * Connects a TextureView (from :feature:usb) as video source and uses
- * MediaCodec H.264 hardware encoding. Audio comes from the phone microphone (Phase 1).
+ * Why RtmpStream (not RtmpCamera1): RtmpCamera1 internally opens Camera1/Camera2 API,
+ * which crashes when a USB UVC camera is already in use. RtmpStream accepts any VideoSource,
+ * so we inject UvcVideoSource (from :app) that renders USB frames directly into the
+ * GL pipeline's SurfaceTexture — no Camera API involved.
  *
- * Phase 1 supports a single RTMP destination. MultiStreamManager in Phase 2
- * will extend this to N simultaneous destinations.
+ * Lifecycle:
+ *   setVideoSource(source)     — call when USB camera connects (or changes)
+ *   startPreview(textureView)  — call when UI TextureView is ready; starts GL + camera
+ *   stopPreview()              — call when UI is gone
+ *   startStream(profile)       — prepares encoder + connects RTMP
+ *   stopStream()               — graceful stop
  *
- * When the video source disconnects, sendStandbyFrame() injects a "Please stand by"
- * bitmap frame so the RTMP session stays alive.
- *
- * RootEncoder 2.4.7 API differences from older versions:
- *   - Package: com.pedro.library.rtmp (not com.pedro.rtplibrary.rtmp)
- *   - ConnectChecker: com.pedro.common.ConnectChecker (not ConnectCheckerRtmp)
- *   - Callbacks: onConnectionSuccess/onConnectionFailed (no "Rtmp" suffix)
- *   - prepareVideo: last param is rotation (int), not CameraHelper.Facing
- *
- * Related: StreamState, StreamViewModel, UvcPreviewView (:feature:usb),
- *          StandbyPlaceholder (:app), StreamProfile (:data:profiles)
+ * GL pipeline (RootEncoder internal):
+ *   UvcVideoSource.start(surfaceTexture) → camera renders to GL input SurfaceTexture
+ *   GL thread → encodes to MediaCodec → RTMP packets
+ *   GL thread → renders to preview TextureView
  */
 
 package com.kriniks.kcam.feature.streaming.rtmp
 
 import android.content.Context
-import android.graphics.Bitmap  // kept for Phase 2 sendStandbyFrame param
+import android.graphics.Bitmap
 import android.view.TextureView
 import com.pedro.common.ConnectChecker
-import com.pedro.library.rtmp.RtmpCamera1
+import com.pedro.encoder.utils.gl.AspectRatioMode
+import com.pedro.library.rtmp.RtmpStream
+import com.pedro.library.util.sources.video.NoVideoSource
+import com.pedro.library.util.sources.video.VideoSource
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isActive
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,9 +54,11 @@ class RtmpStreamer @Inject constructor(
     private val _state = MutableStateFlow<StreamState>(StreamState.Idle)
     val state: StateFlow<StreamState> = _state.asStateFlow()
 
-    private var rtmpCamera: RtmpCamera1? = null
+    private var rtmpStream: RtmpStream? = null
+    private var currentVideoSource: VideoSource? = null
 
-    // ── ConnectChecker — RootEncoder 2.4.7 connection callbacks ───────────
+    // Singleton lives for app lifetime — scope is appropriate here.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val connectChecker = object : ConnectChecker {
         override fun onConnectionStarted(url: String) {
@@ -64,7 +73,7 @@ class RtmpStreamer @Inject constructor(
         override fun onConnectionFailed(reason: String) {
             KLog.e(TAG, "RTMP connection failed: $reason")
             _state.value = StreamState.Error(reason)
-            rtmpCamera?.stopStream()
+            rtmpStream?.stopStream()
         }
 
         override fun onNewBitrate(bitrate: Long) {
@@ -91,26 +100,90 @@ class RtmpStreamer @Inject constructor(
         }
     }
 
+    private fun ensureStream(): RtmpStream =
+        rtmpStream ?: RtmpStream(context, connectChecker).also { rtmpStream = it }
+
     /**
-     * Attach the preview TextureView. Must be called before startStream().
-     * RootEncoder uses the TextureView's SurfaceTexture as encoder input.
+     * Swap the video source (e.g. when USB camera connects / changes).
+     * changeVideoSource() handles both cases: live-swap while running, or pre-swap before start.
      */
-    fun attachTextureView(tv: TextureView) {
-        rtmpCamera = RtmpCamera1(tv, connectChecker)
-        KLog.d(TAG, "TextureView attached to RtmpStreamer")
+    fun setVideoSource(source: VideoSource) {
+        currentVideoSource = source
+        try {
+            ensureStream().changeVideoSource(source)
+            KLog.d(TAG, "VideoSource set: ${source::class.simpleName}")
+        } catch (e: Exception) {
+            KLog.e(TAG, "Failed to set video source", e)
+        }
+    }
+
+    /** Reset to no video source (e.g. when USB camera disconnects). */
+    fun clearVideoSource() = setVideoSource(NoVideoSource())
+
+    /**
+     * Attach the preview TextureView. Starts the GL pipeline and opens the USB camera
+     * (via the active VideoSource). Must be called from the main thread.
+     */
+    fun startPreview(tv: TextureView) {
+        val stream = ensureStream()
+        try {
+            KLog.d(TAG, "startPreview: tv=${tv.width}x${tv.height} isOnPreview=${stream.isOnPreview} glRunning=${stream.getGlInterface().isRunning}")
+            if (stream.isOnPreview) stream.stopPreview()
+            stream.startPreview(tv)
+            stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust)
+            KLog.d(TAG, "startPreview: done — glRunning=${stream.getGlInterface().isRunning}")
+            scheduleVideoSourceRetryIfNeeded(stream)
+        } catch (e: Exception) {
+            KLog.e(TAG, "Failed to start preview", e)
+        }
+    }
+
+    /**
+     * Race condition fix: StreamBase.startPreview() calls videoSource.start(getSurfaceTexture())
+     * BEFORE the GL render loop sets running=true. GlStreamInterface.onFrameAvailable() drops
+     * all frames while isRunning=false. Once GL is ready, we re-trigger changeVideoSource() so
+     * the camera reopens with the now-valid SurfaceTexture and frames flow through.
+     */
+    private fun scheduleVideoSourceRetryIfNeeded(stream: RtmpStream) {
+        val src = currentVideoSource ?: return
+        if (stream.getGlInterface().isRunning) return  // already up, no retry needed
+        scope.launch {
+            val gl = stream.getGlInterface()
+            var waited = 0
+            while (!gl.isRunning && waited < 3000) {
+                delay(50)
+                waited += 50
+            }
+            if (gl.isRunning) {
+                KLog.d(TAG, "GL ready after ${waited}ms — re-triggering VideoSource")
+                try {
+                    stream.changeVideoSource(src)
+                } catch (e: Exception) {
+                    KLog.e(TAG, "Failed to re-trigger VideoSource after GL ready", e)
+                }
+            } else {
+                KLog.w(TAG, "GL still not running after 3000ms — giving up")
+            }
+        }
+    }
+
+    fun stopPreview() {
+        rtmpStream?.let { stream ->
+            if (stream.isOnPreview) stream.stopPreview()
+        }
     }
 
     /**
      * Start RTMP stream to the given profile.
-     * Returns false if the stream couldn't be prepared (codec issue).
+     * Prepares video/audio encoders and connects to the RTMP server.
      */
     fun startStream(profile: StreamProfile): Boolean {
-        val camera = rtmpCamera ?: run {
-            KLog.e(TAG, "startStream called before attachTextureView")
+        val stream = rtmpStream ?: run {
+            KLog.e(TAG, "startStream: no stream — call setVideoSource/startPreview first")
             return false
         }
 
-        if (camera.isStreaming) {
+        if (stream.isStreaming) {
             KLog.w(TAG, "Already streaming — ignoring startStream")
             return true
         }
@@ -118,22 +191,20 @@ class RtmpStreamer @Inject constructor(
         val rtmpUrl = "${profile.rtmpUrl}/${profile.streamKey}"
         KLog.i(TAG, "Starting RTMP stream → $rtmpUrl")
 
-        // rotation=0 — UVC webcam frames are already in the correct orientation
-        val prepared = camera.prepareVideo(
+        val prepared = stream.prepareVideo(
             profile.videoWidth,
             profile.videoHeight,
             profile.videoFps,
             profile.videoBitrateBps,
-            0,  // rotation
-        ) && camera.prepareAudio(
-            128_000,  // 128kbps AAC
-            44100,    // 44.1 kHz
-            true,     // stereo
+        ) && stream.prepareAudio(
+            44100,
+            true,
+            128_000,
         )
 
         return if (prepared) {
             _state.value = StreamState.Connecting
-            camera.startStream(rtmpUrl)
+            stream.startStream(rtmpUrl)
             true
         } else {
             val msg = "Failed to prepare encoder — check device codec support"
@@ -146,22 +217,22 @@ class RtmpStreamer @Inject constructor(
     fun stopStream() {
         KLog.i(TAG, "Stopping RTMP stream")
         _state.value = StreamState.Stopping
-        rtmpCamera?.stopStream()
+        rtmpStream?.stopStream()
         _state.value = StreamState.Idle
     }
 
     /**
-     * Feed a "Please stand by" bitmap when USB camera disconnects mid-stream.
-     * Phase 1: no-op — RootEncoder 2.4.7 removed setCustomImageToStream();
-     * Phase 2 will implement this via BaseFilterRender with a static image filter.
+     * Inject a "Please stand by" image into the RTMP stream when USB camera disconnects.
+     * Phase 2: implemented via GL filter (BaseFilterRender with a static bitmap).
      */
     fun sendStandbyFrame(bitmap: Bitmap) {
-        KLog.d(TAG, "sendStandbyFrame: standby image injection not yet implemented (Phase 2)")
+        KLog.d(TAG, "sendStandbyFrame: not yet implemented (Phase 2 P1)")
     }
 
     fun clearStandbyFrame() {
-        // Phase 2: remove standby filter from GlInterface
+        // Phase 2: remove standby GL filter
     }
 
-    val isStreaming: Boolean get() = rtmpCamera?.isStreaming == true
+    val isStreaming: Boolean get() = rtmpStream?.isStreaming == true
+    val isOnPreview: Boolean get() = rtmpStream?.isOnPreview == true
 }

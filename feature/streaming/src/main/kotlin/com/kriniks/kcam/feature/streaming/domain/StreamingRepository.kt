@@ -10,6 +10,7 @@
 package com.kriniks.kcam.feature.streaming.domain
 
 import android.view.TextureView
+import com.pedro.library.util.sources.video.VideoSource
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.data.profiles.repository.ProfilesRepository
@@ -31,8 +32,28 @@ class StreamingRepository @Inject constructor(
     val allProfiles: Flow<List<StreamProfile>> = profilesRepository.observeAllProfiles()
     val enabledProfiles: Flow<List<StreamProfile>> = profilesRepository.observeEnabledProfiles()
 
-    fun attachPreviewSurface(textureView: TextureView) {
-        rtmpStreamer.attachTextureView(textureView)
+    /**
+     * Set the video source (e.g. UvcVideoSource wrapping the USB camera).
+     * Called from :app whenever the active USB camera changes.
+     */
+    fun setVideoSource(source: VideoSource) {
+        rtmpStreamer.setVideoSource(source)
+    }
+
+    /**
+     * Start the GL preview pipeline and display it on [textureView].
+     * Also starts the video source (opens USB camera if UvcVideoSource is set).
+     */
+    fun startPreview(textureView: TextureView) {
+        rtmpStreamer.startPreview(textureView)
+    }
+
+    fun clearVideoSource() {
+        rtmpStreamer.clearVideoSource()
+    }
+
+    fun stopPreview() {
+        rtmpStreamer.stopPreview()
     }
 
     fun startStream(profile: StreamProfile): Boolean {

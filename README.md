@@ -4,12 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF1A8C.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2013%2B-3DDC84.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
-[![Version](https://img.shields.io/badge/Version-0.2%20(dev)-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING/releases)
+[![Version](https://img.shields.io/badge/Version-0.3%20(dev)-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING/releases)
 
 **An open-source Android app for streamers and bloggers.**  
 Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTube, Instagram, Twitch, or TikTok — all at once.
 
-> **Status:** Active development · Phase 1 complete — USB preview + RTMP stream working · Phase 2 (multi-platform) next
+> **Status:** Active development · Phase 1 ✅ USB preview confirmed on device · Phase 2 🔧 RTMP from USB rewritten, testing GL pipeline
 
 ---
 
@@ -18,13 +18,16 @@ Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTub
 | Feature | Status |
 |---------|--------|
 | USB webcam preview (UVC, any brand) | ✅ Phase 1 |
-| Fullscreen viewfinder with phone camera fallback | ✅ Phase 1 |
-| RTMP stream to YouTube / Twitch / custom | ✅ Phase 1 |
+| Fullscreen viewfinder (radial FAB menu) | ✅ Phase 1 |
 | Stream profiles (Room DB + DataStore) | ✅ Phase 1 |
 | Hardware codec scanner (H.264 / HEVC / AV1) | ✅ Phase 1 |
 | File-based debug logger (shareable logs) | ✅ Phase 1 |
-| Simultaneous multi-platform streaming | 📅 Phase 2 |
-| Phone camera fallback (Camera2) | 📅 Phase 2 |
+| RTMP stream to YouTube / Twitch / custom | 🔧 Phase 2 |
+| "Please stand by" frame on camera disconnect | 🔧 Phase 2 |
+| USB permission — remember device (no re-ask) | 🔧 Phase 2 |
+| Manual rotation (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
+| Simultaneous multi-platform streaming | 📅 Phase 2+ |
+| Phone camera fallback (Camera2) | 📅 Phase 2+ |
 | Auto image regulation (exposure, white balance) | 📅 Phase 3 |
 | Picture-in-Picture, GPU filters | 📅 Phase 4 |
 | Background streaming (Foreground Service) | 📅 Phase 5 |
@@ -76,20 +79,30 @@ Requires: JDK 17+, Android SDK (API 35), Node.js 18+
 Multi-module Android project (Kotlin DSL, Jetpack Compose, Hilt DI):
 
 ```
-:app                    entry point, navigation
+:app                    entry point, navigation, UvcVideoSource bridge
 :core:common            shared models, utils, DI dispatchers
 :core:ui                Design System — Material3, KrinikCam brand theme
 :core:logging           file-based debug logger (shareable logs)
 :feature:usb            UVC camera detection, hot-plug, preview
 :feature:capture        Device Manager — video/audio source registry
 :feature:codec          MediaCodec scanner (HW codec capabilities)
-:feature:streaming      RTMP client (RootEncoder), platform profiles
+:feature:streaming      RtmpStream (RootEncoder), VideoSource pipeline, profiles
 :data:profiles          Room DB + DataStore (stream profiles, device config)
 ```
 
+**Phase 2 streaming pipeline:**
+```
+USB Camera (UVC)
+  → UvcVideoSource.start(glSurfaceTexture)   // :app — bridges USB ↔ GL
+  → GL input SurfaceTexture                  // RootEncoder GL thread
+  → GlStreamInterface (render loop)
+  → GL output → TextureView (preview)
+  → MediaCodec encoder → RTMP packets
+```
+
 **Key libraries:**
-- [AndroidUSBCamera](https://github.com/jiangdongguo/AndroidUSBCamera) — UVC driver
-- [RootEncoder](https://github.com/pedroSG94/RootEncoder) — RTMP/SRT/RTSP streaming, HW codecs
+- [AndroidUSBCamera 3.2.7](https://github.com/jiangdongguo/AndroidUSBCamera) — UVC driver (AUSBC)
+- [RootEncoder 2.4.7](https://github.com/pedroSG94/RootEncoder) — RTMP/SRT/RTSP, GL pipeline, HW codecs
 - Jetpack Compose + Material3, Hilt, Room, DataStore, Navigation
 
 ---
@@ -122,7 +135,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 **Открытое Android-приложение для стримеров и блогеров.**  
 Подключи USB-вебкамеру через OTG → видишь превью во весь экран → жмёшь кнопку → стрим идёт на YouTube, Instagram, Twitch или TikTok — одновременно.
 
-> **Статус:** Активная разработка · Phase 1 завершена — USB превью + RTMP стрим работают · Phase 2 (мультиплатформа) следующая
+> **Статус:** Активная разработка · Phase 1 ✅ USB превью подтверждено на устройстве · Phase 2 🔧 RTMP для USB переписан, тестируется GL pipeline
 
 ---
 
@@ -131,13 +144,16 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Функция | Статус |
 |---------|--------|
 | Превью USB-вебкамеры (UVC, любой бренд) | ✅ Phase 1 |
-| Fullscreen видеоискатель, фолбэк на камеру телефона | ✅ Phase 1 |
-| RTMP-стрим на YouTube / Twitch / custom | ✅ Phase 1 |
+| Fullscreen видеоискатель (радиальное FAB-меню) | ✅ Phase 1 |
 | Профили стримов (Room DB + DataStore) | ✅ Phase 1 |
 | Сканер кодеков (H.264 / HEVC / AV1) | ✅ Phase 1 |
 | Файловый логгер с возможностью отправки | ✅ Phase 1 |
-| Одновременный стрим на несколько платформ | 📅 Phase 2 |
-| Фолбэк на камеру телефона (Camera2) | 📅 Phase 2 |
+| RTMP-стрим на YouTube / Twitch / custom | 🔧 Phase 2 |
+| Заглушка "Please stand by" при отключении | 🔧 Phase 2 |
+| USB permission — запомнить устройство | 🔧 Phase 2 |
+| Ручной поворот видео (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
+| Одновременный стрим на несколько платформ | 📅 Phase 2+ |
+| Фолбэк на камеру телефона (Camera2) | 📅 Phase 2+ |
 | Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 3 |
 | Картинка-в-картинке, GPU-фильтры | 📅 Phase 4 |
 | Фоновый режим стриминга (Foreground Service) | 📅 Phase 5 |
