@@ -27,9 +27,11 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # Setup Gradle — handles wrapper download without requiring gradle-wrapper.jar in repo
+      # Setup Gradle — handles wrapper download, caches dependencies
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: wrapper
 
       - name: Make gradlew executable
         run: chmod +x gradlew
