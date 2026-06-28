@@ -119,12 +119,21 @@ fun MainScreen(
         when (activeSource) {
             is VideoSource.UvcCamera -> {
                 if (usbState.activeCamera != null) {
+                    // rememberUpdatedState so the lambdas below always read the latest camera
+                    // state even though the TextureView listener captures them by reference.
+                    val currentCamera by rememberUpdatedState(usbState.activeCamera)
                     // GL pipeline renders its output (camera frames) into this TextureView
                     UvcPreviewView(
                         onTextureViewReady = { tv ->
                             previewTextureView = tv
                             // Sole trigger for startPreview — camera must already be set via setVideoSource.
-                            if (usbState.activeCamera != null) {
+                            if (currentCamera != null) {
+                                streamViewModel.startPreviewOnView(tv)
+                            }
+                        },
+                        // Restart GL preview on rotation so the render surface gets new dimensions.
+                        onSurfaceTextureSizeChanged = { tv, _, _ ->
+                            if (currentCamera != null) {
                                 streamViewModel.startPreviewOnView(tv)
                             }
                         },

@@ -54,14 +54,13 @@
 
 ## Текущая позиция
 
-**Phase 2 в работе. БАГ 1 (RTMP краш) архитектурно исправлен. Тестируется на устройстве.**
+**Phase 2 в работе. ПРЕВЬЮ РАБОТАЕТ ✅. Go Live — краш исправлен, не протестирован.**
 
 **С чего продолжить в следующей сессии:**
-1. Собрать и установить APK: `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleDebug`
-2. Установить на Headwolf Titan1, подключить Emeet Piko+ 4K
-3. Проверить: появляется ли превью камеры на экране (GL pipeline fix)
-4. Если превью работает → тестировать "Go Live" кнопку
-5. Если чёрный экран — смотреть logcat: ищи `scheduleVideoSourceRetryIfNeeded` и `GL ready after Xms`
+1. Протестировать "Go Live": нажать кнопку, убедиться что нет `IllegalStateException`
+2. Проверить что RTMP стрим подключается (LIVE индикатор в верхнем левом)
+3. Проверить стрим в YouTube Studio — входящий поток виден?
+4. После успешного стрима — закрыть Phase 2 MVP
 
 Графика приложения ещё не создана:
 - [ ] App icon (`ic_launcher.svg` → mipmap-*)
@@ -92,10 +91,10 @@
   - Фикс: `RtmpStreamer.scheduleVideoSourceRetryIfNeeded()` — после `startPreview()` ждёт (корутина, 50ms intervals) пока `glInterface.isRunning=true`, затем вызывает `stream.changeVideoSource(src)` для пересоздания камеры с корректной SurfaceTexture.
   - Файл: `feature/streaming/src/main/kotlin/com/kriniks/kcam/feature/streaming/rtmp/RtmpStreamer.kt`
 
-**БАГ 2: Видео повёрнуто / растянуто** ✅ ИСПРАВЛЕН (портрет)
-- `TextureView.setTransform(Matrix)` с letterbox AR-фиксом в `UvcPreviewView`
-- Портрет: `baseDegrees=0f` → 1600×900 стрип, letterboxed, без дистortion ✅
-- Ландшафт: `baseDegrees=-90f` → не тестировался (кнопка ротации для ручного фикса если нужно)
+**БАГ 2: Видео повёрнуто / растянуто** ✅ ИСПРАВЛЕН (портрет + ландшафт)
+- GL pipeline рестартует при повороте через `onSurfaceTextureSizeChanged`
+- `AspectRatioMode.Adjust` обеспечивает letterbox без искажений
+- Портрет: ✅ Ландшафт: ✅ (проверено на устройстве 28.06.2026)
 
 **БАГ 3: USB permission диалог каждый раз при переподключении**
 - При каждом reconnect камеры — системный диалог "Разрешить доступ к USB?"
