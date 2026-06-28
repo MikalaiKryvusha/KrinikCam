@@ -251,10 +251,17 @@ private fun AuthorInfoDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = DarkSurface,
-        title = { Text("Mikalai Kryvusha", color = Color.White, fontWeight = FontWeight.Bold) },
+        title = {
+            // Name + "· aka KOT KRINIK", both light (white) like the title, separated by a bullet.
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Mikalai Kryvusha", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("· aka KOT KRINIK", color = Color.White, fontSize = 14.sp)
+            }
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("aka KOT KRINIK · Николай Кривуша, Кот Криник", color = Color(0xFF888888), fontSize = 12.sp)
+                // Russian aux line only.
+                Text("Николай Кривуша · Кот Криник", color = Color(0xFF888888), fontSize = 12.sp)
                 Spacer(Modifier.height(4.dp))
                 LinkRow(Icons.Default.Code, "GitHub — Mikalai Kryvusha") {
                     openUrl(context, "https://github.com/MikalaiKryvusha")
