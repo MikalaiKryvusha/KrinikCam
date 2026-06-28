@@ -189,6 +189,43 @@ adb devices
 
 ---
 
+## Системные диалоги, скриншоты, освобождение камеры (2026-06-28)
+
+Эти команды позволяют ИИ-агенту тестировать автономно, не зовя Криника к устройству.
+
+### `allow` — сам одобрить системный диалог разрешений
+Диалоги CAMERA / микрофон / USB рисуются СИСТЕМОЙ (`permissioncontroller` / `systemui`), а не
+приложением — внутри-аппный tap до них не дотянется. `allow` находит такой диалог и жмёт
+позитивную кнопку. Кнопки ищутся по `resource-id` (не зависит от языка — работает и на русском
+диалоге), с текстовым фолбэком RU/EN.
+
+```bash
+node tools/ui.mjs allow          # одобрить (предпочтёт «При использовании» — постоянный грант)
+node tools/ui.mjs allow --once   # предпочесть «Только в этот раз»
+```
+- Обрабатывает цепочку диалогов (camera → mic → USB) в цикле.
+- Если есть чекбокс «использовать по умолчанию для USB» — ставит его (меньше повторных запросов).
+- Триггернуть диалог CAMERA для теста: `adb shell pm revoke com.kriniks.kcam.debug android.permission.CAMERA` → перезапустить.
+
+### `kill` / `start` / `restart` — освобождение камеры между сборками
+USB-камеру держит та сборка, что открыла её первой. Чтобы передать камеру другой сборке:
+```bash
+node tools/ui.mjs kill both       # force-stop обеих сборок → камера свободна
+node tools/ui.mjs kill release    # только release (или debug)
+node tools/ui.mjs start debug     # запустить (по умолчанию debug)
+node tools/ui.mjs restart release # force-stop + запуск
+```
+
+### `screen` — скриншот в сжатый JPEG
+Полное разрешение, качество 80, через библиотеку `sharp` — лёгкий файл для анализа ИИ
+(2.9 МБ PNG → ~0.4 МБ JPEG). `adb.mjs screen` теперь тоже отдаёт JPEG.
+```bash
+node tools/ui.mjs screen                 # → tools/adb_screen.jpg
+node tools/ui.mjs screen tools/x.jpg
+```
+
+---
+
 ## Исходный код
 
-[tools/ui.mjs](ui.mjs) — ~250 строк JS, без зависимостей.
+[tools/ui.mjs](ui.mjs) — JS, зависимость: `sharp` (сжатие скриншотов, в `tools/package.json`).

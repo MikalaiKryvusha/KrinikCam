@@ -4,20 +4,21 @@
   "description": "KrinikCam build & release automation tools",
   "type": "module",
   "scripts": {
-    "setup":         "node setup.mjs",
-    "build":         "node build.mjs",
+    "setup": "node setup.mjs",
+    "build": "node build.mjs",
     "build:release": "node build.mjs --release",
-    "build:ci":      "node build.mjs --no-ui",
-    "commit":        "node commit.mjs",
-    "release":       "node release.mjs",
+    "build:ci": "node build.mjs --no-ui",
+    "commit": "node commit.mjs",
+    "release": "node release.mjs",
     "release:major": "node release.mjs --major",
-    "release:dry":   "node release.mjs --dry-run",
-    "readme-pdf":    "node readme-pdf.mjs",
-    "draw":          "node graphics/render.mjs",
-    "draw:batch":    "node graphics/batch.mjs"
+    "release:dry": "node release.mjs --dry-run",
+    "readme-pdf": "node readme-pdf.mjs",
+    "draw": "node graphics/render.mjs",
+    "draw:batch": "node graphics/batch.mjs"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "md-to-pdf": "^5.2.4",
-    "@resvg/resvg-js": "^2.6.2"
+    "sharp": "^0.35.2"
   }
 }

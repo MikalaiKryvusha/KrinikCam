@@ -18,7 +18,7 @@
  */
 
 import { execSync, spawnSync } from 'child_process'
-import { writeFileSync, mkdirSync } from 'fs'
+import { mkdirSync, statSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
@@ -27,7 +27,10 @@ const ROOT = resolve(__dirname, '..')
 const APP_ID = 'com.kriniks.kcam.debug'
 const MAIN_ACTIVITY = `${APP_ID}/com.kriniks.kcam.MainActivity`
 const DEFAULT_APK = resolve(ROOT, 'app/build/outputs/apk/debug/app-debug.apk')
-const SCREEN_OUT = resolve(ROOT, 'tools/adb_screen.png')
+const SCREEN_OUT = resolve(ROOT, 'tools/adb_screen.jpg')
+// Screenshots are compressed to JPEG at this quality (full resolution kept) so the image is
+// light for AI vision analysis. Compression via the `sharp` library (see tools/package.json).
+const SCREENSHOT_JPEG_QUALITY = 80
 
 function run(cmd, { silent = false } = {}) {
   try {
@@ -46,11 +49,13 @@ switch (command) {
   case 'screen': {
     const out = rest[0] ? resolve(ROOT, rest[0]) : SCREEN_OUT
     mkdirSync(dirname(out), { recursive: true })
-    const result = spawnSync('adb', ['exec-out', 'screencap', '-p'], { encoding: 'buffer' })
+    const result = spawnSync('adb', ['exec-out', 'screencap', '-p'], { encoding: 'buffer', maxBuffer: 128 * 1024 * 1024 })
     if (result.status !== 0) { console.error('✗ screencap failed'); process.exit(1) }
-    writeFileSync(out, result.stdout)
-    const size = (result.stdout.length / 1024).toFixed(1)
-    console.log(`✓ screenshot saved → ${out} (${size} KB)`)
+    // Compress PNG → JPEG (full resolution, quality 80) so the image is light for AI vision.
+    const sharp = (await import('sharp')).default
+    const info = await sharp(result.stdout).jpeg({ quality: SCREENSHOT_JPEG_QUALITY }).toFile(out)
+    const size = (statSync(out).size / 1024).toFixed(0)
+    console.log(`✓ screenshot saved → ${out} (${info.width}x${info.height}, JPEG q${SCREENSHOT_JPEG_QUALITY}, ${size} KB)`)
     break
   }
 
