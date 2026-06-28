@@ -126,7 +126,7 @@
 **Твои наблюдения:**
 > Да, экран красивый, открылся
 > Есть только разделы STREAMING, DEBUG, ABOUT
-> Да, кнопка поделиться логами сработала. Лог вот /Users/kryvusha/ai_sandbox/KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING/plans/logs/kcam_2026-06-27.log
+> Да, кнопка поделиться логами сработала. Лог вот /Users/kryvusha/ai_sandbox/KrinikCam/plans/logs/kcam_2026-06-27.log
 
 ---
 
@@ -142,6 +142,6 @@
 
 **Самый важный баг / фича для Phase 2:**
 > Креш при попытке начать стрим. Я создал два профиля, один из них со 100% рабочими ключами "You Tube" - должно было начать стрим на мой ютуб канал, но не сработало, крешится.
-> Скриншоты в портретной и в пейзажной ориентации закинул в /Users/kryvusha/ai_sandbox/KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING/plans/screenshots, это я, привет тебе от меня! 
-/Users/kryvusha/ai_sandbox/KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING/plans/screenshots/Screenshot_20260627-144831.png
-/Users/kryvusha/ai_sandbox/KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING/plans/screenshots/Screenshot_20260627-144839.png
+> Скриншоты в портретной и в пейзажной ориентации закинул в /Users/kryvusha/ai_sandbox/KrinikCam/plans/screenshots, это я, привет тебе от меня! 
+/Users/kryvusha/ai_sandbox/KrinikCam/plans/screenshots/Screenshot_20260627-144831.png
+/Users/kryvusha/ai_sandbox/KrinikCam/plans/screenshots/Screenshot_20260627-144839.png
