@@ -63,7 +63,7 @@ node tools/setup.mjs
 gh auth login
 
 # 3. Настроить remote
-git remote add origin https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING.git
+git remote add origin https://github.com/MikalaiKryvusha/KrinikCam.git
 
 # 4. Проверить сборку
 node tools/build.mjs

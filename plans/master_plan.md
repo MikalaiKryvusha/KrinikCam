@@ -2,7 +2,7 @@
 
 > **Автор:** Mikalai Kryvusha aka KOT KRINIK (Николай Кривуша, Кот Криник)
 > **Тип проекта:** OpenSource, vibe-code
-> **GitHub:** https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING
+> **GitHub:** https://github.com/MikalaiKryvusha/KrinikCam
 > **Дата создания плана:** 2026-06-27
 
 ---

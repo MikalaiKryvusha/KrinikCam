@@ -1,10 +1,10 @@
 # KrinikCam
 
-[![Build](https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING/actions/workflows/build.yml/badge.svg)](https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING/actions/workflows/build.yml)
+[![Build](https://github.com/MikalaiKryvusha/KrinikCam/actions/workflows/build.yml/badge.svg)](https://github.com/MikalaiKryvusha/KrinikCam/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF1A8C.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2013%2B-3DDC84.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
-[![Version](https://img.shields.io/badge/Version-0.3%20(dev)-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING/releases)
+[![Version](https://img.shields.io/badge/Version-0.3%20(dev)-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
 
 **An open-source Android app for streamers and bloggers.**  
 Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTube, Instagram, Twitch, or TikTok — all at once.
@@ -49,14 +49,14 @@ Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTub
 ## Installation
 
 ### Download APK (when available)
-Go to [Releases](https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING/releases) and download the latest `KrinikCam-vX.Y.apk`.
+Go to [Releases](https://github.com/MikalaiKryvusha/KrinikCam/releases) and download the latest `KrinikCam-vX.Y.apk`.
 
 Enable **Install from unknown sources** in your Android settings, then open the APK.
 
 ### Build from source
 ```bash
-git clone https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING.git
-cd KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING
+git clone https://github.com/MikalaiKryvusha/KrinikCam.git
+cd KrinikCam
 node tools/setup.mjs          # first-time setup
 node tools/build.mjs          # opens browser with build progress
 ```
@@ -175,14 +175,14 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 ## Установка
 
 ### Скачать APK (когда будет доступно)
-Открой [Releases](https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING/releases) и скачай последний `KrinikCam-vX.Y.apk`.
+Открой [Releases](https://github.com/MikalaiKryvusha/KrinikCam/releases) и скачай последний `KrinikCam-vX.Y.apk`.
 
 Включи **Установку из неизвестных источников** в настройках Android, открой APK.
 
 ### Сборка из исходников
 ```bash
-git clone https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING.git
-cd KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING
+git clone https://github.com/MikalaiKryvusha/KrinikCam.git
+cd KrinikCam
 node tools/setup.mjs          # первичная настройка
 node tools/build.mjs          # открывает браузер с прогрессом сборки
 ```

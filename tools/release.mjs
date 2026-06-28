@@ -87,7 +87,7 @@ try {
   )
 
   console.log(`\n✅ Released: ${vStr}`)
-  console.log(`   → https://github.com/MikalaiKryvusha/KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING/releases/tag/${tag}\n`)
+  console.log(`   → https://github.com/MikalaiKryvusha/KrinikCam/releases/tag/${tag}\n`)
 } catch (e) {
   console.error('\n❌ Release failed:', e.message)
   process.exit(1)
