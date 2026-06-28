@@ -224,6 +224,21 @@ node tools/ui.mjs screen                 # → tools/screenshots/adb_screen.jpg 
 node tools/ui.mjs screen tools/x.jpg
 ```
 
+### Надёжность дампа на анимированных экранах (Bug 07)
+
+`uiautomator dump` падает («could not get idle state»), если на экране непрерывная анимация
+(напр. пульс логотипа в standby-экране — Compose infinite animation). `dumpUi()` это лечит сам:
+удаляет старый дамп (чтобы не вернуть устаревший), при провале выключает системные анимации
+(`animator_duration_scale=0`, Compose их уважает) и повторяет. Команда ручного управления:
+```bash
+node tools/ui.mjs anim off   # выключить анимации (для стабильных дампов)
+node tools/ui.mjs anim on    # вернуть анимации
+```
+⚠️ Приложение `fullSensor` — крутится за устройством. Координаты из `dump` валидны только для
+ориентации на момент дампа (в выводе печатается `📐 screen WxH · portrait/landscape`). Поэтому
+используй **атомарный** `ui.mjs tap <query>` (dump+tap в одном вызове), не переноси координаты
+между отдельными вызовами, и держи устройство неподвижно во время автотестов.
+
 ---
 
 ## Исходный код

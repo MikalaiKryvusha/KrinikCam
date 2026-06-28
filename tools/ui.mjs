@@ -77,6 +77,17 @@ function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+/**
+ * Set all three system animation scales (window / transition / animator). Scale 0 disables
+ * animations — including Compose animations, which honor animator_duration_scale — so that
+ * `uiautomator dump` can reach idle on screens with continuous motion (Bug 07).
+ */
+function setAnimationScale(v) {
+  for (const key of ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale']) {
+    try { adb('shell', 'settings', 'put', 'global', key, String(v)); } catch {}
+  }
+}
+
 // ── System permission / USB dialog approval ──────────────────────────────────
 // Camera/microphone runtime permission dialogs and the USB "Allow access?" dialog are drawn by
 // OTHER packages (permissioncontroller / systemui), so in-app FAB automation can't reach them.
@@ -135,13 +146,52 @@ const DUMP_REMOTE = '/sdcard/ui_dump.xml';
 const DUMP_LOCAL  = join(tmpdir(), 'kcam_ui_dump.xml');
 
 /**
- * Run uiautomator dump on device and return XML string.
- * Dumps current screen UI hierarchy — call this right before parsing.
+ * Run uiautomator dump on device and return a FRESH XML string.
+ *
+ * Reliability (Bug 07): `uiautomator dump` silently fails when the UI isn't idle (mid-animation,
+ * just after a transition) — it prints an error but leaves the PREVIOUS /sdcard/ui_dump.xml in
+ * place and exits 0. Naively pulling that file returns a STALE hierarchy (e.g. a dialog that was
+ * already dismissed, or coords from a previous orientation), so taps land on nothing. This was
+ * the "tool doesn't see the screen" bug.
+ *
+ * Fix: delete both the remote and local dump first (so a failure can't yield stale data), require
+ * the success marker in the command output, verify the pulled XML, and retry a few times with a
+ * short settle delay.
  */
-function dumpUi() {
-  adb('shell', 'uiautomator', 'dump', DUMP_REMOTE);
-  adb('pull', DUMP_REMOTE, DUMP_LOCAL);
-  return readFileSync(DUMP_LOCAL, 'utf8');
+function dumpUi(retries = 5) {
+  let triedAnimFix = false;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    // Wipe stale dumps up front — a failed dump must NOT leave a previous file to pull. Because we
+    // deleted the old one, ANY valid file we manage to pull afterwards is guaranteed to be FRESH
+    // (current screen), which is the real success signal — more reliable than parsing the command
+    // output (uiautomator prints "could not get idle state" to stderr, which execSync doesn't
+    // capture in its return value).
+    try { adb('shell', 'rm', '-f', DUMP_REMOTE); } catch {}
+    try { if (existsSync(DUMP_LOCAL)) writeFileSync(DUMP_LOCAL, ''); } catch {}
+
+    try { adb('shell', 'uiautomator', 'dump', DUMP_REMOTE); } catch { /* error printed to stderr */ }
+
+    try {
+      adb('pull', DUMP_REMOTE, DUMP_LOCAL);
+      const xml = readFileSync(DUMP_LOCAL, 'utf8');
+      if (xml.includes('<hierarchy')) return xml;  // fresh, valid hierarchy
+    } catch { /* no file → dump failed this round */ }
+
+    // Failed. The usual cause is uiautomator never reaching "idle" because the screen animates
+    // (e.g. the standby-screen logo pulse — a Compose infinite animation). Disabling the system
+    // animation scales makes Compose animations idle (it honors animator_duration_scale), which is
+    // harmless on a test device. Do it once, then give the running animation time to settle.
+    if (!triedAnimFix) {
+      triedAnimFix = true;
+      setAnimationScale(0);
+      console.error('ℹ️  UI dump failed (screen likely animating) — disabled device animations and retrying. Restore with: ui.mjs anim on');
+      sleep(1500);
+    } else {
+      sleep(700);
+    }
+  }
+  throw new Error('uiautomator dump failed after retries. Try again in a moment, ' +
+    'or run `ui.mjs anim off` then retry.');
 }
 
 // ── XML parsing (no dependencies — pure regex) ───────────────────────────────
@@ -237,6 +287,14 @@ switch (cmd) {
     console.log('⏳ Dumping UI hierarchy...');
     const xml = dumpUi();
     const nodes = parseNodes(xml);
+    // Screen size/orientation AT DUMP TIME, derived from the widest/tallest node bounds.
+    // KrinikCam's MainActivity is screenOrientation="fullSensor" → it rotates with the physical
+    // device. If you dump now and tap in a SEPARATE call after the device rotated, coordinates go
+    // stale (a portrait tap lands off a landscape screen). Use the atomic `tap <query>` (dumps +
+    // taps in one call) and keep the device still during automated taps. (Bug 07.)
+    const w = Math.max(0, ...nodes.map(n => n.bounds.x2));
+    const h = Math.max(0, ...nodes.map(n => n.bounds.y2));
+    console.log(`📐 screen ${w}x${h} · ${w > h ? 'landscape' : 'portrait'} — coords valid for THIS orientation only`);
     const visible = nodes.filter(n => n.enabled && (n.clickable || n.focusable || n.text || n.desc));
     console.log(`\n📱 ${visible.length} visible/interactive elements on screen:\n`);
     visible.forEach((n, i) => {
@@ -391,6 +449,15 @@ switch (cmd) {
     break;
   }
 
+  case 'anim': {
+    // Toggle device animations. OFF (default) lets uiautomator dump reach idle on animated
+    // screens; ON restores normal animations for the user.
+    const on = rest[0] === 'on'
+    setAnimationScale(on ? 1 : 0)
+    console.log(`✓ device animations ${on ? 'ON' : 'OFF'}`)
+    break
+  }
+
   default: {
     console.log(`
 KrinikCam UI Automation Tool
@@ -405,6 +472,7 @@ Usage:
   node tools/ui.mjs kill [debug|release|both]   — force-stop app(s), free the camera (default: both)
   node tools/ui.mjs start [debug|release]       — launch app (default: debug)
   node tools/ui.mjs restart [debug|release]     — force-stop + relaunch (default: debug)
+  node tools/ui.mjs anim [on|off]               — toggle device animations (off lets dump reach idle)
 
 Examples:
   node tools/ui.mjs dump
