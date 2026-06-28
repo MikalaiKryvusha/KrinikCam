@@ -48,3 +48,6 @@ Icon
 
 ### Generated ###
 README.pdf
+
+# Release APKs (built to root by tools/release.mjs, uploaded as GH asset)
+*.apk
