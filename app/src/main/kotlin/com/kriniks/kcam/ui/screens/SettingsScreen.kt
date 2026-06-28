@@ -13,6 +13,7 @@
 package com.kriniks.kcam.ui.screens
 
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kriniks.kcam.BuildConfig
 import com.kriniks.kcam.core.logging.FileLogger
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
@@ -48,6 +50,13 @@ fun SettingsScreen(
     val profiles by streamViewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by streamViewModel.activeProfile.collectAsStateWithLifecycle()
     var showPlatforms by remember { mutableStateOf(false) }
+    var showProjectInfo by remember { mutableStateOf(false) }
+    var showAuthorInfo by remember { mutableStateOf(false) }
+
+    // Build identity shown as a gray aux line under "KrinikCam" — lets the user (and bug reports)
+    // see exactly which build is running, in every build type. BUILD_TIME is injected at build
+    // time via buildConfigField (see app/build.gradle.kts).
+    val buildInfo = "${BuildConfig.BUILD_TYPE} · v${BuildConfig.VERSION_NAME} · ${BuildConfig.BUILD_TIME}"
 
     Scaffold(
         topBar = {
@@ -110,11 +119,15 @@ fun SettingsScreen(
                     icon = Icons.Default.Info,
                     title = "KrinikCam",
                     subtitle = "Open-source USB webcam streamer · MIT License",
+                    // Second gray aux line — build identity (type · version · build time).
+                    subtitle2 = buildInfo,
+                    onClick = { showProjectInfo = true },
                 )
                 SettingsRow(
                     icon = Icons.Default.Person,
                     title = "Author",
                     subtitle = "Mikalai Kryvusha aka KOT KRINIK",
+                    onClick = { showAuthorInfo = true },
                 )
             }
         }
@@ -131,6 +144,15 @@ fun SettingsScreen(
             onDeleteProfile = { streamViewModel.deleteProfile(it) },
             onStartStream = {},
         )
+    }
+
+    // Tap "KrinikCam" → project info + GitHub link.
+    if (showProjectInfo) {
+        ProjectInfoDialog(buildInfo = buildInfo, onDismiss = { showProjectInfo = false })
+    }
+    // Tap "Author" → author info + clickable social links.
+    if (showAuthorInfo) {
+        AuthorInfoDialog(onDismiss = { showAuthorInfo = false })
     }
 }
 
@@ -159,6 +181,7 @@ private fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
+    subtitle2: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
     Row(
@@ -175,9 +198,96 @@ private fun SettingsRow(
             if (subtitle != null) {
                 Text(subtitle, color = Color(0xFF888888), fontSize = 12.sp)
             }
+            // Optional second gray aux line (e.g. build identity under "KrinikCam").
+            if (subtitle2 != null) {
+                Text(subtitle2, color = Color(0xFF666666), fontSize = 11.sp)
+            }
         }
         if (onClick != null) {
             Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF555555))
         }
+    }
+}
+
+/** Open a URL in the browser / relevant app. */
+private fun openUrl(context: android.content.Context, url: String) {
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+}
+
+/** Project info dialog — opened by tapping the "KrinikCam" row. */
+@Composable
+private fun ProjectInfoDialog(buildInfo: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DarkSurface,
+        title = { Text("KrinikCam", color = Color.White, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Open-source Android app that turns a USB webcam (via OTG) into a live " +
+                        "streaming camera for YouTube, Twitch and more. Built by a streamer, for streamers.",
+                    color = Color(0xFFBBBBBB), fontSize = 13.sp,
+                )
+                Text("MIT License · © 2026 Mikalai Kryvusha", color = Color(0xFF888888), fontSize = 12.sp)
+                Text(buildInfo, color = Color(0xFF666666), fontSize = 11.sp)
+                LinkRow(Icons.Default.Code, "github.com/MikalaiKryvusha/KrinikCam") {
+                    openUrl(context, "https://github.com/MikalaiKryvusha/KrinikCam")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close", color = AcidPink) }
+        },
+    )
+}
+
+/** Author info dialog — opened by tapping the "Author" row. Social links are clickable. */
+@Composable
+private fun AuthorInfoDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DarkSurface,
+        title = { Text("Mikalai Kryvusha", color = Color.White, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("aka KOT KRINIK · Николай Кривуша, Кот Криник", color = Color(0xFF888888), fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                LinkRow(Icons.Default.Code, "GitHub — Mikalai Kryvusha") {
+                    openUrl(context, "https://github.com/MikalaiKryvusha")
+                }
+                LinkRow(Icons.Default.PhotoCamera, "Instagram — @kotkrinik") {
+                    openUrl(context, "https://instagram.com/kotkrinik")
+                }
+                LinkRow(Icons.Default.PlayCircle, "YouTube — @kotkrinik") {
+                    openUrl(context, "https://youtube.com/@kotkrinik")
+                }
+                LinkRow(Icons.Default.Send, "Telegram — @kotkrinik") {
+                    openUrl(context, "https://t.me/kotkrinik")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close", color = AcidPink) }
+        },
+    )
+}
+
+/** A single clickable link row (icon + acid-pink text) used inside the About dialogs. */
+@Composable
+private fun LinkRow(icon: ImageVector, text: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = AcidPink, modifier = Modifier.size(20.dp))
+        Text(text, color = AcidPink, fontSize = 14.sp)
     }
 }
