@@ -88,6 +88,31 @@ function setAnimationScale(v) {
   }
 }
 
+/** Read the current animator_duration_scale (defaults to "1" when unset). */
+function getAnimatorScale() {
+  try {
+    const v = adb('shell', 'settings', 'get', 'global', 'animator_duration_scale').trim();
+    return (!v || v === 'null') ? '1' : v;
+  } catch {
+    return '1';
+  }
+}
+
+// Restore-the-device-as-it-was: when the tool AUTO-disables animations to get a dump, it must put
+// the user's animations back when it's done. We save the original scale before disabling and
+// restore it on process exit (covers success, throw, every command path). Krinik's rule: turn
+// animations off only while working, return them to how they were when finished.
+let _animOriginal = null;       // user's animator scale before we touched it
+let _animAutoDisabled = false;  // did WE auto-disable (vs. an explicit `anim` command)?
+
+process.on('exit', () => {
+  if (_animAutoDisabled && _animOriginal !== null) {
+    for (const key of ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale']) {
+      try { adb('shell', 'settings', 'put', 'global', key, _animOriginal); } catch {}
+    }
+  }
+});
+
 // ── System permission / USB dialog approval ──────────────────────────────────
 // Camera/microphone runtime permission dialogs and the USB "Allow access?" dialog are drawn by
 // OTHER packages (permissioncontroller / systemui), so in-app FAB automation can't reach them.
@@ -183,8 +208,11 @@ function dumpUi(retries = 5) {
     // harmless on a test device. Do it once, then give the running animation time to settle.
     if (!triedAnimFix) {
       triedAnimFix = true;
+      // Remember the user's animation state, then disable so the screen can reach idle. It's
+      // restored automatically on exit (process 'exit' handler) — device returns to how it was.
+      if (!_animAutoDisabled) { _animOriginal = getAnimatorScale(); _animAutoDisabled = true; }
       setAnimationScale(0);
-      console.error('ℹ️  UI dump failed (screen likely animating) — disabled device animations and retrying. Restore with: ui.mjs anim on');
+      console.error('ℹ️  UI dump failed (screen likely animating) — temporarily disabling device animations; will restore on exit.');
       sleep(1500);
     } else {
       sleep(700);
