@@ -8,7 +8,7 @@
 ## Дерево файлов
 
 ```
-KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING/
+KrinikCam/
 │
 ├── 📋 plans/                         ← документация и планы
 │   ├── goal.md                       — исходный vision проекта (read-only)
