@@ -10,7 +10,7 @@ description: Завершить рабочую сессию (пауза) над 
 падает — остановись, сообщи Кринику, не продолжай вслепую.
 
 Все пути относительно корня проекта
-(`/Users/kryvusha/ai_sandbox/KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING`).
+(`/Users/kryvusha/ai_sandbox/KrinikCam`).
 
 ## Шаг 1. Зафиксировать статус и планы в STATUS.md
 

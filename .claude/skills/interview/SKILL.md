@@ -8,7 +8,7 @@ description: Провести интервью с Криником по откр
 Скилл фиксирует решения, которые **нельзя принимать автономно**, в md-документ в `interviews/`
 и ставит работу на паузу до ответа Криника.
 
-Корень проекта: `/Users/kryvusha/ai_sandbox/KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING`
+Корень проекта: `/Users/kryvusha/ai_sandbox/KrinikCam`
 Все интервью живут в `interviews/interview_NNN_<тема>.md`.
 
 ---
