@@ -36,6 +36,24 @@ KrinikCam — Android-приложение (Kotlin, Compose) для Mikalai Kryv
 
 ---
 
+## Названия и идентификаторы (КАНОН — используй эти, не выдумывай)
+
+| Где | Имя |
+|-----|-----|
+| **Имя приложения / бренд** (UI, README, доки, тексты) | **KrinikCam** |
+| **Краткое имя** | KCam |
+| **GitHub репозиторий** | `KrinikCam` → https://github.com/MikalaiKryvusha/KrinikCam |
+| **Android package** | `com.kriniks.kcam` |
+| **Gradle rootProject.name** | `KrinikCam` |
+| **Локальная папка проекта** (НЕ переименовывать) | `KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING` |
+
+> ⚠️ Старое длинное имя `KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING` (слаг репо) **больше не
+> используется** — репозиторий переименован в `KrinikCam` (2026-06-28). В новых текстах/URL пиши
+> только `KrinikCam`. Локальная папка осталась с длинным именем по историческим причинам — это
+> просто путь на диске, его переименование сломало бы scratchpad/скиллы/пути, поэтому НЕ трогаем.
+
+---
+
 ## Текущее состояние
 
 | Фаза | Статус | Что сделано |
