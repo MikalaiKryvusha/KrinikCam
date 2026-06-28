@@ -166,8 +166,8 @@ export JAVA_HOME="..." && node tools/build.mjs --no-ui 2>&1 | grep "^e:"
 | `node tools/ui.mjs allow [--once]` | **сам одобрить** системный диалог разрешений (CAMERA/микрофон/USB) — без Криника |
 | `node tools/ui.mjs kill [debug\|release\|both]` | force-stop сборок; по умолчанию обе → освобождает камеру |
 | `node tools/ui.mjs start\|restart [debug\|release]` | запуск/перезапуск нужной сборки |
-| `node tools/ui.mjs screen [out.jpg]` | скриншот → сжатый JPEG q80 (full-res, лёгкий для анализа ИИ) |
-| `node tools/adb.mjs screen` | скриншот → `tools/adb_screen.jpg` (тоже JPEG q80, через `sharp`) |
+| `node tools/ui.mjs screen [out.jpg]` | скриншот → `tools/screenshots/adb_screen.jpg` (сжатый JPEG q80, full-res; папка gitignored) |
+| `node tools/adb.mjs screen` | скриншот → `tools/screenshots/adb_screen.jpg` (тоже JPEG q80, через `sharp`) |
 | `node tools/adb.mjs tap <x> <y>` | тап по координатам (устарело — используй ui.mjs tap) |
 | `node tools/adb.mjs logcat [tag] [lines]` | дамп logcat с устройства |
 | `node tools/adb.mjs install` | установить debug APK |

@@ -57,4 +57,3 @@ README.pdf
 
 # Transient debug screenshots — whole folder is ignored (tools/adb.mjs & ui.mjs screen write here)
 tools/screenshots/
-tools/adb_screen.*
