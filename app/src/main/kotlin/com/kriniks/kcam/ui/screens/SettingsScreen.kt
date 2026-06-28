@@ -12,8 +12,13 @@
 
 package com.kriniks.kcam.ui.screens
 
+import android.Manifest
+import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -28,7 +33,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kriniks.kcam.BuildConfig
 import com.kriniks.kcam.core.logging.FileLogger
@@ -100,6 +110,10 @@ fun SettingsScreen(
                 }
             }
 
+            // ── Permissions ───────────────────────────────────────────
+            // Re-grant camera/microphone if they were denied in the OS (from Krinik's feedback).
+            PermissionsSection()
+
             // ── Debug / Logging ───────────────────────────────────────
             SettingsSection(title = "Debug") {
                 SettingsRow(
@@ -153,6 +167,78 @@ fun SettingsScreen(
     // Tap "Author" → author info + clickable social links.
     if (showAuthorInfo) {
         AuthorInfoDialog(onDismiss = { showAuthorInfo = false })
+    }
+}
+
+/**
+ * Permissions section — lets the user re-grant CAMERA / microphone if they were
+ * denied in the OS (from Krinik's feedback). Shows a live status line and adapts
+ * the tap action:
+ *   • permission still askable (denied once, not "Don't ask again") → runtime dialog;
+ *   • permission permanently denied, or all already granted → deep-link to the
+ *     system app-settings page (the only way back once permanently denied).
+ *
+ * Note: USB-camera access is a *per-device* grant Android asks on connect — it is
+ * not a runtime permission and can't be re-requested from here.
+ */
+@Composable
+private fun PermissionsSection() {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Re-read permission state whenever the screen resumes (e.g. the user returns
+    // from the system settings page) or right after a runtime request returns.
+    var refreshTick by remember { mutableStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Helper: is a runtime permission currently granted?
+    fun granted(perm: String) =
+        ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+
+    // Recomputed on every refreshTick bump (keyed remember) so the row stays in sync.
+    val cameraGranted = remember(refreshTick) { granted(Manifest.permission.CAMERA) }
+    val micGranted = remember(refreshTick) { granted(Manifest.permission.RECORD_AUDIO) }
+    val allGranted = cameraGranted && micGranted
+
+    // Runtime request launcher — bumps refreshTick so the status updates on answer.
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { refreshTick++ }
+
+    val statusLine = "Camera ${if (cameraGranted) "✓" else "✗"} · Mic ${if (micGranted) "✓" else "✗"}"
+
+    SettingsSection(title = "Permissions") {
+        SettingsRow(
+            icon = if (allGranted) Icons.Default.CheckCircle else Icons.Default.Lock,
+            title = if (allGranted) "Permissions granted" else "Grant permissions",
+            subtitle = if (allGranted) "$statusLine · tap to manage in system settings"
+                       else "$statusLine · tap to grant camera & microphone",
+            onClick = {
+                // Which required runtime permissions are still missing?
+                val missing = buildList {
+                    if (!cameraGranted) add(Manifest.permission.CAMERA)
+                    if (!micGranted) add(Manifest.permission.RECORD_AUDIO)
+                }
+                // "Askable" = the OS will still show the runtime dialog. After
+                // "Don't ask again" shouldShow returns false → dialog never appears,
+                // so the system settings page is the only path back.
+                val askable = activity != null && missing.any {
+                    ActivityCompat.shouldShowRequestPermissionRationale(activity, it)
+                }
+                when {
+                    missing.isEmpty() -> openAppSettings(context) // all granted → manage/revoke
+                    askable -> launcher.launch(missing.toTypedArray())
+                    else -> openAppSettings(context) // permanently denied → settings
+                }
+            },
+        )
     }
 }
 
@@ -213,6 +299,20 @@ private fun SettingsRow(
 private fun openUrl(context: android.content.Context, url: String) {
     runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+}
+
+/**
+ * Deep-link to this app's system settings page, where the user can grant or
+ * revoke permissions even when they were permanently denied in the OS.
+ */
+private fun openAppSettings(context: android.content.Context) {
+    runCatching {
+        val intent = Intent(
+            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", context.packageName, null),
+        )
+        context.startActivity(intent)
     }
 }
 

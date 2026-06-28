@@ -1,3 +1,15 @@
 {
-    "java.configuration.updateBuildConfiguration": "interactive"
+    // Авто-обновление конфигурации сборки при изменении build.gradle.kts
+    "java.configuration.updateBuildConfiguration": "automatic",
+
+    // --- Фикс Bug 06: «Build Error» в статус-баре VS Code ---
+    // Проект требует toolchain Java 17 (jvmToolchain(17) во всех модулях), но
+    // Gradle/Java-расширение по умолчанию запускает Gradle на своей встроенной
+    // Java 21 и не находит JDK 17 → таск compileDebugAndroidTestJavaWithJavac
+    // не конфигурируется. Указываем расширению крутить Gradle на Android Studio
+    // JBR (Java 17.0.6) — тот же JDK, что использует CLI-сборка (tools/build.mjs).
+    "java.import.gradle.java.home": "/Applications/Android Studio.app/Contents/jbr/Contents/Home",
+
+    // JDK для самого языкового сервера (анализ кода). JBR 17 подходит.
+    "java.jdt.ls.java.home": "/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 }
