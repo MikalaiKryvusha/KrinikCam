@@ -36,12 +36,16 @@ import com.kriniks.kcam.core.logging.KLog
 private const val TAG = "UvcPreviewView"
 
 /**
- * TextureView container that notifies [onTextureViewReady] when the surface is available.
- * The GL preview pipeline (RtmpStream) renders into this TextureView.
+ * TextureView container for the GL preview pipeline (RtmpStream).
+ *
+ * [onTextureViewReady] — called when the surface first becomes available (attach GL pipeline).
+ * [onSurfaceTextureSizeChanged] — called on device rotation so the caller can restart the GL
+ * pipeline with the new surface dimensions (portrait ↔ landscape).
  */
 @Composable
 fun UvcPreviewView(
     onTextureViewReady: (TextureView) -> Unit = {},
+    onSurfaceTextureSizeChanged: (TextureView, Int, Int) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier.fillMaxSize(),
 ) {
     AndroidView(
@@ -53,8 +57,11 @@ fun UvcPreviewView(
                         onTextureViewReady(tv)
                     }
 
+                    // Device rotated — TextureView resized. GL pipeline must be restarted
+                    // with new surface dimensions, otherwise render stays portrait-sized in landscape.
                     override fun onSurfaceTextureSizeChanged(s: SurfaceTexture, w: Int, h: Int) {
-                        KLog.d(TAG, "SurfaceTexture size changed: ${w}x${h}")
+                        KLog.d(TAG, "SurfaceTexture size changed: ${w}x${h} — restarting preview")
+                        onSurfaceTextureSizeChanged(tv, w, h)
                     }
 
                     override fun onSurfaceTextureDestroyed(s: SurfaceTexture): Boolean {

@@ -124,10 +124,26 @@ Sensor-driven rotation — GL pipeline handles portrait/landscape natively.
 
 ---
 
+## Additional Bug Found During Fix — Landscape Orientation
+
+When device rotated to landscape, GL render stayed portrait-sized (1600×2560 surface).
+`AspectRatioMode.Adjust` scaled the 1920×1080 feed into that portrait-sized surface,
+then the landscape TextureView (2560×1600) clipped it — result: tiny image top-left.
+
+**Fix:** `UvcPreviewView.onSurfaceTextureSizeChanged` callback added. `MainScreen` calls
+`startPreviewOnView(tv)` on size change (via `rememberUpdatedState` to get fresh camera state).
+This restarts the GL pipeline with the new surface dimensions on each rotation.
+
+`setAutoHandleOrientation(true)` was tried but WRONG for USB webcam — it rotates the video
+output by sensor angle, making the image 90° sideways. USB webcam is physically fixed,
+so no GL rotation is wanted. `AspectRatioMode.Adjust` alone handles letterboxing correctly.
+
+---
+
 ## Test Criteria
 
 - [x] Camera connects → preview appears (**glRunning=true confirmed in logs**)
 - [x] Log shows `GL ready after 0ms` — camera opens immediately, no 3000ms wait
-- [ ] Rotating device → video reorients without black screen
-- [ ] Go Live → no crash (no IllegalStateException)
+- [x] Rotating device → video fills screen correctly in both portrait and landscape ✅
+- [ ] Go Live → no crash (no IllegalStateException) — fix implemented, not yet tested
 - [ ] Go Live → stream connects → LIVE indicator visible
