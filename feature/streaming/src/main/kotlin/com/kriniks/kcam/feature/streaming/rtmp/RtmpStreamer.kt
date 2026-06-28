@@ -25,6 +25,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.view.TextureView
 import com.pedro.common.ConnectChecker
+import java.lang.ref.WeakReference
 import com.pedro.encoder.utils.gl.AspectRatioMode
 import com.pedro.library.rtmp.RtmpStream
 import com.pedro.library.util.sources.video.NoVideoSource
@@ -56,6 +57,8 @@ class RtmpStreamer @Inject constructor(
 
     private var rtmpStream: RtmpStream? = null
     private var currentVideoSource: VideoSource? = null
+    // Weak ref so we don't leak the TextureView; used to restore preview after startStream
+    private var lastPreviewTextureView: WeakReference<TextureView>? = null
 
     // Singleton lives for app lifetime — scope is appropriate here.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -127,10 +130,23 @@ class RtmpStreamer @Inject constructor(
     fun startPreview(tv: TextureView) {
         val stream = ensureStream()
         try {
+            lastPreviewTextureView = WeakReference(tv)
             KLog.d(TAG, "startPreview: tv=${tv.width}x${tv.height} isOnPreview=${stream.isOnPreview} glRunning=${stream.getGlInterface().isRunning}")
             if (stream.isOnPreview) stream.stopPreview()
+            // GL init lambda (start$lambda$5) calls mainRender.initGl(encoderWidth, encoderHeight).
+            // encoderWidth/Height are 0 until prepareVideo() is called, which makes initGl crash.
+            // The crash is swallowed silently by secureSubmit → running.set(true) never fires.
+            // Fix: set non-zero encoder size directly so GL can init before Go Live is pressed.
+            // prepareVideo() will overwrite this with actual profile dimensions on stream start.
+            val glSize = stream.getGlInterface().encoderSize
+            if (glSize.x == 0 || glSize.y == 0) {
+                KLog.d(TAG, "startPreview: encoderSize=0 — setting 1920x1080 default so GL can init")
+                stream.getGlInterface().setEncoderSize(1920, 1080)
+            }
             stream.startPreview(tv)
             stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust)
+            // Sensor-driven rotation so portrait/landscape reorient without manual Matrix hacks
+            stream.getGlInterface().autoHandleOrientation = true
             KLog.d(TAG, "startPreview: done — glRunning=${stream.getGlInterface().isRunning}")
             scheduleVideoSourceRetryIfNeeded(stream)
         } catch (e: Exception) {
@@ -140,13 +156,16 @@ class RtmpStreamer @Inject constructor(
 
     /**
      * Race condition fix: StreamBase.startPreview() calls videoSource.start(getSurfaceTexture())
-     * BEFORE the GL render loop sets running=true. GlStreamInterface.onFrameAvailable() drops
-     * all frames while isRunning=false. Once GL is ready, we re-trigger changeVideoSource() so
-     * the camera reopens with the now-valid SurfaceTexture and frames flow through.
+     * synchronously before the GL render loop sets running=true. Frames are dropped while
+     * isRunning=false. Once GL is ready, re-trigger changeVideoSource() so the camera reopens
+     * with the now-valid SurfaceTexture.
+     *
+     * Read currentVideoSource INSIDE the coroutine (not captured at schedule time) so a
+     * camera reconnect between schedule and retry picks up the fresh source.
      */
     private fun scheduleVideoSourceRetryIfNeeded(stream: RtmpStream) {
-        val src = currentVideoSource ?: return
         if (stream.getGlInterface().isRunning) return  // already up, no retry needed
+        currentVideoSource ?: return  // no source attached at all — nothing to retry
         scope.launch {
             val gl = stream.getGlInterface()
             var waited = 0
@@ -154,6 +173,7 @@ class RtmpStreamer @Inject constructor(
                 delay(50)
                 waited += 50
             }
+            val src = currentVideoSource ?: return@launch  // read at retry time, not schedule time
             if (gl.isRunning) {
                 KLog.d(TAG, "GL ready after ${waited}ms — re-triggering VideoSource")
                 try {
@@ -167,6 +187,39 @@ class RtmpStreamer @Inject constructor(
         }
     }
 
+    /**
+     * After startStream() launches the GL pipeline, wait for GL to be ready and then attach
+     * the TextureView for preview. GL is started by startStream() itself — startPreview() skips
+     * the double-init when gl.isRunning=true and only adds TextureView + opens VideoSource.
+     */
+    private fun schedulePreviewRestoreAfterStream(stream: RtmpStream) {
+        val tv = lastPreviewTextureView?.get() ?: run {
+            KLog.w(TAG, "schedulePreviewRestoreAfterStream: no TextureView — streaming without preview")
+            return
+        }
+        scope.launch {
+            val gl = stream.getGlInterface()
+            var waited = 0
+            while (!gl.isRunning && waited < 3000) {
+                delay(50)
+                waited += 50
+            }
+            if (!gl.isRunning) {
+                KLog.w(TAG, "GL not ready 3000ms after startStream — preview not restored")
+                return@launch
+            }
+            KLog.d(TAG, "GL ready after ${waited}ms — restoring preview TextureView during stream")
+            try {
+                // GL already running from startStream() → startPreview() skips gl.start()
+                stream.startPreview(tv)
+                stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust)
+                stream.getGlInterface().autoHandleOrientation = true
+            } catch (e: Exception) {
+                KLog.e(TAG, "Failed to restore preview during stream", e)
+            }
+        }
+    }
+
     fun stopPreview() {
         rtmpStream?.let { stream ->
             if (stream.isOnPreview) stream.stopPreview()
@@ -175,7 +228,8 @@ class RtmpStreamer @Inject constructor(
 
     /**
      * Start RTMP stream to the given profile.
-     * Prepares video/audio encoders and connects to the RTMP server.
+     * Stops preview first (prepareVideo throws if isOnPreview=true), then prepares encoders,
+     * connects RTMP, and restores the preview TextureView asynchronously once GL is ready.
      */
     fun startStream(profile: StreamProfile): Boolean {
         val stream = rtmpStream ?: run {
@@ -191,6 +245,9 @@ class RtmpStreamer @Inject constructor(
         val rtmpUrl = "${profile.rtmpUrl}/${profile.streamKey}"
         KLog.i(TAG, "Starting RTMP stream → $rtmpUrl")
 
+        // prepareVideo() throws IllegalStateException if preview is running — stop it first
+        if (stream.isOnPreview) stream.stopPreview()
+
         val prepared = stream.prepareVideo(
             profile.videoWidth,
             profile.videoHeight,
@@ -202,16 +259,20 @@ class RtmpStreamer @Inject constructor(
             128_000,
         )
 
-        return if (prepared) {
-            _state.value = StreamState.Connecting
-            stream.startStream(rtmpUrl)
-            true
-        } else {
+        if (!prepared) {
             val msg = "Failed to prepare encoder — check device codec support"
             KLog.e(TAG, msg)
             _state.value = StreamState.Error(msg)
-            false
+            // Restore preview since we stopped it above
+            lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
+            return false
         }
+
+        _state.value = StreamState.Connecting
+        stream.startStream(rtmpUrl)
+        // GL pipeline started by startStream() — restore TextureView preview once GL is ready
+        schedulePreviewRestoreAfterStream(stream)
+        return true
     }
 
     fun stopStream() {

@@ -99,9 +99,8 @@ fun MainScreen(
     }
 
     // Wire USB camera → RtmpStream GL pipeline.
-    // When camera connects → create UvcVideoSource → setVideoSource on stream.
-    // When TextureView is already ready, also kick off startPreview.
-    // When camera disconnects → clear source (closes USB camera cleanly).
+    // Only calls setVideoSource — startPreview is triggered solely from onTextureViewReady.
+    // Having two startPreview callers caused stopPreview() to cancel GL init (RC1 double-trigger bug).
     LaunchedEffect(usbState.activeCamera) {
         val camera = usbState.activeCamera
         if (camera != null) {
@@ -109,7 +108,6 @@ fun MainScreen(
             val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
             val source = UvcVideoSource(camera, previewWidth = w, previewHeight = h)
             streamViewModel.setVideoSource(source)
-            previewTextureView?.let { tv -> streamViewModel.startPreviewOnView(tv) }
         } else {
             streamViewModel.clearVideoSource()
         }
@@ -125,8 +123,7 @@ fun MainScreen(
                     UvcPreviewView(
                         onTextureViewReady = { tv ->
                             previewTextureView = tv
-                            // If camera source is already set, start preview now.
-                            // Otherwise, LaunchedEffect(activeCamera) will start it when ready.
+                            // Sole trigger for startPreview — camera must already be set via setVideoSource.
                             if (usbState.activeCamera != null) {
                                 streamViewModel.startPreviewOnView(tv)
                             }
