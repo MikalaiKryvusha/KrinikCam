@@ -105,9 +105,13 @@
 - 04.3 Поля Width/Height/FPS пустые в ландшафте (вертикальный клиппинг → `verticalScroll`).
 - Все три проверены на устройстве через ui.mjs + скриншоты.
 
+**Релиз v0.3** ✅ ОПУБЛИКОВАН (2026-06-28) — https://github.com/MikalaiKryvusha/KrinikCam/releases/tag/v0.3
+- Latest, с APK `KrinikCam-v0.3.apk`. Включает: standby-кадр, UX-фиксы, Bug 04, Bug 05.
+- version.json теперь {0,3,0}. Следующий релиз: `node tools/release.mjs` даст v0.4 (Phase 3+).
+- Заметка для будущего: `release.mjs` делает `git add -A` — следи, чтобы дерево было чистым перед
+  релизом (иначе подметает мусор; `*.apk` и `.kotlin/` теперь в .gitignore).
+
 **С чего продолжить в следующей сессии:**
-0. 🚀 **Опубликовать релиз v0.3** — Bug 05 разблокировал. Поставить version.json minor=2 →
-   `node tools/release.mjs` (даст тег v0.3, т.к. v0.2 занят). Перед публикацией — живой стрим в release.
 1. ⭐ **Таймаут источника + USB permission** — интервью #004 закрыто, готово к коду.
    План: `interviews/interview_004_source_timeout_and_usb_permission.md` + идея `plans/sourses_timeout.md`.
    Решения: заморозка последнего кадра 5000мс при микро-разрыве USB (вместо мгновенной заглушки);
