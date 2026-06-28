@@ -24,6 +24,7 @@ import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.feature.streaming.domain.StreamingRepository
 import com.kriniks.kcam.feature.streaming.model.StreamState
+import com.kriniks.kcam.feature.streaming.model.isActive
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -37,6 +38,23 @@ class StreamViewModel @Inject constructor(
 ) : ViewModel() {
 
     val streamState: StateFlow<StreamState> = repository.streamState
+
+    /** Current manual video rotation (0/90/180/270) — drives the rotation menu in MainScreen. */
+    val videoRotation: StateFlow<Int> = repository.videoRotation
+
+    /**
+     * Set the manual video rotation. Blocked while streaming (changing resolution mid-RTMP breaks
+     * YouTube — see Idea 06); emits a hint to the user via the snackbar in that case.
+     */
+    fun setVideoRotation(degrees: Int) {
+        val applied = repository.setVideoRotation(degrees)
+        if (!applied && streamState.value.isActive) rotationLockedHint()
+    }
+
+    /** Tell the user why rotation is unavailable (tapped the locked rotation control while live). */
+    fun rotationLockedHint() {
+        viewModelScope.launch { _snackbar.emit("Stop the stream to change rotation") }
+    }
 
     val profiles: StateFlow<List<StreamProfile>> = repository.allProfiles
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

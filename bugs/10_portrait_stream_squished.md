@@ -1,0 +1,214 @@
+# Bug 10 — Портретный (9:16) RTMP-стрим выходит искажённым (сжат/растянут)
+
+> Статус: **🔧 В РАБОТЕ** (открыт 2026-06-29). Модуль: `:feature:streaming` (`RtmpStreamer`).
+> Связано с фичей `plans/ideas/06_video_rotation.md` (Idea 06, поворот видео 16:9 ↔ 9:16).
+> Фиксим по `BUG_FIXING_FRAMEWORK.md`: цикл запуск → воспроизведение → логи → точечный фикс → билд.
+
+---
+
+## Симптом
+
+При выборе поворота 90°/270° и Go Live YouTube ПОЛУЧАЕТ поток, но картинка искажена:
+- иногда **сжата по центру** (контент не повёрнут, вписан в портретный канвас);
+- иногда **повёрнута, но растянута на 16:9** (YouTube думает, что прислали landscape);
+- иногда **портрет, но сжат по вертикали** (и на устройстве в превью, и на YouTube).
+
+Превью на устройстве (через матрицу TextureView) — КОРРЕКТНО во всех 8 комбинациях. Ландшафтный
+стрим (0°) — КОРРЕКТНО, подтверждён живьём (~5 Mbps стабильно). Проблема ТОЛЬКО в кодируемом
+портретном выходе.
+
+## Возможно ли это в принципе? (интернет-ресёрч, 2026-06-29)
+
+**ДА — YouTube полностью поддерживает вертикальный 9:16 live через RTMP при 1080×1920** (и обычный
+Live, и Shorts). OBS / Restream / Meld Studio это делают штатно. Значит баг — на нашей стороне
+(энкодер RootEncoder), а не у YouTube.
+- [YouTube Help — live streaming](https://support.google.com/youtube/answer/2474026)
+- [Meld — horizontal+vertical to YouTube](https://meldstudio.co/blog/live-stream-in-horizontal-and-vertical-on-youtube/)
+- [Restream — portrait mode in Studio](https://support.restream.io/en/articles/8544173-stream-in-portrait-mode-in-studio)
+- RootEncoder issues по теме: #407 (16:9 в портрете), #443 (portrait stretch), #914 (rotate 90°).
+
+## Контекст библиотеки (важно!)
+
+- Источник — USB UVC камера (Emeet) через **кастомный `UvcVideoSource`** (не RtmpCamera). Камера
+  физически повёрнута на 90° → отдаёт 16:9 с «лежачим» контентом; нужен upright 9:16 на выходе.
+- RootEncoder 2.4.7. API поворота: `setCameraOrientation` (вход, оба пути), `setStreamRotation`
+  (только энкодер), `setPreviewRotation` (только превью), `prepareVideo(...rotation)` (6-й параметр).
+- `AspectRatioMode.Adjust` выставлен — но, похоже, применяется к ПРЕВЬЮ, а не к энкодеру на
+  повёрнутом пути (отсюда сжатие).
+
+## Журнал попыток (цикл фиксинга)
+
+| # | Конфиг энкодера | Результат |
+|---|-----------------|-----------|
+| 1 | размер 1080×1920 (ручной swap) + `setStreamRotation(90)` | сжато в центр |
+| 2 | размер 1920×1080 (без swap) + `setStreamRotation(90)` | повёрнуто, но 16:9 → растянуто YouTube |
+| 3 | размер 1080×1920 (swap) + `setCameraOrientation(90)` в эфире | портрет, сжат по вертикали |
+| 4 | **`prepareVideo(1920,1080, …, rotation=90)`** (штатный 6-й параметр), без ручного swap; в эфире для 90/270 НЕ трогаем setCameraOrientation; для 0° Bug 02 A override | **Канвас стал портретным 9:16 ✓ (прогресс!)**, но контент повёрнут на 90° против часовой и растянут. Скрин: `tools/screenshots/yt_bug10_attempt4_prepareVideo90_rotated_ccw_stretched.jpg`. На устройстве превью то же (вертикаль стала горизонталью + сжатие). → `prepareVideo(rotation=)` ВЫСТАВЛЯЕТ портретный выход правильно, но крутит контент не в ту сторону |
+| 5 | как №4, но направление инвертировано: `prepareRot = (360 - uiRot) % 360` (UI 90° → prepareVideo 270) | ❌ Повёрнуто на 180° от попытки №4 (т.е. в другую сторону) и **ТАК ЖЕ сжато**. Скрин устройства: `tools/screenshots/dev_attempt5_rot270.jpg` (агент ошибочно счёл ровным; Криник: сжато). |
+
+**ГЛАВНЫЙ ВЫВОД (после 5 попыток):** СЖАТИЕ присутствует при ЛЮБОМ направлении поворота
+(90/270/setCameraOrientation/setStreamRotation). Значит искажение аспекта НЕ связано с направлением
+— **энкодер force-fit'ит источник 16:9 в канвас 9:16 без сохранения пропорций.** `AspectRatioMode.Adjust`,
+видимо, применяется только к ПРЕВЬЮ, а не к рендеру ЭНКОДЕРА на повёрнутом пути. Направление —
+вторичный параметр; сначала нужно победить сжатие.
+
+**МЕТОД ПРОВЕРКИ (рабочий):** превью на устройстве ВО ВРЕМЯ стрима = кодируемый кадр (матрица в
+эфире отключена). Можно проверять энкодер скриншотом устройства, без лагающего YouTube. (Но агент
+должен ВНИМАТЕЛЬНО смотреть на пропорции — легко принять заполненный портрет за корректный, когда он
+растянут.)
+
+---
+
+# БАЗА ЗНАНИЙ — сырые данные гуглёжа (2026-06-29)
+
+## A. AspectRatioMode — что реально делает (discussion #1546, ответ мейнтейнера pedroSG94)
+
+Дословно (перевод сохраняет смысл):
+- **Adjust** = «Adapt image to full size of the preview view. If the preview have a different aspect
+  ratio then the preview is filled with black gutters to avoid distortion.» = Android `centerInside`
+  (леттербокс чёрными полями, без искажения).
+- **Fill** = «...image cropped to avoid distortion.» = `centerCrop` (кроп, без искажения).
+- **None** = «Fill the image with the preview, doing distortion if necessary.» = `fitXY` (растягивает
+  с искажением).
+- ⚠️ Мейнтейнер: aspect-ratio корректировки применяются ТОЛЬКО когда view — это `OpenGlView`. Если
+  передать обычный `SurfaceView` / кастомную поверхность, библиотека НЕ применяет aspect-настройки.
+- ⚠️ В discussion НЕТ гайда по портрету/9:16, setEncoderSize, rotation — только определения режимов.
+- Источник: https://github.com/pedroSG94/RootEncoder/discussions/1546
+
+## B. OpenGL-пайплайн: encoder и preview РАЗДЕЛЬНЫ (DeepWiki RootEncoder, 3.4 OpenGL Rendering Pipeline)
+
+Дословные сигнатуры рендера (ключевое!):
+- Encoder: `mainRender.drawScreenEncoder(encoderWidth, encoderHeight, isPortrait, streamOrientation,
+  isStreamVerticalFlip, isStreamHorizontalFlip, streamViewPort)` → вьюпорт считает
+  `SizeCalculator.calculateViewPortEncoder()`.
+- Preview: `mainRender.drawScreenPreview(previewWidth, previewHeight, isPortraitPreview,
+  **aspectRatioMode**, previewOrientation, ...)`.
+- **🔑 У encoder-отрисовки в сигнатуре НЕТ `aspectRatioMode` — он есть ТОЛЬКО у preview!** То есть
+  `setAspectRatioMode(Adjust)` влияет на ПРЕВЬЮ, а энкодер считает вьюпорт иначе. Это объясняет, почему
+  превью у нас леттербоксится корректно (через матрицу + Adjust), а ЭНКОДЕР сжимает.
+- Поворот раздельный: encoder → `streamOrientation` (`setStreamRotation`); preview →
+  `previewOrientation` (`setPreviewRotation`); вход камеры → `CameraRender` («applies rotation and
+  flip transformations to the input») управляется `setCameraOrientation`.
+- `setEncoderSize(w,h)` — разрешение стрима; `setEncoderRecordSize` — для записи (другое разрешение).
+- VideoSource-кадр идёт через `CameraRender` (OES→GL_TEXTURE_2D), потом `ScreenRender` применяет
+  трансформации под целевую поверхность.
+- «Each surface independently calculates viewports based on its dimensions and aspect mode — no
+  shared calculations between preview and encoder.»
+- Источник: https://deepwiki.com/pedroSG94/RootEncoder/3.4-opengl-rendering-pipeline
+
+## C. Похожие нерешённые тикеты (симптом тот же)
+
+- #443 «Streaming in portrait mode is stretch» — юзер с `OpenGlView` + `keepAspectRatio="true"` всё
+  равно получает растянутый портрет. Moto E6 Play, v1.7.0. Ответа мейнтейнера в выдаче нет.
+- #1667 «How to start a 16:9 ratio stream» — `setTargetAspectRatio()` в CameraXSource не меняет 4:3→16:9.
+- #313 «The image is stretch when try to set ratio 16:9».
+- #180 «How to manage dynamic stream preview aspect ratio in opengl view» — превью камеры меняется, а
+  стрим-превью не отражает смену ориентации.
+- Вики «Real time filters»: фильтры через `getGlInterface().setFilter(...)` (напр. `RotationFilterRender`
+  — но в issue отмечали, что он НЕ сохраняет аспект).
+- README подтверждает: библиотека поддерживает stream orientation (vertical/horizontal) из коробки —
+  значит корректный путь существует, мы его не нашли.
+
+## D. Подтверждение по YouTube (ранее): вертикальный 9:16 RTMP YouTube поддерживает штатно (1080×1920),
+   OBS/Restream/Meld так делают. Баг — на нашей стороне (энкодер).
+
+---
+
+# АНАЛИЗ КОДА — где может теряться ориентация/аспект (без фикса, только разбор)
+
+## Цепочка кадра (наша архитектура)
+
+```
+USB-камера (AUSBC, 1920×1080 landscape)
+  → UvcVideoSource.start(surfaceTexture)         [:app/streaming/UvcVideoSource.kt]
+     openCamera(surfaceTexture, previewW=1920, previewH=1080)   ← всегда 1920×1080!
+  → GL input SurfaceTexture (RootEncoder)
+  → CameraRender (поворот/флип входа ← setCameraOrientation)
+  → drawScreenEncoder(encoderW, encoderH, isPortrait, streamOrientation)  → MediaCodec → RTMP
+  → drawScreenPreview(previewW, previewH, aspectRatioMode, previewOrientation) → TextureView (превью)
+```
+
+## 🔑 Главное подозрение: `UvcVideoSource` ИГНОРИРУЕТ параметры от RootEncoder
+
+`UvcVideoSource.create(width, height, fps, rotation): Boolean = true` — мы **игнорируем** width/height/
+rotation, которые RootEncoder передаёт (это размер/поворот ЭНКОДЕРА). А в `start()` камера всегда
+открывается на **1920×1080 landscape** (`previewWidth/Height`), независимо от того, портретный энкодер
+или нет.
+
+Следствия (гипотезы для проверки в focused-сессии):
+1. Когда энкодер портретный (1080×1920), RootEncoder зовёт `create(1080,1920,…)`, но источник всё
+   равно даёт 1920×1080 → GL обязан вписать 16:9-текстуру в 9:16-канвас. А `calculateViewPortEncoder`
+   (без aspectRatioMode) при этом, видимо, делает `fitXY` (растягивает) → сжатие/растяжение.
+2. `SurfaceTexture.setDefaultBufferSize` — RootEncoder обычно ставит его по размерам из `create()`
+   ДО `start()`. Но AUSBC внутри `openCamera` может переопределить буфер под свой preview size
+   (1920×1080). Рассинхрон размера буфера источника и канваса энкодера = масштабирование.
+3. `previewWidth/previewHeight` захардкожены 1920×1080. Для портрета источник стоило бы открывать
+   так, чтобы его кадр геометрически ложился в 9:16 (поворот в самом источнике/буфере), а не
+   полагаться на encoder-вьюпорт, который аспект не держит.
+
+## Наши попытки в терминах API (свёл воедино)
+
+| Что крутили | Куда это идёт по DeepWiki | Почему не помогло |
+|-------------|----------------------------|--------------------|
+| `setCameraOrientation(deg)` | поворот ВХОДА (CameraRender) | вход повёрнут, но encoder-вьюпорт всё равно fitXY-вписывает в канвас |
+| `setStreamRotation(deg)` | `streamOrientation` энкодера | поворачивает выход, но размеры/аспект не сохраняет |
+| ручной swap размеров энкодера | `encoderWidth/Height` | канвас портрет, но источник 16:9 вписан fitXY → сжатие |
+| `prepareVideo(rotation=)` | начальные stream-rotation + размеры | канвас портрет ✓, но контент крутится не туда + сжат (аспект не держится) |
+| `AspectRatioMode.Adjust` | ТОЛЬКО preview (drawScreenPreview) | на энкодер НЕ влияет (нет параметра в drawScreenEncoder) |
+
+**Вывод-гипотеза:** корень не в выборе одного метода, а в том, что (а) `calculateViewPortEncoder` не
+сохраняет аспект как Adjust (нет такого параметра), и (б) наш `UvcVideoSource` отдаёт фиксированный
+16:9-кадр, не адаптируясь к портретному запросу энкодера. Нужно либо заставить источник давать кадр
+правильной геометрии (поворот/буфер под 9:16), либо найти в RootEncoder способ заставить ИМЕННО
+энкодер сохранять аспект (возможно `setEncoderSize` + правильный `streamOrientation` + флаг isPortrait,
+либо фильтр-рендер с сохранением аспекта).
+
+---
+
+# СЛЕДУЮЩИЕ ШАГИ (focused-сессия, с кодом)
+
+1. **Декомпилировать RootEncoder 2.4.7** (`scratchpad/classes.jar`): `SizeCalculator.calculateViewPortEncoder`,
+   `MainRender.drawScreenEncoder`, `GlStreamInterface` — понять, КАК энкодер считает вьюпорт и есть ли
+   способ заставить его держать аспект (центр-инсайд) при портретном канвасе.
+2. **Проверить/исправить `UvcVideoSource.create()`** — уважать переданные width/height/rotation;
+   возможно выставлять `surfaceTexture.setDefaultBufferSize()` и/или открывать камеру под нужную
+   геометрию.
+3. Рассмотреть `RotationFilterRender` / собственный фильтр-рендер, который геометрически повернёт
+   16:9→9:16 с сохранением аспекта (но учесть жалобы #443 что аспект не держится — проверить).
+4. **Уточнить у Криника желаемое поведение** для 16:9-сенсора в портрете: (а) геометрический поворот
+   физически повёрнутой камеры (полный кадр, может быть боковая обрезка), или (б) center-crop 9:16 из
+   ландшафта (без физического поворота). От этого зависит подход.
+5. Тестировать энкодер по **скриншоту устройства во время стрима** (матрица в эфире = 0), ВНИМАТЕЛЬНО
+   сверяя форму предметов (круглая кружка → не овал) — НЕ доверять «на глаз заполнено».
+
+**Ключевой инсайт:** при ручном swap+rotation источник сначала ВПИСЫВАЕТСЯ в портретный канвас
+(сжимается), потом поворачивается → вертикальное сжатие. Нужно, чтобы поворот был истинно
+геометрическим (повернуть → потом fit с сохранением пропорций). Поэтому пробуем штатный
+`prepareVideo(rotation=)`, который должен делать это правильно сам.
+
+## Осложняющий фактор тестирования
+
+YouTube Studio **медленно авто-детектит разрешение** и «гуляет» между видами на одном и том же
+потоке → визуальная оценка ненадёжна. Криник перезапускает Creator Studio перед каждым тестом
+(делаем паузы). На будущее: тестировать истинный выход энкодера локально (запись в файл / ffprobe
+RTMP), а не по лагающему Studio-монитору.
+
+## Архитектура поворота (как разведено превью и стрим)
+
+- **Превью** — display-only матрица на TextureView (`UvcPreviewView.applyPreviewRotation`), GL ровный.
+- **Стрим** — поворот в энкодере (попытка 4: через `prepareVideo(rotation=)`).
+- В эфире матрица превью отключается (`rotationDegrees=0`), т.к. GL-сцена уже повёрнута.
+
+## Критерий приёмки
+
+Go Live при 90° → на YouTube/ТВ **вертикаль 9:16, контент повёрнут, заполняет кадр, без сжатия и
+растяжения**. Битрейт стабилен, поток не рвётся.
+
+## Зацепки, если попытка 4 не сработает
+
+1. prepareVideo(rotation=) для USB может иметь offset (Bug 02 A: prepareVideo внутри ставит
+   setCameraOrientation по логике телефонного сенсора). Подобрать коррекцию под rotation=90.
+2. Изучить ИСХОДНИКИ RootEncoder (`GlStreamInterface`, `StreamBase.prepareVideo`,
+   `RotationFilterRender`) — AAR распакован: `scratchpad/classes.jar` (javap).
+3. Возможно нужен `RotationFilterRender` или ручная установка `setEncoderSize` + правильный
+   AspectRatioMode для энкодера.

@@ -33,8 +33,6 @@ data class UsbUiState(
     val activeCamera: MultiCameraClient.Camera? = null,
     val activeCameraWidth: Int = 0,
     val activeCameraHeight: Int = 0,
-    /** Manual rotation offset in 90° steps; 0 = auto-correct only. */
-    val previewRotationOffset: Int = 0,
 )
 
 @HiltViewModel
@@ -56,13 +54,6 @@ class UsbViewModel @Inject constructor(
     fun restartMonitoring() {
         repository.stopMonitoring()
         repository.startMonitoring()
-    }
-
-    /** Cycle rotation by +90° for the manual hot button. */
-    fun rotatePreview() {
-        _uiState.value = _uiState.value.copy(
-            previewRotationOffset = _uiState.value.previewRotationOffset + 1,
-        )
     }
 
     private fun observeEvents() {

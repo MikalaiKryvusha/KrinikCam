@@ -21,6 +21,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -86,6 +88,9 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // Bug 08: in landscape the sections overflow the viewport — make the whole
+                // settings list scrollable so every row stays reachable in any orientation.
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -144,6 +149,9 @@ fun SettingsScreen(
                     onClick = { showAuthorInfo = true },
                 )
             }
+
+            // Bottom breathing room so the last row clears the screen edge when scrolled.
+            Spacer(Modifier.height(16.dp))
         }
     }
 

@@ -32,6 +32,12 @@ class StreamingRepository @Inject constructor(
     val allProfiles: Flow<List<StreamProfile>> = profilesRepository.observeAllProfiles()
     val enabledProfiles: Flow<List<StreamProfile>> = profilesRepository.observeEnabledProfiles()
 
+    /** Current manual video rotation in degrees (0/90/180/270) — for the rotation menu UI. */
+    val videoRotation: StateFlow<Int> = rtmpStreamer.videoRotation
+
+    /** Set the manual video rotation (preview + stream aspect). No-op while streaming. */
+    fun setVideoRotation(degrees: Int): Boolean = rtmpStreamer.setVideoRotation(degrees)
+
     /**
      * Set the video source (e.g. UvcVideoSource wrapping the USB camera).
      * Called from :app whenever the active USB camera changes.

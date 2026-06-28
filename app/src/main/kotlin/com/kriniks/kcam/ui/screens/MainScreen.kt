@@ -29,8 +29,6 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,9 +50,9 @@ import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import com.kriniks.kcam.feature.usb.ui.UvcPreviewView
 import com.kriniks.kcam.streaming.UvcVideoSource
 import com.kriniks.kcam.ui.overlay.FloatingRadialMenu
+import com.kriniks.kcam.ui.overlay.RotationMenu
 import com.kriniks.kcam.ui.overlay.StandbyPlaceholder
 
-private val AcidPink = Color(0xFFFF1A8C)
 private val LiveRed = Color(0xFFFF1A1A)
 
 @Composable
@@ -69,6 +67,7 @@ fun MainScreen(
     val profiles by streamViewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by streamViewModel.activeProfile.collectAsStateWithLifecycle()
     val activeSource by deviceManager.activeVideoSource.collectAsStateWithLifecycle()
+    val videoRotation by streamViewModel.videoRotation.collectAsStateWithLifecycle()
 
     var showPlatformsOverlay by remember { mutableStateOf(false) }
 
@@ -163,6 +162,10 @@ fun MainScreen(
                         // backgrounding). Prevents GL_OUT_OF_MEMORY crash from drawing to a dead
                         // surface. Safe during streaming: stopPreview() is a no-op when isOnPreview=false.
                         onSurfaceDestroyed = { streamViewModel.stopPreview() },
+                        // Display-only preview rotation (Idea 06) — letterboxed via TextureView matrix.
+                        // While streaming the GL scene itself is rotated (for the portrait encoder),
+                        // so the matrix must be identity (0) to avoid double-rotating the preview.
+                        rotationDegrees = if (streamState.isActive) 0 else videoRotation,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -183,20 +186,17 @@ fun MainScreen(
             }
         }
 
-        // ── Layer 1: Rotation hot button (top-right, camera active only) ────
-        AnimatedVisibility(
-            visible = usbState.activeCamera != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
-        ) {
-            SmallFloatingActionButton(
-                onClick = { usbViewModel.rotatePreview() },
-                containerColor = AcidPink.copy(alpha = 0.85f),
-                contentColor = Color.White,
-            ) {
-                Icon(Icons.Filled.ScreenRotation, contentDescription = "Rotate preview")
-            }
+        // ── Layer 1: Rotation menu (top-right, camera active only) ──────────
+        // Tap → pick angle (0/90/180/270). 90/270 = portrait 9:16 stream (Idea 06). Locked while
+        // streaming (changing resolution mid-RTMP breaks YouTube) — tap then shows a hint.
+        if (usbState.activeCamera != null) {
+            RotationMenu(
+                currentRotation = videoRotation,
+                enabled = !streamState.isActive,
+                onSelectRotation = { streamViewModel.setVideoRotation(it) },
+                onLockedTap = { streamViewModel.rotationLockedHint() },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // ── Layer 2: Live indicator (top-left) ───────────────────────
