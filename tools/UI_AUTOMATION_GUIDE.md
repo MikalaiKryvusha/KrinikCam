@@ -220,7 +220,7 @@ node tools/ui.mjs restart release # force-stop + запуск
 Полное разрешение, качество 80, через библиотеку `sharp` — лёгкий файл для анализа ИИ
 (2.9 МБ PNG → ~0.4 МБ JPEG). `adb.mjs screen` теперь тоже отдаёт JPEG.
 ```bash
-node tools/ui.mjs screen                 # → tools/adb_screen.jpg
+node tools/ui.mjs screen                 # → tools/screenshots/adb_screen.jpg (папка gitignored)
 node tools/ui.mjs screen tools/x.jpg
 ```
 

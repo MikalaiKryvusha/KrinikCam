@@ -31,9 +31,9 @@
  */
 
 import { execSync, execFileSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, statSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, statSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
-import { join, isAbsolute } from 'path';
+import { join, isAbsolute, dirname } from 'path';
 
 // JPEG quality for screenshots — full resolution kept, just compressed so the image is light
 // for AI analysis (Krinik: don't downscale, compress to 80%).
@@ -256,8 +256,11 @@ switch (cmd) {
   case 'screen': {
     // Capture a screenshot as a COMPRESSED JPEG (full resolution kept, quality 80) so the image
     // is light for AI vision analysis. Uses the `sharp` library (no native CLI dependency).
-    const outArg = rest[0] || 'tools/adb_screen.jpg';
+    // Default into tools/screenshots/ — a gitignored folder, so transient screenshots never
+    // need manual cleanup (see .gitignore).
+    const outArg = rest[0] || 'tools/screenshots/adb_screen.jpg';
     const out = isAbsolute(outArg) ? outArg : join(process.cwd(), outArg);
+    mkdirSync(dirname(out), { recursive: true });
     const deviceFlag = ADB_DEVICE ? ['-s', ADB_DEVICE] : [];
     // Raw PNG bytes from the device — binary, so bypass the utf8 adb() helper.
     const png = execFileSync('adb', [...deviceFlag, 'exec-out', 'screencap', '-p'],

@@ -27,7 +27,8 @@ const ROOT = resolve(__dirname, '..')
 const APP_ID = 'com.kriniks.kcam.debug'
 const MAIN_ACTIVITY = `${APP_ID}/com.kriniks.kcam.MainActivity`
 const DEFAULT_APK = resolve(ROOT, 'app/build/outputs/apk/debug/app-debug.apk')
-const SCREEN_OUT = resolve(ROOT, 'tools/adb_screen.jpg')
+// Gitignored folder for transient screenshots — no manual cleanup needed (see .gitignore).
+const SCREEN_OUT = resolve(ROOT, 'tools/screenshots/adb_screen.jpg')
 // Screenshots are compressed to JPEG at this quality (full resolution kept) so the image is
 // light for AI vision analysis. Compression via the `sharp` library (see tools/package.json).
 const SCREENSHOT_JPEG_QUALITY = 80
