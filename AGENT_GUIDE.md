@@ -45,12 +45,12 @@ KrinikCam — Android-приложение (Kotlin, Compose) для Mikalai Kryv
 | **GitHub репозиторий** | `KrinikCam` → https://github.com/MikalaiKryvusha/KrinikCam |
 | **Android package** | `com.kriniks.kcam` |
 | **Gradle rootProject.name** | `KrinikCam` |
-| **Локальная папка проекта** (НЕ переименовывать) | `KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING` |
+| **Локальная папка проекта** | `KrinikCam` → `/Users/kryvusha/ai_sandbox/KrinikCam` |
 
-> ⚠️ Старое длинное имя `KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING` (слаг репо) **больше не
-> используется** — репозиторий переименован в `KrinikCam` (2026-06-28). В новых текстах/URL пиши
-> только `KrinikCam`. Локальная папка осталась с длинным именем по историческим причинам — это
-> просто путь на диске, его переименование сломало бы scratchpad/скиллы/пути, поэтому НЕ трогаем.
+> ⚠️ Старое длинное имя `KRINIK-S-ANDROID-USB-WEB-CAMERA-FOR-STREAMING` (слаг репо) и
+> `KRINIKS_ANDROID_USB_WEB_CAMERA_FOR_STREAMING` (старое имя папки) **больше не используются** —
+> и репозиторий, и локальная папка переименованы в `KrinikCam` (2026-06-28). В новых текстах/URL/путях
+> пиши только `KrinikCam`. Если встретишь старое имя в исторических доках — можно заменить на `KrinikCam`.
 
 ---
 
