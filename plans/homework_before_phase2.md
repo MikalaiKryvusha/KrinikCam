@@ -2,7 +2,7 @@
 
 > Выполни это до следующей сессии с AI.
 > Всё что находишь — описывай прямо здесь, ниже каждого пункта.
-> Скриншоты кидай в `plans/screenshots/` или прямо в чат следующей сессии.
+> Скриншоты кидай в `tools/screenshots/` или прямо в чат следующей сессии.
 
 ---
 
@@ -17,7 +17,7 @@
 - [ ] Соотношение сторон корректное (не вытянуто / не обрезано)?
 - [ ] Ориентация правильная при повороте телефона?
 
-**Сделай скриншот** в хорошем освещении — сохрани как `plans/screenshots/preview_quality.png`.
+**Сделай скриншот** в хорошем освещении — сохрани как `tools/screenshots/preview_quality.png`.
 
 **Твои наблюдения:**
 > Картинка чёткая, хорошее качество.
@@ -142,6 +142,6 @@
 
 **Самый важный баг / фича для Phase 2:**
 > Креш при попытке начать стрим. Я создал два профиля, один из них со 100% рабочими ключами "You Tube" - должно было начать стрим на мой ютуб канал, но не сработало, крешится.
-> Скриншоты в портретной и в пейзажной ориентации закинул в /Users/kryvusha/ai_sandbox/KrinikCam/plans/screenshots, это я, привет тебе от меня! 
-/Users/kryvusha/ai_sandbox/KrinikCam/plans/screenshots/Screenshot_20260627-144831.png
-/Users/kryvusha/ai_sandbox/KrinikCam/plans/screenshots/Screenshot_20260627-144839.png
+> Скриншоты в портретной и в пейзажной ориентации закинул в /Users/kryvusha/ai_sandbox/KrinikCam/tools/screenshots, это я, привет тебе от меня! 
+/Users/kryvusha/ai_sandbox/KrinikCam/tools/screenshots/Screenshot_20260627-144831.png
+/Users/kryvusha/ai_sandbox/KrinikCam/tools/screenshots/Screenshot_20260627-144839.png
