@@ -91,7 +91,23 @@
   отключение/подключение USB-камеры (нужны руки Криника + валидный stream key).
 - ⚠️ Главный риск: `lockCanvas` на GL-привязанной SurfaceTexture — подтвердить на железе.
 
+**Bug 05 — Краш release-сборки при старте камеры** ✅ ЗАКРЫТ (2026-06-28) — `bugs/05_release_0.3_build_crash.md`
+- Root cause: R8 (`minifyEnabled`+`shrinkResources`) переименовал/вырезал JNI-классы/методы
+  (`com.serenegiant.usb.UVCCamera.nativeSetStatusCallback`, `IStatusCallback`) → `NoSuchMethodError`
+  при `System.loadLibrary` нативной UVC-либы. Только release (debug не минифицируется).
+- Фикс: keep-правила в `app/proguard-rules.pro` для `com.serenegiant.**` / `com.jiangdg.**` /
+  `com.pedro.**` + `-keepclasseswithmembernames ... native <methods>`.
+- Подтверждено на устройстве: release-превью ✅ + RTMP-стрим ~5 Mbps ✅, без крашей.
+
+**Bug 04 — Модалка платформ: 3 дефекта** ✅ ЗАКРЫТ (2026-06-28) — `bugs/04_platforms_modal.md`
+- 04.1 Name автоподстановка после 1-й смены платформы (сравнивал с `initial`, не со всем списком).
+- 04.2 Тап мимо dropdown закрывал всю форму (`dismissOnClickOutside=false`).
+- 04.3 Поля Width/Height/FPS пустые в ландшафте (вертикальный клиппинг → `verticalScroll`).
+- Все три проверены на устройстве через ui.mjs + скриншоты.
+
 **С чего продолжить в следующей сессии:**
+0. 🚀 **Опубликовать релиз v0.3** — Bug 05 разблокировал. Поставить version.json minor=2 →
+   `node tools/release.mjs` (даст тег v0.3, т.к. v0.2 занят). Перед публикацией — живой стрим в release.
 1. ⭐ **Таймаут источника + USB permission** — интервью #004 закрыто, готово к коду.
    План: `interviews/interview_004_source_timeout_and_usb_permission.md` + идея `plans/sourses_timeout.md`.
    Решения: заморозка последнего кадра 5000мс при микро-разрыве USB (вместо мгновенной заглушки);

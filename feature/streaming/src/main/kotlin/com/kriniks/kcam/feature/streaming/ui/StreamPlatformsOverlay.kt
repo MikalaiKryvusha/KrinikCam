@@ -16,6 +16,8 @@ package com.kriniks.kcam.feature.streaming.ui
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +35,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import com.kriniks.kcam.data.profiles.model.StreamPlatform
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 
@@ -209,20 +212,39 @@ private fun ProfileEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        // Bug 04.2: don't dismiss the whole form on an outside tap. When the platform dropdown
+        // is open, tapping outside it used to bubble to the dialog scrim and close the entire
+        // form. Disabling click-outside dismiss means the outside tap only closes the dropdown
+        // (its own popup), and the form is closed deliberately via Cancel/Save (back press still
+        // works). Bonus: prevents accidental loss of a half-filled form.
+        properties = DialogProperties(dismissOnClickOutside = false),
         containerColor = DarkSurface,
         title = {
             Text(if (initial.id == 0L) "New platform" else "Edit ${initial.name}",
                 color = Color.White, fontWeight = FontWeight.Bold)
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Bug 04.3: the Width/Height/FPS row rendered as empty boxes (no label, no value)
+            // in landscape — the dialog caps its height, the tall field stack overflowed, and the
+            // bottom row got compressed to ~0 height so its OutlinedTextField labels/values clipped
+            // away. verticalScroll lets every field keep its natural height; the user scrolls to
+            // reach the resolution/FPS fields instead of them being squashed into invisibility.
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 // Platform picker
                 PlatformDropdown(selected = platform, onSelect = { p ->
                     platform = p
                     rtmpUrl = p.defaultRtmpUrl
-                    if (name == initial.name || name == initial.platform.displayName) {
-                        name = p.displayName
-                    }
+                    // Auto-fill Name from the chosen platform ONLY while Name still holds a
+                    // default value — i.e. it's blank or equals SOME platform's display name
+                    // (Bug 04.1). Checking against the full platform list (not just `initial`)
+                    // is what makes auto-fill keep working after the 2nd, 3rd… change. If the
+                    // user typed a custom name, it won't match any default → we leave it intact.
+                    val isDefaultName = name.isBlank() ||
+                        StreamPlatform.entries.any { it.displayName == name }
+                    if (isDefaultName) name = p.displayName
                 })
 
                 KcamTextField("Name", name) { name = it }
