@@ -54,13 +54,32 @@
 
 ## Текущая позиция
 
-**Phase 2 в работе. ПРЕВЬЮ РАБОТАЕТ ✅. Go Live — краш исправлен, не протестирован.**
+**Phase 2 MVP РАБОТАЕТ ✅ — Go Live стримит в YouTube корректно (подтверждено Криником 2026-06-28).**
+
+Превью ✅ · RTMP-стрим ✅ (~5 Mbps стабильно) · ориентация ✅ · превью после стрима ✅ · без крашей ✅
+
+### Закрытые баги (Phase 2)
+
+**Bug 01 — Чёрный экран** ✅ ЗАКРЫТ — полный post-mortem в `bugs/01_black_screen_gl_pipeline.md`
+- Root cause: `encoderSize=0` в `GlStreamInterface` до вызова `prepareVideo()` → `initGl(0,0)` крашится → `secureSubmit()` глотает исключение → `isRunning` навсегда `false`
+- Фиксы: `setEncoderSize(1920,1080)` до `startPreview`; устранение двойного триггера; retry VideoSource после GL готов
+
+**Bug 03 — Ориентация** ✅ ЗАКРЫТ — полный post-mortem в `bugs/03_landscape_preview_corner.md`
+- Root cause: GL render surface не пересоздавался при ротации; `autoHandleOrientation=true` добавлял лишний поворот
+- Фиксы: `onSurfaceTextureSizeChanged` → перезапуск `startPreview(tv)`; `AspectRatioMode.Adjust` для letterbox
+
+**Bug 02 — Go Live / RTMP** ✅ ЗАКРЫТ — полный post-mortem в `bugs/02_streaming_bugs_go_live.md`
+- Root cause: `prepareVideo` — перепутан порядок (fps↔bitrate) → энкодер с 30 бит/с → только звук
+- Фиксы: правильный порядок args; `setCameraOrientation(0)`; `onSurfaceDestroyed → stopPreview()`
 
 **С чего продолжить в следующей сессии:**
-1. Протестировать "Go Live": нажать кнопку, убедиться что нет `IllegalStateException`
-2. Проверить что RTMP стрим подключается (LIVE индикатор в верхнем левом)
-3. Проверить стрим в YouTube Studio — входящий поток виден?
-4. После успешного стрима — закрыть Phase 2 MVP
+1. Phase 2 P2: "Please stand by" кадр в RTMP-поток при отключении камеры (GL-фильтр, `sendStandbyFrame`)
+2. Графика: app icon (`ic_launcher.svg` → mipmap-*), standby bitmap, notification icon
+3. Мелкие улучшения UX из фидбэка Криника:
+   - FAB закрытие тапом снаружи
+   - USB permission "запомнить" (`PendingIntent` с флагом)
+   - Dropdown платформ — контраст цветов
+   - Задержка перед standby (5 сек буфер + fade)
 
 Графика приложения ещё не создана:
 - [ ] App icon (`ic_launcher.svg` → mipmap-*)
@@ -109,19 +128,13 @@
 
 ---
 
-## Что делать дальше
+## Backlog Phase 2
 
-### Следующая сессия — приоритеты
-1. **Провести интервью Phase 2** → `interviews/interview_003_phase2.md`
-2. **Архитектура RTMP для USB** — перейти на `GenericStream` или frame push подход (БАГ 1)
-
-### Phase 2 (не начато)
-- **RTMP от USB камеры**: `GenericStream` + захват кадров из `SurfaceTexture`
-- Одновременный стрим на несколько платформ
-- Camera2 fallback (телефонная камера как источник)
-- "Please stand by" frame в RTMP поток
-- USB permission: флаг "запомнить" устройство
-- Улучшение UI (см. баги выше)
+- **"Please stand by" кадр** — GL-фильтр при отключении камеры (`sendStandbyFrame` в `RtmpStreamer`)
+- **Одновременный стрим** на несколько платформ
+- **Camera2 fallback** — телефонная камера как источник
+- **USB permission** — флаг "запомнить" устройство (`PendingIntent` с флагом)
+- **Улучшение UI** — FAB тап снаружи, контраст dropdown, задержка standby, кнопка ре-запроса разрешений
 
 ---
 
