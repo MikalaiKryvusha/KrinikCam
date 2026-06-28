@@ -41,11 +41,16 @@ private const val TAG = "UvcPreviewView"
  * [onTextureViewReady] — called when the surface first becomes available (attach GL pipeline).
  * [onSurfaceTextureSizeChanged] — called on device rotation so the caller can restart the GL
  * pipeline with the new surface dimensions (portrait ↔ landscape).
+ * [onSurfaceDestroyed] — called when the surface is destroyed (navigation away / backgrounding)
+ * so the caller can stop the GL preview BEFORE the surface is released. Without this, the
+ * RootEncoder GL render thread keeps drawing to the dead surface → GL error 1285
+ * (GL_OUT_OF_MEMORY) → crash on pool-*-thread (see bug 02).
  */
 @Composable
 fun UvcPreviewView(
     onTextureViewReady: (TextureView) -> Unit = {},
     onSurfaceTextureSizeChanged: (TextureView, Int, Int) -> Unit = { _, _, _ -> },
+    onSurfaceDestroyed: () -> Unit = {},
     modifier: Modifier = Modifier.fillMaxSize(),
 ) {
     AndroidView(
@@ -65,7 +70,11 @@ fun UvcPreviewView(
                     }
 
                     override fun onSurfaceTextureDestroyed(s: SurfaceTexture): Boolean {
-                        KLog.d(TAG, "SurfaceTexture destroyed")
+                        // Stop GL preview BEFORE returning true (which releases the surface).
+                        // Otherwise the RootEncoder GL render thread draws to the dead surface
+                        // → GL error 1285 (GL_OUT_OF_MEMORY) → crash. See bug 02.
+                        KLog.d(TAG, "SurfaceTexture destroyed — stopping GL preview")
+                        onSurfaceDestroyed()
                         return true
                     }
 

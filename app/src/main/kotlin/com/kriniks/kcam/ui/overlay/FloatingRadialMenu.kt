@@ -20,6 +20,7 @@ package com.kriniks.kcam.ui.overlay
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -103,11 +104,13 @@ fun FloatingRadialMenu(
                         .alpha(alpha)
                         .scale(scale),
                 ) {
-                    // Label pill
+                    // Label pill — clickable so tapping the text works same as tapping the icon button
                     Surface(
                         color = Color(0xDD1A1A1A),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-                        modifier = Modifier.padding(end = 10.dp),
+                        modifier = Modifier
+                            .padding(end = 10.dp)
+                            .clickable { action.onClick(); expanded = false },
                     ) {
                         Text(
                             text = action.label,

@@ -60,6 +60,11 @@ class RtmpStreamer @Inject constructor(
     // Weak ref so we don't leak the TextureView; used to restore preview after startStream
     private var lastPreviewTextureView: WeakReference<TextureView>? = null
 
+    // Guard flag: prevents clearVideoSource() during startStream() critical window.
+    // stopPreview() briefly closes the camera (which can trigger AUSBC reconnect events).
+    // Without this guard, LaunchedEffect reacts and calls clearVideoSource() mid-setup.
+    @Volatile private var isStreamSetupInProgress = false
+
     // Singleton lives for app lifetime — scope is appropriate here.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -69,17 +74,28 @@ class RtmpStreamer @Inject constructor(
         }
 
         override fun onConnectionSuccess() {
-            KLog.i(TAG, "RTMP connected")
+            KLog.i(TAG, "RTMP connected ✓")
             _state.value = StreamState.Live()
+            isStreamSetupInProgress = false
+            KLog.d(TAG, "onConnectionSuccess: stream setup flag cleared")
+            // NOTE: changeVideoSource re-bind removed — caused double stop()/release() on same
+            // UvcVideoSource object → async race: camera closed AFTER start() → no video.
+            // AUSBC normally resumes writing to the original GL SurfaceTexture after its internal
+            // hardware close/reopen cycle. schedulePreviewRestoreAfterStream handles re-bind
+            // with a proper delay if needed.
         }
 
         override fun onConnectionFailed(reason: String) {
             KLog.e(TAG, "RTMP connection failed: $reason")
+            isStreamSetupInProgress = false
             _state.value = StreamState.Error(reason)
             rtmpStream?.stopStream()
         }
 
         override fun onNewBitrate(bitrate: Long) {
+            // Log bitrate every update to diagnose video-only vs audio-only streams.
+            // Audio-only (no video frames) shows ~132 kbps; full video shows 2000-6000 kbps.
+            KLog.d(TAG, "onNewBitrate: ${bitrate / 1000} kbps (${bitrate} bps)")
             val current = _state.value
             if (current is StreamState.Live) {
                 _state.value = current.copy(bitrateKbps = (bitrate / 1000).toInt())
@@ -108,10 +124,37 @@ class RtmpStreamer @Inject constructor(
 
     /**
      * Swap the video source (e.g. when USB camera connects / changes).
-     * changeVideoSource() handles both cases: live-swap while running, or pre-swap before start.
+     * Blocked entirely while streaming is active or stream setup is in progress.
+     *
+     * Why block during streaming:
+     *   AUSBC does a hardware close/reopen cycle after openCamera() — this is normal UVC
+     *   firmware behaviour (configure → close → reopen at new params). The cycle fires
+     *   LaunchedEffect(activeCamera) → setVideoSource(UvcVideoSource) → changeVideoSource()
+     *   which would stop+start the camera on a DIFFERENT GL surface than the encoder is using
+     *   → camera writes to wrong surface → encoder gets no frames → audio-only RTMP stream
+     *   → YouTube Broken Pipe after 15 seconds.
+     *
+     * Re-binding the camera to the encoder GL surface is done explicitly in onConnectionSuccess()
+     * via a direct stream.changeVideoSource() call, bypassing this guard.
      */
     fun setVideoSource(source: VideoSource) {
-        currentVideoSource = source
+        if (isStreamSetupInProgress || rtmpStream?.isStreaming == true) {
+            // Block ALL source changes during setup and while actively streaming.
+            KLog.d(TAG, "setVideoSource: blocked (setup=$isStreamSetupInProgress streaming=${rtmpStream?.isStreaming}) — ${source::class.simpleName}")
+            return
+        }
+        // Break the AUSBC reconnect storm: opening the camera fires AUSBC's PreviewStarted event,
+        // which bubbles up to LaunchedEffect(activeCamera) → setVideoSource() again. If the camera
+        // is already open and feeding the GL preview, that redundant call would changeVideoSource()
+        // → close+reopen the camera → rapid reopen fails (result=-99 "unsupported preview size")
+        // → black screen. Skip it. First attach (currentVideoSource == null) and clearing
+        // (NoVideoSource) still proceed normally.
+        val isRealSource = source !is NoVideoSource
+        if (isRealSource && currentVideoSource != null && rtmpStream?.isOnPreview == true) {
+            KLog.d(TAG, "setVideoSource: skipped — camera already attached & preview running (avoid AUSBC storm)")
+            return
+        }
+        currentVideoSource = if (source is NoVideoSource) null else source
         try {
             ensureStream().changeVideoSource(source)
             KLog.d(TAG, "VideoSource set: ${source::class.simpleName}")
@@ -126,11 +169,40 @@ class RtmpStreamer @Inject constructor(
     /**
      * Attach the preview TextureView. Starts the GL pipeline and opens the USB camera
      * (via the active VideoSource). Must be called from the main thread.
+     *
+     * Guarded: if streaming is already active, UI callbacks (LaunchedEffect, onTextureViewReady)
+     * must NOT restart the GL/camera — the encoder is running and any restart causes distortion.
+     * In that case we just update the TextureView reference so stopStream() can restore it later.
      */
     fun startPreview(tv: TextureView) {
         val stream = ensureStream()
+
+        // Always update the ref — stopStream() uses it to restart preview after stream ends
+        lastPreviewTextureView = WeakReference(tv)
+
+        if (stream.isStreaming) {
+            // During streaming, RE-ATTACH the preview surface with the CURRENT TextureView size.
+            // This is what fixes Bug 03 (landscape preview stuck in the corner): on rotation the
+            // TextureView resizes (onSurfaceTextureSizeChanged → startPreviewOnView), and we must
+            // re-attach the preview at the new dimensions, otherwise GL keeps drawing it at the
+            // old (portrait) resolution → small image anchored bottom-left.
+            //
+            // Safe during streaming: StreamBase.startPreview skips videoSource.start() and
+            // glInterface.start() because both are already running for the encoder. The camera is
+            // NOT reopened or redirected (the audio-only issue in Bug 02 was the prepareVideo
+            // bitrate bug, now fixed — not the preview).
+            try {
+                if (stream.isOnPreview) stream.stopPreview()  // detach old-size preview surface
+                stream.startPreview(tv)                        // re-attach at new tv size
+                stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust)
+                KLog.d(TAG, "startPreview: re-attached during streaming — tv=${tv.width}x${tv.height}")
+            } catch (e: Exception) {
+                KLog.e(TAG, "startPreview: failed to re-attach during streaming", e)
+            }
+            return
+        }
+
         try {
-            lastPreviewTextureView = WeakReference(tv)
             KLog.d(TAG, "startPreview: tv=${tv.width}x${tv.height} isOnPreview=${stream.isOnPreview} glRunning=${stream.getGlInterface().isRunning}")
             if (stream.isOnPreview) stream.stopPreview()
             // GL init lambda (start$lambda$5) calls mainRender.initGl(encoderWidth, encoderHeight).
@@ -145,8 +217,8 @@ class RtmpStreamer @Inject constructor(
             }
             stream.startPreview(tv)
             stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust)
-            // Sensor-driven rotation so portrait/landscape reorient without manual Matrix hacks
-            stream.getGlInterface().autoHandleOrientation = true
+            // autoHandleOrientation=false: USB webcam is physically fixed — sensor rotation
+            // should NOT rotate the video feed. AspectRatioMode.Adjust handles letterboxing.
             KLog.d(TAG, "startPreview: done — glRunning=${stream.getGlInterface().isRunning}")
             scheduleVideoSourceRetryIfNeeded(stream)
         } catch (e: Exception) {
@@ -188,34 +260,43 @@ class RtmpStreamer @Inject constructor(
     }
 
     /**
-     * After startStream() launches the GL pipeline, wait for GL to be ready and then attach
-     * the TextureView for preview. GL is started by startStream() itself — startPreview() skips
-     * the double-init when gl.isRunning=true and only adds TextureView + opens VideoSource.
+     * After startStream() launches the GL pipeline, log GL readiness.
+     *
+     * CRITICAL FINDING: calling stream.startPreview(tv) during active streaming redirects the
+     * camera from the ENCODER surface to a PREVIEW surface. The encoder then gets no frames →
+     * RTMP sends only audio (~132 kbps instead of 4Mbps) → YouTube drops the connection after
+     * 15 seconds ("Error send packet, Broken pipe").
+     *
+     * Therefore: we intentionally do NOT call startPreview() here. The camera continues feeding
+     * the encoder surface set up by startStream(). Preview (TextureView display) is restored
+     * when stopStream() is called.
+     *
+     * TODO: find the correct RootEncoder API to add a preview surface WITHOUT redirecting the
+     * camera. Candidates: GlStreamInterface.addPreview(), or a separate render path.
      */
     private fun schedulePreviewRestoreAfterStream(stream: RtmpStream) {
-        val tv = lastPreviewTextureView?.get() ?: run {
-            KLog.w(TAG, "schedulePreviewRestoreAfterStream: no TextureView — streaming without preview")
-            return
-        }
         scope.launch {
             val gl = stream.getGlInterface()
             var waited = 0
-            while (!gl.isRunning && waited < 3000) {
+            while (!gl.isRunning && waited < 5000) {
                 delay(50)
                 waited += 50
             }
-            if (!gl.isRunning) {
-                KLog.w(TAG, "GL not ready 3000ms after startStream — preview not restored")
-                return@launch
-            }
-            KLog.d(TAG, "GL ready after ${waited}ms — restoring preview TextureView during stream")
-            try {
-                // GL already running from startStream() → startPreview() skips gl.start()
-                stream.startPreview(tv)
-                stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust)
-                stream.getGlInterface().autoHandleOrientation = true
-            } catch (e: Exception) {
-                KLog.e(TAG, "Failed to restore preview during stream", e)
+            KLog.d(TAG, "schedulePreviewRestoreAfterStream: GL ${if (gl.isRunning) "ready" else "NOT ready"} after ${waited}ms")
+            // Attach a LIVE preview surface during streaming so the user sees the feed (and so
+            // rotation works — Bug 03). Safe now: StreamBase.startPreview skips videoSource.start()
+            // and glInterface.start() because both already run for the encoder, so the camera is
+            // not reopened or redirected. (The audio-only regression once blamed on this was
+            // actually the prepareVideo bitrate-arg bug, fixed in Bug 02.)
+            val tv = lastPreviewTextureView?.get()
+            if (tv != null && gl.isRunning && !stream.isOnPreview) {
+                try {
+                    stream.startPreview(tv)
+                    gl.setAspectRatioMode(AspectRatioMode.Adjust)
+                    KLog.d(TAG, "schedulePreviewRestoreAfterStream: live preview attached during streaming (tv=${tv.width}x${tv.height})")
+                } catch (e: Exception) {
+                    KLog.e(TAG, "schedulePreviewRestoreAfterStream: failed to attach preview", e)
+                }
             }
         }
     }
@@ -228,58 +309,105 @@ class RtmpStreamer @Inject constructor(
 
     /**
      * Start RTMP stream to the given profile.
-     * Stops preview first (prepareVideo throws if isOnPreview=true), then prepares encoders,
-     * connects RTMP, and restores the preview TextureView asynchronously once GL is ready.
+     *
+     * Flow:
+     *  1. Set isStreamSetupInProgress=true to guard against USB reconnect storm
+     *  2. Stop preview (so prepareVideo doesn't throw IllegalStateException)
+     *  3. prepareVideo + prepareAudio — configure MediaCodec encoders
+     *  4. stream.startStream(url) — start RTMP + GL pipeline
+     *  5. schedulePreviewRestoreAfterStream — re-attach TextureView once GL is ready,
+     *     then clear isStreamSetupInProgress
      */
     fun startStream(profile: StreamProfile): Boolean {
         val stream = rtmpStream ?: run {
-            KLog.e(TAG, "startStream: no stream — call setVideoSource/startPreview first")
+            KLog.e(TAG, "startStream: no rtmpStream — call setVideoSource/startPreview first")
             return false
         }
 
         if (stream.isStreaming) {
-            KLog.w(TAG, "Already streaming — ignoring startStream")
+            KLog.w(TAG, "startStream: already streaming — ignoring")
             return true
         }
 
         val rtmpUrl = "${profile.rtmpUrl}/${profile.streamKey}"
-        KLog.i(TAG, "Starting RTMP stream → $rtmpUrl")
+        KLog.i(TAG, "startStream: profile='${profile.name}' ${profile.videoWidth}x${profile.videoHeight}" +
+                " ${profile.videoFps}fps ${profile.videoBitrateBps}bps → $rtmpUrl")
+        KLog.d(TAG, "startStream: isOnPreview=${stream.isOnPreview}" +
+                " glRunning=${stream.getGlInterface().isRunning}" +
+                " videoSource=${currentVideoSource?.javaClass?.simpleName}")
 
-        // prepareVideo() throws IllegalStateException if preview is running — stop it first
-        if (stream.isOnPreview) stream.stopPreview()
+        // Block spurious clearVideoSource() calls that come from AUSBC reacting to stopPreview()
+        isStreamSetupInProgress = true
 
-        val prepared = stream.prepareVideo(
-            profile.videoWidth,
-            profile.videoHeight,
-            profile.videoFps,
-            profile.videoBitrateBps,
-        ) && stream.prepareAudio(
-            44100,
-            true,
-            128_000,
-        )
+        try {
+            // prepareVideo() throws IllegalStateException if isOnPreview=true — stop first
+            if (stream.isOnPreview) {
+                KLog.d(TAG, "startStream: stopPreview() before prepareVideo")
+                stream.stopPreview()
+            }
 
-        if (!prepared) {
-            val msg = "Failed to prepare encoder — check device codec support"
-            KLog.e(TAG, msg)
-            _state.value = StreamState.Error(msg)
-            // Restore preview since we stopped it above
+            // CRITICAL: RootEncoder StreamBase.prepareVideo signature is
+            //   prepareVideo(width, height, bitrate, fps = 30, iFrameInterval = 2, ...)
+            // i.e. BITRATE is the 3rd param and FPS the 4th — NOT (w, h, fps, bitrate) like the
+            // old RtmpCamera1 API. The migration kept the old order, so we were configuring the
+            // video encoder with bitrate=30 bps and fps=4_000_000 → encoder produced an empty
+            // video track → YouTube received audio only (~132 kbps) → Broken Pipe after 15s.
+            // iFrameInterval=2 → 2-second GOP, which YouTube expects.
+            val videoPrepared = stream.prepareVideo(
+                profile.videoWidth,
+                profile.videoHeight,
+                profile.videoBitrateBps,  // bitrate (3rd param)
+                profile.videoFps,         // fps (4th param)
+                2,                        // iFrameInterval (seconds) — YouTube wants ~2s keyframes
+            )
+            KLog.d(TAG, "startStream: prepareVideo → $videoPrepared (${profile.videoWidth}x${profile.videoHeight} ${profile.videoFps}fps ${profile.videoBitrateBps}bps iFrame=2s)")
+
+            // Fix Bug A (stream rotated 90° CCW + stretched): prepareVideo(rotation=0) internally
+            // calls glInterface.setCameraOrientation(270), which rotates the camera input texture
+            // 270° (= 90° CCW). That's correct for phone camera sensors (mounted at 90°) but WRONG
+            // for a USB webcam, which already outputs an upright landscape frame. Override back to 0
+            // so the 16:9 camera feed fills the 1920x1080 encoder with no rotation and no stretch.
+            stream.getGlInterface().setCameraOrientation(0)
+            KLog.d(TAG, "startStream: camera orientation reset to 0 (USB webcam is already upright)")
+
+            val audioPrepared = stream.prepareAudio(44100, true, 128_000)
+            KLog.d(TAG, "startStream: prepareAudio → $audioPrepared (44100Hz stereo 128kbps)")
+
+            if (!videoPrepared || !audioPrepared) {
+                val msg = "Failed to prepare encoder (video=$videoPrepared audio=$audioPrepared)"
+                KLog.e(TAG, msg)
+                _state.value = StreamState.Error(msg)
+                isStreamSetupInProgress = false
+                lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
+                return false
+            }
+
+            _state.value = StreamState.Connecting
+            KLog.i(TAG, "startStream: calling stream.startStream() ...")
+            stream.startStream(rtmpUrl)
+            KLog.d(TAG, "startStream: stream.startStream() returned — waiting for GL + ConnectChecker callbacks")
+
+            // Wait for GL to start, re-attach preview TextureView, then clear the guard flag
+            schedulePreviewRestoreAfterStream(stream)
+            return true
+
+        } catch (e: Exception) {
+            KLog.e(TAG, "startStream: exception during setup", e)
+            _state.value = StreamState.Error("Stream setup crashed: ${e.message}")
+            isStreamSetupInProgress = false
             lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
             return false
         }
-
-        _state.value = StreamState.Connecting
-        stream.startStream(rtmpUrl)
-        // GL pipeline started by startStream() — restore TextureView preview once GL is ready
-        schedulePreviewRestoreAfterStream(stream)
-        return true
     }
 
     fun stopStream() {
-        KLog.i(TAG, "Stopping RTMP stream")
+        KLog.i(TAG, "stopStream: stopping RTMP stream")
+        isStreamSetupInProgress = false
         _state.value = StreamState.Stopping
         rtmpStream?.stopStream()
         _state.value = StreamState.Idle
+        // Restore preview after stream stops — camera is still physically connected
+        lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
     }
 
     /**

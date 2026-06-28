@@ -9,7 +9,7 @@
 **An open-source Android app for streamers and bloggers.**  
 Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTube, Instagram, Twitch, or TikTok — all at once.
 
-> **Status:** Active development · Phase 1 ✅ USB preview confirmed on device · Phase 2 🔧 RTMP from USB rewritten, testing GL pipeline
+> **Status:** Active development · Phase 1 ✅ USB preview · Phase 2 MVP ✅ RTMP to YouTube confirmed on device · portrait + landscape ✅
 
 ---
 
@@ -22,7 +22,7 @@ Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTub
 | Stream profiles (Room DB + DataStore) | ✅ Phase 1 |
 | Hardware codec scanner (H.264 / HEVC / AV1) | ✅ Phase 1 |
 | File-based debug logger (shareable logs) | ✅ Phase 1 |
-| RTMP stream to YouTube / Twitch / custom | 🔧 Phase 2 |
+| RTMP stream to YouTube / Twitch / custom | ✅ Phase 2 |
 | "Please stand by" frame on camera disconnect | 🔧 Phase 2 |
 | USB permission — remember device (no re-ask) | 🔧 Phase 2 |
 | Manual rotation (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
@@ -135,7 +135,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 **Открытое Android-приложение для стримеров и блогеров.**  
 Подключи USB-вебкамеру через OTG → видишь превью во весь экран → жмёшь кнопку → стрим идёт на YouTube, Instagram, Twitch или TikTok — одновременно.
 
-> **Статус:** Активная разработка · Phase 1 ✅ USB превью подтверждено на устройстве · Phase 2 🔧 RTMP для USB переписан, тестируется GL pipeline
+> **Статус:** Активная разработка · Phase 1 ✅ USB превью · Phase 2 MVP ✅ RTMP на YouTube подтверждён на устройстве · портрет + ландшафт ✅
 
 ---
 
@@ -148,7 +148,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Профили стримов (Room DB + DataStore) | ✅ Phase 1 |
 | Сканер кодеков (H.264 / HEVC / AV1) | ✅ Phase 1 |
 | Файловый логгер с возможностью отправки | ✅ Phase 1 |
-| RTMP-стрим на YouTube / Twitch / custom | 🔧 Phase 2 |
+| RTMP-стрим на YouTube / Twitch / custom | ✅ Phase 2 |
 | Заглушка "Please stand by" при отключении | 🔧 Phase 2 |
 | USB permission — запомнить устройство | 🔧 Phase 2 |
 | Ручной поворот видео (0° / 90° / 180° / 270°) | 🔧 Phase 2 |

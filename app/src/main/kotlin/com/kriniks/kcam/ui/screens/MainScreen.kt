@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.feature.capture.model.VideoSource
 import com.kriniks.kcam.feature.streaming.model.StreamState
+import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.model.isLive
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
@@ -101,7 +102,13 @@ fun MainScreen(
     // Wire USB camera → RtmpStream GL pipeline.
     // Only calls setVideoSource — startPreview is triggered solely from onTextureViewReady.
     // Having two startPreview callers caused stopPreview() to cancel GL init (RC1 double-trigger bug).
-    LaunchedEffect(usbState.activeCamera) {
+    //
+    // streamState.isActive is a second key so that when streaming stops (isActive: true→false),
+    // this effect re-runs and re-calls setVideoSource() even if the camera object didn't change.
+    // Without this, AUSBC may reconnect the SAME camera object during streaming (so activeCamera
+    // ref doesn't change), setVideoSource() is blocked by the guard, and preview stays black
+    // after streaming ends because nothing triggers a re-bind.
+    LaunchedEffect(usbState.activeCamera, streamState.isActive) {
         val camera = usbState.activeCamera
         if (camera != null) {
             val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
@@ -137,6 +144,10 @@ fun MainScreen(
                                 streamViewModel.startPreviewOnView(tv)
                             }
                         },
+                        // Stop GL preview when surface is destroyed (navigation to Settings,
+                        // backgrounding). Prevents GL_OUT_OF_MEMORY crash from drawing to a dead
+                        // surface. Safe during streaming: stopPreview() is a no-op when isOnPreview=false.
+                        onSurfaceDestroyed = { streamViewModel.stopPreview() },
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
