@@ -81,6 +81,23 @@ class StreamViewModel @Inject constructor(
         KLog.d(TAG, "VideoSource cleared")
     }
 
+    /**
+     * USB camera disconnected while streaming → inject the "Please stand by" placeholder into
+     * the live stream so the RTMP session survives the dropout (no Broken Pipe).
+     */
+    fun enterStandby() {
+        repository.enterStandby()
+        KLog.i(TAG, "Entering standby (camera lost during stream)")
+    }
+
+    /**
+     * USB camera reconnected while streaming → swap the standby frame back to the live camera.
+     */
+    fun exitStandby(source: VideoSource) {
+        repository.exitStandby(source)
+        KLog.i(TAG, "Exiting standby (camera restored): ${source::class.simpleName}")
+    }
+
     fun stopPreview() = repository.stopPreview()
 
     fun startStream() {

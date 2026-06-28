@@ -23,7 +23,7 @@ Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTub
 | Hardware codec scanner (H.264 / HEVC / AV1) | ✅ Phase 1 |
 | File-based debug logger (shareable logs) | ✅ Phase 1 |
 | RTMP stream to YouTube / Twitch / custom | ✅ Phase 2 |
-| "Please stand by" frame on camera disconnect | 🔧 Phase 2 |
+| "Please stand by" frame on camera disconnect | ✅ Phase 2 |
 | USB permission — remember device (no re-ask) | 🔧 Phase 2 |
 | Manual rotation (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
 | Simultaneous multi-platform streaming | 📅 Phase 2+ |
@@ -149,7 +149,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Сканер кодеков (H.264 / HEVC / AV1) | ✅ Phase 1 |
 | Файловый логгер с возможностью отправки | ✅ Phase 1 |
 | RTMP-стрим на YouTube / Twitch / custom | ✅ Phase 2 |
-| Заглушка "Please stand by" при отключении | 🔧 Phase 2 |
+| Заглушка "Please stand by" при отключении | ✅ Phase 2 |
 | USB permission — запомнить устройство | 🔧 Phase 2 |
 | Ручной поворот видео (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
 | Одновременный стрим на несколько платформ | 📅 Phase 2+ |

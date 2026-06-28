@@ -110,13 +110,28 @@ fun MainScreen(
     // after streaming ends because nothing triggers a re-bind.
     LaunchedEffect(usbState.activeCamera, streamState.isActive) {
         val camera = usbState.activeCamera
+        val streaming = streamState.isActive
         if (camera != null) {
             val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
             val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
             val source = UvcVideoSource(camera, previewWidth = w, previewHeight = h)
-            streamViewModel.setVideoSource(source)
+            if (streaming) {
+                // Camera (re)appeared during a live stream. exitStandby swaps the placeholder
+                // back to the live camera; if we weren't in standby it falls through to a guarded
+                // setVideoSource() no-op (the existing live-stream behaviour, unchanged).
+                streamViewModel.exitStandby(source)
+            } else {
+                streamViewModel.setVideoSource(source)
+            }
         } else {
-            streamViewModel.clearVideoSource()
+            if (streaming) {
+                // Camera lost mid-stream: inject the "Please stand by" frame so RTMP stays alive
+                // instead of starving the encoder. The Compose StandbyPlaceholder also shows
+                // locally (activeSource → None handled in Layer 0 below).
+                streamViewModel.enterStandby()
+            } else {
+                streamViewModel.clearVideoSource()
+            }
         }
     }
 

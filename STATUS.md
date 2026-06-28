@@ -57,6 +57,14 @@
 **Phase 2 MVP РАБОТАЕТ ✅ — Go Live стримит в YouTube корректно (подтверждено Криником 2026-06-28).**
 
 Превью ✅ · RTMP-стрим ✅ (~5 Mbps стабильно) · ориентация ✅ · превью после стрима ✅ · без крашей ✅
+· **standby-кадр при отключении камеры ✅** (Phase 2 P2, подтверждено на устройстве 2026-06-28)
+
+**Сделано в сессии 2026-06-28 (вечер):**
+- Phase 2 P2 «Please stand by» кадр в RTMP — реализован и подтверждён живым тестом (2 цикла
+  отключения/подключения USB во время стрима, поток не оборвался). Файлы: `StandbyFrameRenderer.kt`,
+  `StandbyVideoSource.kt`, `RtmpStreamer.enterStandby/exitStandby`, glue в Repository/VM/MainScreen.
+- Интервью #004 (таймаут источника + USB permission) — проведено и закрыто, готово к реализации.
+- Новый скилл `/interview` (`.claude/skills/interview/`) — для редких UI/UX/бренд/архитектурных решений.
 
 ### Закрытые баги (Phase 2)
 
@@ -72,8 +80,24 @@
 - Root cause: `prepareVideo` — перепутан порядок (fps↔bitrate) → энкодер с 30 бит/с → только звук
 - Фиксы: правильный порядок args; `setCameraOrientation(0)`; `onSurfaceDestroyed → stopPreview()`
 
+**Phase 2 P2 — "Please stand by" кадр в RTMP** ✅ ЗАКРЫТ — подтверждено на устройстве 2026-06-28
+- Полный дизайн + план теста: `plans/phase2_standby_frame.md`
+- Подход: при отключении USB-камеры во время стрима — горячая подмена `VideoSource` на
+  `StandbyVideoSource` (рисует bitmap в GL Surface @ 5 fps через `lockCanvas`), поток не рвётся.
+- НЕ фильтр: RootEncoder 2.4.7 не имеет bitmap-источника; фильтр не работает без тика onFrameAvailable.
+- Новые файлы: `StandbyFrameRenderer.kt`, `StandbyVideoSource.kt` (оба в `:feature:streaming`).
+- `RtmpStreamer.enterStandby()`/`exitStandby()` через `changeVideoSource` (проверено javap).
+- Сборка ✅, установка ✅, превью без регрессий ✅. **Нужен живой тест:** Go Live + физическое
+  отключение/подключение USB-камеры (нужны руки Криника + валидный stream key).
+- ⚠️ Главный риск: `lockCanvas` на GL-привязанной SurfaceTexture — подтвердить на железе.
+
 **С чего продолжить в следующей сессии:**
-1. Phase 2 P2: "Please stand by" кадр в RTMP-поток при отключении камеры (GL-фильтр, `sendStandbyFrame`)
+1. ⭐ **Таймаут источника + USB permission** — интервью #004 закрыто, готово к коду.
+   План: `interviews/interview_004_source_timeout_and_usb_permission.md` + идея `plans/sourses_timeout.md`.
+   Решения: заморозка последнего кадра 5000мс при микро-разрыве USB (вместо мгновенной заглушки);
+   возврат камеры в пределах 5с → мгновенно живое видео; таймаут вышел → фейд 500мс в заглушку;
+   работает И в стриме И в превью; USB permission через intent-filter + device_filter (любая UVC) —
+   диалог один раз с «использовать по умолчанию», закрывает Bug 3; фейд заглушка→камера — позже.
 2. Графика: app icon (`ic_launcher.svg` → mipmap-*), standby bitmap, notification icon
 3. Мелкие улучшения UX из фидбэка Криника:
    - FAB закрытие тапом снаружи

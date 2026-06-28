@@ -52,6 +52,16 @@ class StreamingRepository @Inject constructor(
         rtmpStreamer.clearVideoSource()
     }
 
+    /** Camera lost while streaming → inject the "Please stand by" frame to keep RTMP alive. */
+    fun enterStandby() {
+        rtmpStreamer.enterStandby()
+    }
+
+    /** Camera reconnected while streaming → restore the live camera [source] into the stream. */
+    fun exitStandby(source: VideoSource) {
+        rtmpStreamer.exitStandby(source)
+    }
+
     fun stopPreview() {
         rtmpStreamer.stopPreview()
     }

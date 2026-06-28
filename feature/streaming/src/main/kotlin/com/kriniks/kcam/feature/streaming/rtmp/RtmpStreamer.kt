@@ -65,6 +65,12 @@ class RtmpStreamer @Inject constructor(
     // Without this guard, LaunchedEffect reacts and calls clearVideoSource() mid-setup.
     @Volatile private var isStreamSetupInProgress = false
 
+    // Standby state: true while a StandbyVideoSource is feeding the encoder in place of the
+    // (disconnected) USB camera. Guards against double-enter / double-exit when MainScreen's
+    // LaunchedEffect re-fires. The bitmap is rendered once and cached for reuse across dropouts.
+    @Volatile private var inStandby = false
+    private var standbyBitmap: Bitmap? = null
+
     // Singleton lives for app lifetime — scope is appropriate here.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -88,6 +94,7 @@ class RtmpStreamer @Inject constructor(
         override fun onConnectionFailed(reason: String) {
             KLog.e(TAG, "RTMP connection failed: $reason")
             isStreamSetupInProgress = false
+            inStandby = false
             _state.value = StreamState.Error(reason)
             rtmpStream?.stopStream()
         }
@@ -403,6 +410,9 @@ class RtmpStreamer @Inject constructor(
     fun stopStream() {
         KLog.i(TAG, "stopStream: stopping RTMP stream")
         isStreamSetupInProgress = false
+        // Clear standby: stopStream() releases whatever source is active (camera or standby);
+        // the next stream must start from a clean (non-standby) state.
+        inStandby = false
         _state.value = StreamState.Stopping
         rtmpStream?.stopStream()
         _state.value = StreamState.Idle
@@ -411,15 +421,62 @@ class RtmpStreamer @Inject constructor(
     }
 
     /**
-     * Inject a "Please stand by" image into the RTMP stream when USB camera disconnects.
-     * Phase 2: implemented via GL filter (BaseFilterRender with a static bitmap).
+     * Inject the "Please stand by" placeholder into the LIVE stream when the USB camera
+     * disconnects. Swaps the (now-dead) camera VideoSource for a StandbyVideoSource that keeps
+     * drawing a static frame into the encoder's GL surface — so the RTMP session stays alive
+     * instead of YouTube dropping it after ~15s of frame starvation.
+     *
+     * No-op unless we're actively streaming and not already in standby. While not streaming,
+     * a camera dropout is handled in the UI by the Compose StandbyPlaceholder, so no swap needed.
      */
-    fun sendStandbyFrame(bitmap: Bitmap) {
-        KLog.d(TAG, "sendStandbyFrame: not yet implemented (Phase 2 P1)")
+    fun enterStandby() {
+        val stream = rtmpStream ?: return
+        if (!stream.isStreaming) {
+            KLog.d(TAG, "enterStandby: not streaming — ignoring")
+            return
+        }
+        if (inStandby) {
+            KLog.d(TAG, "enterStandby: already in standby — ignoring")
+            return
+        }
+        // Render the placeholder once at the encoder size, then cache for future dropouts.
+        val bmp = standbyBitmap ?: StandbyFrameRenderer.render().also { standbyBitmap = it }
+        try {
+            val src = StandbyVideoSource(bmp)
+            // changeVideoSource: stops/releases the dead camera source and starts this one on the
+            // live GL SurfaceTexture, inited with the encoder's dimensions.
+            stream.changeVideoSource(src)
+            // changeVideoSource re-applies the encoder rotation to the source; keep input upright
+            // (same fix as Bug 02 A — USB/standby frame is already landscape, no 270° rotation).
+            stream.getGlInterface().setCameraOrientation(0)
+            currentVideoSource = src
+            inStandby = true
+            KLog.i(TAG, "Entered standby — placeholder frame now feeding the stream")
+        } catch (e: Exception) {
+            KLog.e(TAG, "enterStandby: failed to swap to standby source", e)
+        }
     }
 
-    fun clearStandbyFrame() {
-        // Phase 2: remove standby GL filter
+    /**
+     * Leave standby and restore the live camera [source] — called when the USB camera reconnects
+     * during streaming. If we're not in standby this delegates to the normal setVideoSource path
+     * (a guarded no-op during streaming), so it's safe to call unconditionally on reconnect.
+     */
+    fun exitStandby(source: VideoSource) {
+        val stream = rtmpStream
+        if (stream == null || !inStandby) {
+            setVideoSource(source)
+            return
+        }
+        try {
+            stream.changeVideoSource(source)
+            stream.getGlInterface().setCameraOrientation(0)
+            currentVideoSource = source
+            inStandby = false
+            KLog.i(TAG, "Exited standby — live camera restored into the stream")
+        } catch (e: Exception) {
+            KLog.e(TAG, "exitStandby: failed to restore camera source", e)
+        }
     }
 
     val isStreaming: Boolean get() = rtmpStream?.isStreaming == true
