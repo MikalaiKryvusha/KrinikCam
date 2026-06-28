@@ -60,6 +60,10 @@
 · **standby-кадр при отключении камеры ✅** (Phase 2 P2, подтверждено на устройстве 2026-06-28)
 
 **Сделано в сессии 2026-06-28 (поздний вечер) — текущая:**
+- 🔧 **НАЧАТА фича: поворот видео + смена соотношения 16:9 ↔ 9:16** (НЕ закончена, см. чеклист ниже).
+  Дизайн, решения Криника и research по YouTube зафиксированы в `plans/ideas/06_video_rotation.md`.
+  Ключевое: поворот 90/270 должен менять ФОРМАТ потока на портрет 9:16 (не просто крутить картинку);
+  во время эфира поворот ЗАПРЕЩЁН (research подтвердил: смена разрешения на лету рвёт RTMP/YouTube).
 - **Bug 06** — «Build Error» в статус-баре VS Code ✅ закрыт. Причина: VS Code/Buildship гонял Gradle
   на встроенной Java 21 и не находил JDK 17 для `jvmToolchain(17)`. Фикс: `~/.gradle/gradle.properties`
   → `org.gradle.java.installations.paths` = Android Studio JBR (Java 17). Подтверждено Криником
@@ -131,6 +135,22 @@
   релизом (иначе подметает мусор; `*.apk` и `.kotlin/` теперь в .gitignore).
 
 **С чего продолжить в следующей сессии:**
+0. 🔧 **ДОДЕЛАТЬ поворот видео + смену формата** (фича начата, бэкенд-фундамент заложен).
+   Полный дизайн/решения/research: `plans/ideas/06_video_rotation.md`. Что УЖЕ сделано в `RtmpStreamer.kt`:
+   добавлены `videoRotation: StateFlow<Int>`, `setVideoRotation(deg)`, `applyVideoRotation()`; все
+   жёсткие `setCameraOrientation(0)` заменены на `applyVideoRotation()` (по умолчанию угол 0 →
+   поведение не изменилось, сборка зелёная). Что ОСТАЛОСЬ:
+   - В `setVideoRotation`: при 90/270 **менять размеры энкодера местами** (1920×1080 → 1080×1920)
+     через `glInterface.setEncoderSize(w,h)` + рестарт превью (реинициализация GL); хранить базовый
+     размер. В `startStream` → `prepareVideo` тоже подавать обменянные размеры при 90/270.
+   - **Блок смены угла, пока `isStreaming==true`** (no-op + snackbar «останови стрим для поворота»).
+   - Проброс: `StreamingRepository` (`videoRotation` + `setVideoRotation`) → `StreamViewModel`.
+   - UI: кнопка вверху справа в `MainScreen.kt` (Layer 1) сейчас зовёт МЁРТВЫЙ `usbViewModel.rotatePreview()`
+     (инкрементит `previewRotationOffset`, который никто не читает — можно удалить). Заменить на
+     **радиальное мини-меню** выбора угла (0/90/180/270), как FAB-меню (`FloatingRadialMenu.kt` —
+     образец), неактивное во время эфира. Завязать на `streamViewModel.videoRotation`/`setVideoRotation`.
+   - Тест на устройстве: превью 16:9 → выбрать 90° → превью 9:16 портрет; Go Live → поток портретный.
+     После — knowledge-док `bugs/08_*` по GL/энкодер-нюансам поворота, если будут грабли.
 1. ⭐ **Таймаут источника + USB permission** — интервью #004 закрыто, готово к коду.
    План: `interviews/interview_004_source_timeout_and_usb_permission.md` + идея `plans/sourses_timeout.md`.
    Решения: заморозка последнего кадра 5000мс при микро-разрыве USB (вместо мгновенной заглушки);

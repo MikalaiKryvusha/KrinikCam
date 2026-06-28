@@ -71,6 +71,14 @@ class RtmpStreamer @Inject constructor(
     @Volatile private var inStandby = false
     private var standbyBitmap: Bitmap? = null
 
+    // Manual video rotation in degrees (0/90/180/270). Applied to the GL camera input via
+    // setCameraOrientation, so it rotates BOTH the on-screen preview and the encoded stream.
+    // Default 0 — a USB webcam already outputs an upright landscape frame (see Bug 02 A). The
+    // hot rotation button (MainScreen, top-right) cycles this; we re-apply it on every GL
+    // (re)init so the chosen angle survives preview restarts, stream start, and standby swaps.
+    private val _videoRotation = MutableStateFlow(0)
+    val videoRotation: StateFlow<Int> = _videoRotation.asStateFlow()
+
     // Singleton lives for app lifetime — scope is appropriate here.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -174,6 +182,31 @@ class RtmpStreamer @Inject constructor(
     fun clearVideoSource() = setVideoSource(NoVideoSource())
 
     /**
+     * Set the manual video rotation to [degrees] (normalized to 0/90/180/270) and apply it
+     * live. Affects both preview and the encoded stream because setCameraOrientation rotates
+     * the shared camera-input texture. Called from the rotation menu (MainScreen).
+     */
+    fun setVideoRotation(degrees: Int) {
+        val normalized = ((degrees % 360) + 360) % 360
+        _videoRotation.value = normalized
+        applyVideoRotation()
+        KLog.i(TAG, "Video rotation set to $normalized°")
+    }
+
+    /**
+     * Re-apply the stored rotation to the GL pipeline. Safe whenever the GL interface exists;
+     * a no-op (caught) before GL is up. Called after every GL (re)init so the chosen angle
+     * persists across preview restarts, stream start, and standby swaps.
+     */
+    private fun applyVideoRotation() {
+        try {
+            rtmpStream?.getGlInterface()?.setCameraOrientation(_videoRotation.value)
+        } catch (e: Exception) {
+            KLog.e(TAG, "applyVideoRotation failed", e)
+        }
+    }
+
+    /**
      * Attach the preview TextureView. Starts the GL pipeline and opens the USB camera
      * (via the active VideoSource). Must be called from the main thread.
      *
@@ -202,6 +235,7 @@ class RtmpStreamer @Inject constructor(
                 if (stream.isOnPreview) stream.stopPreview()  // detach old-size preview surface
                 stream.startPreview(tv)                        // re-attach at new tv size
                 stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust)
+                applyVideoRotation()                           // keep manual rotation sticky on rotate
                 KLog.d(TAG, "startPreview: re-attached during streaming — tv=${tv.width}x${tv.height}")
             } catch (e: Exception) {
                 KLog.e(TAG, "startPreview: failed to re-attach during streaming", e)
@@ -226,6 +260,7 @@ class RtmpStreamer @Inject constructor(
             stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust)
             // autoHandleOrientation=false: USB webcam is physically fixed — sensor rotation
             // should NOT rotate the video feed. AspectRatioMode.Adjust handles letterboxing.
+            applyVideoRotation()  // apply any manual rotation chosen via the rotation menu
             KLog.d(TAG, "startPreview: done — glRunning=${stream.getGlInterface().isRunning}")
             scheduleVideoSourceRetryIfNeeded(stream)
         } catch (e: Exception) {
@@ -257,6 +292,7 @@ class RtmpStreamer @Inject constructor(
                 KLog.d(TAG, "GL ready after ${waited}ms — re-triggering VideoSource")
                 try {
                     stream.changeVideoSource(src)
+                    applyVideoRotation()  // re-apply manual rotation once GL is up
                 } catch (e: Exception) {
                     KLog.e(TAG, "Failed to re-trigger VideoSource after GL ready", e)
                 }
@@ -300,6 +336,7 @@ class RtmpStreamer @Inject constructor(
                 try {
                     stream.startPreview(tv)
                     gl.setAspectRatioMode(AspectRatioMode.Adjust)
+                    applyVideoRotation()  // keep manual rotation after stream-start preview re-attach
                     KLog.d(TAG, "schedulePreviewRestoreAfterStream: live preview attached during streaming (tv=${tv.width}x${tv.height})")
                 } catch (e: Exception) {
                     KLog.e(TAG, "schedulePreviewRestoreAfterStream: failed to attach preview", e)
@@ -372,10 +409,10 @@ class RtmpStreamer @Inject constructor(
             // Fix Bug A (stream rotated 90° CCW + stretched): prepareVideo(rotation=0) internally
             // calls glInterface.setCameraOrientation(270), which rotates the camera input texture
             // 270° (= 90° CCW). That's correct for phone camera sensors (mounted at 90°) but WRONG
-            // for a USB webcam, which already outputs an upright landscape frame. Override back to 0
-            // so the 16:9 camera feed fills the 1920x1080 encoder with no rotation and no stretch.
-            stream.getGlInterface().setCameraOrientation(0)
-            KLog.d(TAG, "startStream: camera orientation reset to 0 (USB webcam is already upright)")
+            // for a USB webcam, which already outputs an upright landscape frame. Override back to
+            // the user's chosen rotation (default 0) so the 16:9 feed fills the encoder correctly.
+            applyVideoRotation()
+            KLog.d(TAG, "startStream: camera orientation set to ${_videoRotation.value}° (USB webcam base is upright)")
 
             val audioPrepared = stream.prepareAudio(44100, true, 128_000)
             KLog.d(TAG, "startStream: prepareAudio → $audioPrepared (44100Hz stereo 128kbps)")
@@ -446,9 +483,9 @@ class RtmpStreamer @Inject constructor(
             // changeVideoSource: stops/releases the dead camera source and starts this one on the
             // live GL SurfaceTexture, inited with the encoder's dimensions.
             stream.changeVideoSource(src)
-            // changeVideoSource re-applies the encoder rotation to the source; keep input upright
-            // (same fix as Bug 02 A — USB/standby frame is already landscape, no 270° rotation).
-            stream.getGlInterface().setCameraOrientation(0)
+            // changeVideoSource re-applies the encoder rotation to the source; restore the user's
+            // chosen rotation (same fix as Bug 02 A — base is upright, no implicit 270°).
+            applyVideoRotation()
             currentVideoSource = src
             inStandby = true
             KLog.i(TAG, "Entered standby — placeholder frame now feeding the stream")
@@ -470,7 +507,7 @@ class RtmpStreamer @Inject constructor(
         }
         try {
             stream.changeVideoSource(source)
-            stream.getGlInterface().setCameraOrientation(0)
+            applyVideoRotation()
             currentVideoSource = source
             inStandby = false
             KLog.i(TAG, "Exited standby — live camera restored into the stream")
