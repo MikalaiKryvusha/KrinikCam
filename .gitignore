@@ -51,3 +51,6 @@ README.pdf
 
 # Release APKs (built to root by tools/release.mjs, uploaded as GH asset)
 *.apk
+
+# Kotlin compiler session cache
+.kotlin/
