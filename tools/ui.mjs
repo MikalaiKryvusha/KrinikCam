@@ -31,9 +31,13 @@
  */
 
 import { execSync, execFileSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, statSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, isAbsolute } from 'path';
+
+// JPEG quality for screenshots — full resolution kept, just compressed so the image is light
+// for AI analysis (Krinik: don't downscale, compress to 80%).
+const SCREENSHOT_JPEG_QUALITY = 80;
 
 // ── ADB device detection ────────────────────────────────────────────────────
 
@@ -53,6 +57,76 @@ const ADB_DEVICE = process.env.ADB_DEVICE || (() => {
 function adb(...args) {
   const deviceFlag = ADB_DEVICE ? ['-s', ADB_DEVICE] : [];
   return execSync(['adb', ...deviceFlag, ...args].join(' '), { encoding: 'utf8' });
+}
+
+// ── App package + lifecycle helpers (free the USB camera between builds) ──────
+const PKG_DEBUG     = 'com.kriniks.kcam.debug';   // debug build
+const PKG_RELEASE   = 'com.kriniks.kcam';         // release build
+const MAIN_ACTIVITY = 'com.kriniks.kcam.MainActivity';
+
+/** Resolve a package alias ("debug"/"release"/"both") → list of full package names. */
+function resolvePkgs(arg) {
+  if (!arg || /^(both|all)$/i.test(arg)) return [PKG_DEBUG, PKG_RELEASE];
+  if (/^debug$/i.test(arg))   return [PKG_DEBUG];
+  if (/^release$/i.test(arg)) return [PKG_RELEASE];
+  return [arg];  // treat as a literal package name
+}
+
+/** Synchronous sleep (no deps) — wait for the next dialog to appear / app to launch. */
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// ── System permission / USB dialog approval ──────────────────────────────────
+// Camera/microphone runtime permission dialogs and the USB "Allow access?" dialog are drawn by
+// OTHER packages (permissioncontroller / systemui), so in-app FAB automation can't reach them.
+// `allow` detects such a dialog and taps its positive button — letting the agent grant access
+// autonomously instead of calling Krinik to the device.
+
+// Approve-button resource-ids, in PREFERENCE order. Foreground-only first (persistent grant for
+// camera/mic), then plain allow, then the generic positive dialog button (android:id/button1 —
+// used by the USB access dialog). One-time is last (least persistent).
+const APPROVE_IDS = [
+  'permission_allow_foreground_only_button',
+  'permission_allow_button',
+  'permission_allow_always_button',
+  'button1',
+  'permission_allow_one_time_button',
+];
+// Same set, but one-time preferred — for `allow --once`.
+const APPROVE_IDS_ONCE = [
+  'permission_allow_one_time_button',
+  'permission_allow_foreground_only_button',
+  'permission_allow_button',
+  'button1',
+];
+// Text fallbacks (RU/EN) when resource-ids aren't present.
+const APPROVE_TEXT = /^(allow|allow only while using the app|while using the app|ok|разрешить|разрешать|ок|при использовании приложения)$/i;
+const DENY_TEXT    = /(deny|don.?t allow|запретить|не разрешать|отклонить)/i;
+// "Use by default for this USB device" / "always" checkbox — ticking it stops the same USB
+// camera from re-prompting on every reconnect (also helps Bug 3 / interview #004).
+const ALWAYS_TEXT  = /use by default|always|по умолчанию|всегда/i;
+
+/** True if the current screen looks like a system permission / USB access dialog. */
+function isPermissionContext(nodes) {
+  return nodes.some(n =>
+    /permissioncontroller|packageinstaller|systemui|:id\/(permission_|button1)/i.test(n.id) ||
+    /\b(camera|microphone|record audio|usb|access|разреш|доступ|камер|микрофон)\b/i.test(`${n.text} ${n.desc}`)
+  );
+}
+
+/** Pick the approve-button node: by resource-id priority first, then a text fallback. */
+function findApproveButton(nodes, preferOnce = false) {
+  const ids = preferOnce ? APPROVE_IDS_ONCE : APPROVE_IDS;
+  for (const id of ids) {
+    const n = nodes.find(x => x.enabled && x.id.toLowerCase().endsWith(id.toLowerCase()));
+    if (n) return n;
+  }
+  return nodes.find(x =>
+    x.enabled &&
+    (APPROVE_TEXT.test(x.text.trim()) || APPROVE_TEXT.test(x.desc.trim())) &&
+    !DENY_TEXT.test(`${x.text} ${x.desc}`)
+  ) || null;
 }
 
 // ── UIAutomator dump ─────────────────────────────────────────────────────────
@@ -77,7 +151,9 @@ function dumpUi() {
  * Each node has: text, desc, id, cls, bounds, center, clickable, focusable, enabled
  */
 function parseNodes(xml) {
-  const nodeRegex = /<node\s([^>]+?)\/>/g;
+  // Match BOTH leaf nodes (<node .../>) and container open tags (<node ...>) so buttons that
+  // sit inside nested containers (e.g. system permission dialogs) are also captured.
+  const nodeRegex = /<node\s([^>]*?)\/?>/g;
   const attrRegex = /(\w[\w-]*)="([^"]*)"/g;
   const nodes = [];
 
@@ -177,6 +253,22 @@ switch (cmd) {
     break;
   }
 
+  case 'screen': {
+    // Capture a screenshot as a COMPRESSED JPEG (full resolution kept, quality 80) so the image
+    // is light for AI vision analysis. Uses the `sharp` library (no native CLI dependency).
+    const outArg = rest[0] || 'tools/adb_screen.jpg';
+    const out = isAbsolute(outArg) ? outArg : join(process.cwd(), outArg);
+    const deviceFlag = ADB_DEVICE ? ['-s', ADB_DEVICE] : [];
+    // Raw PNG bytes from the device — binary, so bypass the utf8 adb() helper.
+    const png = execFileSync('adb', [...deviceFlag, 'exec-out', 'screencap', '-p'],
+      { maxBuffer: 128 * 1024 * 1024 });
+    const sharp = (await import('sharp')).default;
+    const info = await sharp(png).jpeg({ quality: SCREENSHOT_JPEG_QUALITY }).toFile(out);
+    const kb = (statSync(out).size / 1024).toFixed(0);
+    console.log(`✓ screenshot → ${out}  (${info.width}x${info.height}, JPEG q${SCREENSHOT_JPEG_QUALITY}, ${kb} KB)`);
+    break;
+  }
+
   case 'find': {
     if (!rest[0]) { console.error('Usage: ui.mjs find <query>'); process.exit(1); }
     const query = rest.join(' ');
@@ -231,6 +323,71 @@ switch (cmd) {
     break;
   }
 
+  case 'allow': {
+    // Approve visible system permission / USB dialogs. Loops to handle a chain of dialogs
+    // (e.g. camera → microphone → USB) — re-dumps after each tap until none remain.
+    // `--once` prefers the "Only this time" button over the persistent grant.
+    const preferOnce = rest.includes('--once');
+    const MAX_ROUNDS = 6;
+    let approved = 0;
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      const nodes = parseNodes(dumpUi());
+      if (!isPermissionContext(nodes)) {
+        if (round === 0) console.log('ℹ️  No system permission / USB dialog on screen.');
+        break;
+      }
+      // Tick "use by default for this USB device" / "always" so reconnects don't re-prompt.
+      const always = nodes.find(n =>
+        ALWAYS_TEXT.test(`${n.text} ${n.desc}`) && !n.checked &&
+        (n.clickable || n.cls.includes('CheckBox')));
+      if (always) {
+        adb('shell', 'input', 'tap', String(always.center.x), String(always.center.y));
+        console.log(`☑️  Ticked "${(always.text || always.desc).trim()}"`);
+        sleep(300);
+      }
+      const btn = findApproveButton(parseNodes(dumpUi()), preferOnce);
+      if (!btn) {
+        console.log('⚠️  Dialog detected but no approve button found — run `dump` to inspect.');
+        break;
+      }
+      console.log(`✅ Approving: ${label(btn)}  at (${btn.center.x},${btn.center.y})`);
+      adb('shell', 'input', 'tap', String(btn.center.x), String(btn.center.y));
+      approved++;
+      sleep(900);  // let the next dialog appear, or the current one dismiss
+    }
+    console.log(approved ? `✔ Approved ${approved} dialog(s).` : 'Nothing approved.');
+    break;
+  }
+
+  case 'kill': {
+    // Force-stop app(s). Default: BOTH builds — frees the USB camera one build is holding so
+    // the other can open it (dev ↔ release).
+    const pkgs = resolvePkgs(rest[0]);
+    for (const p of pkgs) {
+      adb('shell', 'am', 'force-stop', p);
+      console.log(`✓ force-stopped ${p}`);
+    }
+    console.log('📷 camera released');
+    break;
+  }
+
+  case 'start': {
+    const [p] = resolvePkgs(rest[0] || 'debug');
+    adb('shell', 'am', 'start', '-n', `${p}/${MAIN_ACTIVITY}`);
+    console.log(`✓ started ${p}`);
+    break;
+  }
+
+  case 'restart': {
+    // Free the camera then relaunch — handy after reinstall, or to recover a stuck camera.
+    const [p] = resolvePkgs(rest[0] || 'debug');
+    adb('shell', 'am', 'force-stop', p);
+    sleep(600);
+    adb('shell', 'am', 'start', '-n', `${p}/${MAIN_ACTIVITY}`);
+    console.log(`✓ restarted ${p}`);
+    break;
+  }
+
   default: {
     console.log(`
 KrinikCam UI Automation Tool
@@ -240,14 +397,18 @@ Usage:
   node tools/ui.mjs tap  <query>      — find and tap first matching element
   node tools/ui.mjs tap-all <query>   — list all matches and tap first
   node tools/ui.mjs dump-xml          — print raw UIAutomator XML
+  node tools/ui.mjs screen [out.jpg]  — screenshot → compressed JPEG (full res, q80, light for AI)
+  node tools/ui.mjs allow [--once]    — approve system permission / USB access dialog(s)
+  node tools/ui.mjs kill [debug|release|both]   — force-stop app(s), free the camera (default: both)
+  node tools/ui.mjs start [debug|release]       — launch app (default: debug)
+  node tools/ui.mjs restart [debug|release]     — force-stop + relaunch (default: debug)
 
 Examples:
   node tools/ui.mjs dump
-  node tools/ui.mjs tap "menu"
   node tools/ui.mjs tap "go live"
-  node tools/ui.mjs tap "platforms"
-  node tools/ui.mjs find "live"
-  node tools/ui.mjs tap "settings"
+  node tools/ui.mjs allow              # grant camera/mic/USB without bothering Krinik
+  node tools/ui.mjs kill both          # release the camera between dev/release
+  node tools/ui.mjs restart release    # relaunch the release build
 `);
   }
 }

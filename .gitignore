@@ -54,3 +54,6 @@ README.pdf
 
 # Kotlin compiler session cache
 .kotlin/
+
+# Transient debug screenshots (tools/adb.mjs|ui.mjs screen)
+tools/adb_screen.*
