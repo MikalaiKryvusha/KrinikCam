@@ -1,3 +1,7 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -19,6 +23,10 @@ fun readVersion(): Triple<Int, Int, Int> {
 
 val (vMajor, vMinor, vBuild) = readVersion()
 
+// Build timestamp (computed at configuration time) — baked into BuildConfig.BUILD_TIME and shown
+// in Settings → About. Refreshes whenever version.json changes (every commit/release bumps it).
+val buildTime: String = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())
+
 android {
     namespace = "com.kriniks.kcam"
     compileSdk = 35
@@ -31,6 +39,10 @@ android {
         // ensures monotonic increase across all version bumps
         versionCode = vMajor * 10000 + vMinor * 100 + vBuild + 1
         versionName = "$vMajor.$vMinor ($vBuild)"
+
+        // BUILD_TIME (see top-level `buildTime`) — shown in Settings → About so the user and bug
+        // reports can see exactly which build is running.
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
