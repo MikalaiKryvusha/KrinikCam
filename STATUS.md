@@ -59,6 +59,15 @@
 Превью ✅ · RTMP-стрим ✅ (~5 Mbps стабильно) · ориентация ✅ · превью после стрима ✅ · без крашей ✅
 · **standby-кадр при отключении камеры ✅** (Phase 2 P2, подтверждено на устройстве 2026-06-28)
 
+**Сделано в сессии 2026-06-28 (поздний вечер) — текущая:**
+- **Bug 06** — «Build Error» в статус-баре VS Code ✅ закрыт. Причина: VS Code/Buildship гонял Gradle
+  на встроенной Java 21 и не находил JDK 17 для `jvmToolchain(17)`. Фикс: `~/.gradle/gradle.properties`
+  → `org.gradle.java.installations.paths` = Android Studio JBR (Java 17). Подтверждено Криником
+  (ошибка в статус-баре исчезла). Пост-мортем: `bugs/06_gradle_vs_code_warnings.md`.
+- **UX: кнопка ре-запроса разрешений** ✅ — секция «Permissions» в `SettingsScreen.kt`: живой статус
+  Camera/Mic, умный тап (askable → системный диалог; навсегда запрещено/всё выдано → App Info через
+  `ACTION_APPLICATION_DETAILS_SETTINGS`). Проверено на устройстве: обе ветки + ре-грант микрофона.
+
 **Сделано в сессии 2026-06-28 (вечер):**
 - Phase 2 P2 «Please stand by» кадр в RTMP — реализован и подтверждён живым тестом (2 цикла
   отключения/подключения USB во время стрима, поток не оборвался). Файлы: `StandbyFrameRenderer.kt`,
@@ -105,6 +114,16 @@
 - 04.3 Поля Width/Height/FPS пустые в ландшафте (вертикальный клиппинг → `verticalScroll`).
 - Все три проверены на устройстве через ui.mjs + скриншоты.
 
+**Bug 06 — «Build Error» в статус-баре VS Code** ✅ ИСПРАВЛЕН (2026-06-28) — `bugs/06_gradle_vs_code_warnings.md`
+- Root cause: Gradle/Java-расширение VS Code запускало Gradle на встроенной Java 21 и не находило
+  JDK 17 для `jvmToolchain(17)` → таск `:app:compileDebugAndroidTestJavaWithJavac` не конфигурировался.
+  CLI-сборка не страдала (там `JAVA_HOME` = JBR 17).
+- Фикс: `~/.gradle/gradle.properties` → `org.gradle.java.installations.paths` = Android Studio JBR
+  (Java 17). Делает JDK 17 видимым для авто-детекта toolchain у любого Gradle (даже демона IDE на
+  Java 21). `.vscode/settings.json` (`java.import.gradle.java.home`) НЕ помог — Buildship его игнорит.
+  Проверено: падавший таск конфигурируется даже на Java 21. После Reload Window `Build Error` в
+  статус-баре исчез — подтверждено Криником 2026-06-28. ✅
+
 **Релиз v0.3** ✅ ОПУБЛИКОВАН (2026-06-28) — https://github.com/MikalaiKryvusha/KrinikCam/releases/tag/v0.3
 - Latest, с APK `KrinikCam-v0.3.apk`. Включает: standby-кадр, UX-фиксы, Bug 04, Bug 05.
 - version.json теперь {0,3,0}. Следующий релиз: `node tools/release.mjs` даст v0.4 (Phase 3+).
@@ -124,7 +143,10 @@
    - ✅ Dropdown платформ — контраст цветов (2026-06-28) — `DropdownSurface` 0xFF3A3A3A в `StreamPlatformsOverlay`
    - USB permission "запомнить" (`PendingIntent` с флагом) — см. интервью #004
    - Задержка перед standby (5 сек буфер + fade) — см. интервью #004
-   - Кнопка "повторно запросить разрешения" в Settings
+   - ✅ Кнопка "повторно запросить разрешения" в Settings (2026-06-28) — секция Permissions в
+     `SettingsScreen.kt`: живой статус Camera/Mic, умный тап (askable → системный диалог; навсегда
+     запрещено/всё выдано → App Info через ACTION_APPLICATION_DETAILS_SETTINGS). Проверено на
+     устройстве (обе ветки + ре-грант микрофона).
 
 Графика приложения ещё не создана:
 - [ ] App icon (`ic_launcher.svg` → mipmap-*)
@@ -168,7 +190,7 @@
 - FAB не закрывается тапом снаружи
 - Dropdown платформ плохой контраст (цвет похож на фон)
 - Задержку перед standby при отключении камеры (5 сек буфер + плавный fade)
-- Кнопка "повторно запросить разрешения" в Settings (если запрещены в ОС)
+- ✅ Кнопка "повторно запросить разрешения" в Settings (если запрещены в ОС) — сделано 2026-06-28
 - Горячая кнопка поворота видео в real-time
 
 ---
