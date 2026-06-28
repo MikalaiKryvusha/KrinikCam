@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  USB device filter for UVC webcams (Bug 09).
+
+  Used by MainActivity's USB_DEVICE_ATTACHED intent-filter + meta-data. Matching a device here
+  enables Android's persistent "use by default for this USB device" grant — so the camera-access
+  dialog is shown at most once, then auto-granted on every hot replug.
+
+  Match is at the USB DEVICE descriptor level (not interface):
+    • class 239 / subclass 2  = Miscellaneous / Interface Association (IAD) composite — how the
+      EMEET Piko+ and most modern UVC webcams enumerate (video interfaces are class 14 inside).
+    • class 14 (Video)        = cameras that expose the video class at the device level.
+  Broad enough to cover "any UVC webcam" (interview #004 decision), narrow enough to ignore
+  hubs / ethernet adapters (e.g. the Realtek class 0/255 device on this tablet).
+-->
+<resources>
+    <usb-device class="239" subclass="2" />
+    <usb-device class="14" />
+</resources>

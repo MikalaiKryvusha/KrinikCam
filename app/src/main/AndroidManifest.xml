@@ -52,11 +52,29 @@
             android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="fullSensor"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask"><!--
+                Bug 09 (fix #2): without singleTask, the USB_DEVICE_ATTACHED intent-filter spawns a
+                NEW MainActivity instance on every camera attach (default launchMode = standard).
+                Each instance re-started USB monitoring → re-enumerated → re-requested permission,
+                cascading into dozens of stacked permission dialogs. singleTask keeps ONE instance;
+                the attach intent is delivered to it via onNewIntent instead of stacking. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- USB device attach (Bug 09): registering this filter makes Android show the
+                 "Use by default for this USB device" checkbox in the permission dialog and,
+                 once ticked, AUTO-GRANTS access on every future attach without re-prompting.
+                 This is what stops the "Grant camera access" dialog reappearing on hot replug.
+                 device_filter matches UVC webcams (Misc/IAD composite, class 239/2). -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
 
     </application>

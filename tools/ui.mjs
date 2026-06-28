@@ -412,6 +412,35 @@ switch (cmd) {
     break;
   }
 
+  case 'swipe': {
+    // Swipe gesture for scrolling screens (Bug 08 — Settings didn't scroll in landscape).
+    // Direction = finger travel direction: `up` drags the content up (reveals rows below),
+    // `down` reveals rows above; `left`/`right` for horizontal. Coordinates are derived from
+    // the CURRENT screen rect (via a dump) so they stay correct in either orientation.
+    const dir = (rest[0] || 'up').toLowerCase();
+    const frac = rest[1] ? parseFloat(rest[1]) : 0.6;  // fraction of screen the finger travels
+    const ms = rest[2] ? parseInt(rest[2], 10) : 300;  // gesture duration (ms)
+    const nodes = parseNodes(dumpUi());
+    const w = Math.max(0, ...nodes.map(n => n.bounds.x2));
+    const h = Math.max(0, ...nodes.map(n => n.bounds.y2));
+    const cx = Math.round(w / 2), cy = Math.round(h / 2);
+    const dx = Math.round((w * frac) / 2), dy = Math.round((h * frac) / 2);
+    let x1, y1, x2, y2;
+    switch (dir) {
+      case 'up':    x1 = cx; y1 = cy + dy; x2 = cx; y2 = cy - dy; break;
+      case 'down':  x1 = cx; y1 = cy - dy; x2 = cx; y2 = cy + dy; break;
+      case 'left':  x1 = cx + dx; y1 = cy; x2 = cx - dx; y2 = cy; break;
+      case 'right': x1 = cx - dx; y1 = cy; x2 = cx + dx; y2 = cy; break;
+      default:
+        console.error('Usage: ui.mjs swipe <up|down|left|right> [fraction] [ms]');
+        process.exit(1);
+    }
+    console.log(`🖐  swipe ${dir} on ${w}x${h}: (${x1},${y1})→(${x2},${y2}) over ${ms}ms`);
+    adb('shell', 'input', 'swipe', String(x1), String(y1), String(x2), String(y2), String(ms));
+    console.log('✅ swipe sent');
+    break;
+  }
+
   case 'allow': {
     // Approve visible system permission / USB dialogs. Loops to handle a chain of dialogs
     // (e.g. camera → microphone → USB) — re-dumps after each tap until none remain.
@@ -477,6 +506,50 @@ switch (cmd) {
     break;
   }
 
+  case 'orient': {
+    // Rotate the app's orientation over ADB so the agent can test orientation-dependent UI without
+    // physically turning the tablet.
+    //
+    // KrinikCam's MainActivity is screenOrientation="fullSensor" → it follows the PHYSICAL sensor
+    // and IGNORES the system rotation lock (settings user_rotation). So we force orientation via a
+    // debug-only broadcast the app listens for (MainActivity.registerDebugOrientationReceiver),
+    // which sets requestedOrientation at runtime — overriding fullSensor regardless of the sensor.
+    // We ALSO set the system rotation so Home/Settings (non-fixed UI) rotate too.
+    //   orient auto                              — restore fullSensor (follows the physical device)
+    //   orient portrait | landscape              — force the app to that orientation
+    //   orient reverseportrait | reverselandscape — force the flipped variant
+    const arg = (rest[0] || 'auto').toLowerCase();
+    const pkg = resolvePkgs(rest[1] || 'debug')[0];
+    // Read current display dimensions from the screencap PNG header (w@16, h@20, big-endian).
+    const screenDims = () => {
+      const flag = ADB_DEVICE ? ['-s', ADB_DEVICE] : [];
+      const png = execFileSync('adb', [...flag, 'exec-out', 'screencap', '-p'],
+        { maxBuffer: 128 * 1024 * 1024 });
+      return { w: png.readUInt32BE(16), h: png.readUInt32BE(20) };
+    };
+    // Tell the app to force this orientation (debug receiver → requestedOrientation).
+    const forceApp = (mode) => adb('shell', 'am', 'broadcast',
+      '-a', 'com.kriniks.kcam.SET_ORIENTATION', '--es', 'mode', mode, '-p', pkg);
+
+    const MODES = {
+      portrait: 'portrait', landscape: 'landscape',
+      reverseportrait: 'reversePortrait', reverselandscape: 'reverseLandscape',
+      auto: 'auto',
+    };
+    if (arg in MODES) {
+      forceApp(MODES[arg]);
+      // Keep system UI in sync too (auto re-enables accelerometer; others lock it off).
+      adb('shell', 'settings', 'put', 'system', 'accelerometer_rotation', arg === 'auto' ? '1' : '0');
+      sleep(1500);
+      const { w, h } = screenDims();
+      console.log(`✓ app orientation → ${MODES[arg]} (screen ${w}x${h}, ${w > h ? 'landscape' : 'portrait'})`);
+    } else {
+      console.error('Usage: ui.mjs orient <auto|portrait|landscape|reverseportrait|reverselandscape> [debug|release]');
+      process.exit(1);
+    }
+    break;
+  }
+
   case 'anim': {
     // Toggle device animations. OFF (default) lets uiautomator dump reach idle on animated
     // screens; ON restores normal animations for the user.
@@ -494,6 +567,7 @@ Usage:
   node tools/ui.mjs find <query>      — find element(s) by text / content-desc / resource-id
   node tools/ui.mjs tap  <query>      — find and tap first matching element
   node tools/ui.mjs tap-all <query>   — list all matches and tap first
+  node tools/ui.mjs swipe <up|down|left|right> [fraction] [ms]  — swipe gesture (scroll screens)
   node tools/ui.mjs dump-xml          — print raw UIAutomator XML
   node tools/ui.mjs screen [out.jpg]  — screenshot → compressed JPEG (full res, q80, light for AI)
   node tools/ui.mjs allow [--once]    — approve system permission / USB access dialog(s)
@@ -501,6 +575,7 @@ Usage:
   node tools/ui.mjs start [debug|release]       — launch app (default: debug)
   node tools/ui.mjs restart [debug|release]     — force-stop + relaunch (default: debug)
   node tools/ui.mjs anim [on|off]               — toggle device animations (off lets dump reach idle)
+  node tools/ui.mjs orient <auto|portrait|landscape|reverseportrait|reverselandscape>  — force app orientation over ADB (debug receiver)
 
 Examples:
   node tools/ui.mjs dump

@@ -163,6 +163,8 @@ export JAVA_HOME="..." && node tools/build.mjs --no-ui 2>&1 | grep "^e:"
 | `node tools/ui.mjs dump` | **ПРИОРИТЕТНЫЙ** — dump DOM-иерархии с точными координатами элементов |
 | `node tools/ui.mjs tap <query>` | найти элемент по тексту и тапнуть (без скриншота!) |
 | `node tools/ui.mjs find <query>` | найти все элементы, совпадающие с query |
+| `node tools/ui.mjs swipe <up\|down\|left\|right> [frac] [ms]` | жест свайпа для прокрутки экранов (ориентационно-корректный) |
+| `node tools/ui.mjs orient <auto\|portrait\|landscape\|0..3>` | вращать/фиксировать ориентацию девайса по ADB (для теста ориентаций без рук) |
 | `node tools/ui.mjs allow [--once]` | **сам одобрить** системный диалог разрешений (CAMERA/микрофон/USB) — без Криника |
 | `node tools/ui.mjs kill [debug\|release\|both]` | force-stop сборок; по умолчанию обе → освобождает камеру |
 | `node tools/ui.mjs start\|restart [debug\|release]` | запуск/перезапуск нужной сборки |

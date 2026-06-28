@@ -71,13 +71,22 @@ class RtmpStreamer @Inject constructor(
     @Volatile private var inStandby = false
     private var standbyBitmap: Bitmap? = null
 
-    // Manual video rotation in degrees (0/90/180/270). Applied to the GL camera input via
-    // setCameraOrientation, so it rotates BOTH the on-screen preview and the encoded stream.
-    // Default 0 — a USB webcam already outputs an upright landscape frame (see Bug 02 A). The
-    // hot rotation button (MainScreen, top-right) cycles this; we re-apply it on every GL
+    // Manual video rotation in degrees (0/90/180/270). Two effects, applied together (Bug/Idea 06):
+    //   1. setCameraOrientation(deg) rotates the GL camera-input texture (preview + encoder).
+    //   2. The encoder/GL canvas is RESIZED to the rotated aspect: 0/180 → landscape (e.g. 1920×1080),
+    //      90/270 → portrait (1080×1920). So the OUTGOING stream is a true 9:16 portrait, not a
+    //      letterboxed landscape. For vertical Reels/Shorts streams + future local file recording.
+    // Default 0 — a USB webcam already outputs an upright landscape frame (see Bug 02 A).
+    // Rotation can only be changed while NOT streaming (research: changing resolution on a live RTMP
+    // connection breaks YouTube — see plans/ideas/06_video_rotation.md). Re-applied on every GL
     // (re)init so the chosen angle survives preview restarts, stream start, and standby swaps.
     private val _videoRotation = MutableStateFlow(0)
     val videoRotation: StateFlow<Int> = _videoRotation.asStateFlow()
+
+    // Base (landscape-reference) encoder size used for the live preview before a stream profile is
+    // applied. rotatedDims() swaps it to portrait for 90/270.
+    private val basePreviewWidth = 1920
+    private val basePreviewHeight = 1080
 
     // Singleton lives for app lifetime — scope is appropriate here.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -182,25 +191,60 @@ class RtmpStreamer @Inject constructor(
     fun clearVideoSource() = setVideoSource(NoVideoSource())
 
     /**
-     * Set the manual video rotation to [degrees] (normalized to 0/90/180/270) and apply it
-     * live. Affects both preview and the encoded stream because setCameraOrientation rotates
-     * the shared camera-input texture. Called from the rotation menu (MainScreen).
+     * Set the manual video rotation to [degrees] (normalized to 0/90/180/270).
+     *
+     * BLOCKED while streaming / during stream setup: changing the encoder resolution on a live
+     * RTMP connection breaks YouTube (see research in plans/ideas/06_video_rotation.md). The UI
+     * also disables the rotation control during a live stream; this is the safety net. To rotate:
+     * stop the stream → rotate → start again.
+     *
+     * When idle: stores the angle, then restarts the preview so the GL/encoder canvas is rebuilt
+     * at the rotated aspect (portrait for 90/270) and the camera input is rotated to fill it.
+     *
+     * @return true if the rotation was applied, false if blocked (streaming) or unchanged.
      */
-    fun setVideoRotation(degrees: Int) {
+    fun setVideoRotation(degrees: Int): Boolean {
+        if (rtmpStream?.isStreaming == true || isStreamSetupInProgress) {
+            KLog.w(TAG, "setVideoRotation: blocked — cannot change rotation while streaming")
+            return false
+        }
         val normalized = ((degrees % 360) + 360) % 360
+        if (normalized == _videoRotation.value) return false
         _videoRotation.value = normalized
-        applyVideoRotation()
         KLog.i(TAG, "Video rotation set to $normalized°")
+        // Preview display rotation is handled by the TextureView matrix (UvcPreviewView reacts to
+        // the videoRotation StateFlow). Here we only sync the stream rotation on the GL interface.
+        applyVideoRotation()
+        return true
     }
 
     /**
-     * Re-apply the stored rotation to the GL pipeline. Safe whenever the GL interface exists;
-     * a no-op (caught) before GL is up. Called after every GL (re)init so the chosen angle
-     * persists across preview restarts, stream start, and standby swaps.
+     * Re-apply the rotation to the GL pipeline (Idea 06). The GL scene is SHARED by preview and
+     * encoder, so we rotate it only while STREAMING; in preview-only mode the on-screen rotation is
+     * done by the TextureView matrix in UvcPreviewView (display-only) and the GL stays upright.
+     *
+     *   • Streaming → setCameraOrientation(deg): rotates the camera INTO the portrait encoder canvas
+     *     (set via prepareVideo's swapped dims), so the rotated 16:9 frame fills 9:16 — a true
+     *     portrait stream (not stretched, not squished).
+     *   • Preview-only → setCameraOrientation(0): GL upright; the TextureView matrix letterboxes the
+     *     display rotation. (During a portrait stream the device preview follows the GL rotation;
+     *     that's fine — rotation is locked mid-stream and the user watches the stream output.)
+     *
+     * Safe before GL is up (caught). Called after every GL (re)init so the angle persists.
      */
     private fun applyVideoRotation() {
         try {
-            rtmpStream?.getGlInterface()?.setCameraOrientation(_videoRotation.value)
+            val gl = rtmpStream?.getGlInterface() ?: return
+            val streaming = rtmpStream?.isStreaming == true || isStreamSetupInProgress
+            when {
+                // Preview-only: GL upright, TextureView matrix does the display rotation.
+                !streaming -> gl.setCameraOrientation(0)
+                // Streaming at 0°: Bug 02 A — prepareVideo(0) wrongly sets 270 for the USB cam, force 0.
+                _videoRotation.value == 0 -> gl.setCameraOrientation(0)
+                // Streaming at 90/270: the rotation is baked into prepareVideo(rotation=) — do NOT
+                // touch setCameraOrientation here or we'd undo it.
+                else -> { /* leave prepareVideo's rotation in place */ }
+            }
         } catch (e: Exception) {
             KLog.e(TAG, "applyVideoRotation failed", e)
         }
@@ -250,11 +294,16 @@ class RtmpStreamer @Inject constructor(
             // encoderWidth/Height are 0 until prepareVideo() is called, which makes initGl crash.
             // The crash is swallowed silently by secureSubmit → running.set(true) never fires.
             // Fix: set non-zero encoder size directly so GL can init before Go Live is pressed.
-            // prepareVideo() will overwrite this with actual profile dimensions on stream start.
+            //
+            // PREVIEW keeps the LANDSCAPE canvas (1920×1080) regardless of rotation (Idea 06):
+            // setCameraOrientation rotates the camera input, and AspectRatioMode.Adjust letterboxes
+            // the rotated frame as a centered vertical strip (same working path as Bug 03) — no
+            // distortion. The PORTRAIT 9:16 aspect is applied only to the OUTGOING stream, in
+            // prepareVideo() at startStream (where the encoder canvas swaps to 1080×1920).
             val glSize = stream.getGlInterface().encoderSize
             if (glSize.x == 0 || glSize.y == 0) {
-                KLog.d(TAG, "startPreview: encoderSize=0 — setting 1920x1080 default so GL can init")
-                stream.getGlInterface().setEncoderSize(1920, 1080)
+                KLog.d(TAG, "startPreview: encoderSize=0 — setting ${basePreviewWidth}x${basePreviewHeight} default so GL can init")
+                stream.getGlInterface().setEncoderSize(basePreviewWidth, basePreviewHeight)
             }
             stream.startPreview(tv)
             stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust)
@@ -397,22 +446,33 @@ class RtmpStreamer @Inject constructor(
             // video encoder with bitrate=30 bps and fps=4_000_000 → encoder produced an empty
             // video track → YouTube received audio only (~132 kbps) → Broken Pipe after 15s.
             // iFrameInterval=2 → 2-second GOP, which YouTube expects.
+            // Idea 06 portrait stream — use RootEncoder's INTENDED portrait mechanism: pass the
+            // SOURCE landscape dims + the rotation as prepareVideo's 6th param. The library then
+            // rotates AND sets the output to portrait (1080×1920 for 90/270) with aspect preserved.
+            // (Manual size-swap squished; setStreamRotation kept 16:9 dims → stretched. The rotation
+            // param is the canonical path — see plans/ideas/06_video_rotation.md.)
+            // Attempt 5: prepareVideo(rotation=90) made the output canvas portrait (good) but rotated
+            // the content the WRONG way (90° CCW) + stretched. RootEncoder's rotation appears opposite
+            // to our convention for this custom UvcVideoSource, so invert: UI 90° → prepareVideo 270.
+            val streamRotation = (360 - _videoRotation.value) % 360
             val videoPrepared = stream.prepareVideo(
                 profile.videoWidth,
                 profile.videoHeight,
                 profile.videoBitrateBps,  // bitrate (3rd param)
                 profile.videoFps,         // fps (4th param)
                 2,                        // iFrameInterval (seconds) — YouTube wants ~2s keyframes
+                streamRotation,           // rotation (6th param), inverted to match our convention
             )
-            KLog.d(TAG, "startStream: prepareVideo → $videoPrepared (${profile.videoWidth}x${profile.videoHeight} ${profile.videoFps}fps ${profile.videoBitrateBps}bps iFrame=2s)")
+            KLog.d(TAG, "startStream: prepareVideo → $videoPrepared (${profile.videoWidth}x${profile.videoHeight} src, uiRot=${_videoRotation.value}° prepareRot=${streamRotation}° ${profile.videoFps}fps iFrame=2s)")
 
             // Fix Bug A (stream rotated 90° CCW + stretched): prepareVideo(rotation=0) internally
             // calls glInterface.setCameraOrientation(270), which rotates the camera input texture
             // 270° (= 90° CCW). That's correct for phone camera sensors (mounted at 90°) but WRONG
             // for a USB webcam, which already outputs an upright landscape frame. Override back to
-            // the user's chosen rotation (default 0) so the 16:9 feed fills the encoder correctly.
+            // the user's chosen rotation: setCameraOrientation(deg) rotates the camera into the
+            // (now portrait, for 90/270) encoder canvas → correct 9:16 stream.
             applyVideoRotation()
-            KLog.d(TAG, "startStream: camera orientation set to ${_videoRotation.value}° (USB webcam base is upright)")
+            KLog.d(TAG, "startStream: stream rotation applied = ${_videoRotation.value}°")
 
             val audioPrepared = stream.prepareAudio(44100, true, 128_000)
             KLog.d(TAG, "startStream: prepareAudio → $audioPrepared (44100Hz stereo 128kbps)")
