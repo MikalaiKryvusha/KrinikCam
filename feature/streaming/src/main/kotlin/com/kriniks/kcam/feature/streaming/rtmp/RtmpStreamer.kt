@@ -573,6 +573,19 @@ class RtmpStreamer @Inject constructor(
                 encW, encH, profile.videoBitrateBps, profile.videoFps, 2,
             )
             stream.getGlInterface().setCameraOrientation(0) // Bug 02 A: keep source upright (no input rot)
+            // Bug 10 — THE missing piece: prepareVideo(rotation=0) sets isPortrait=false, and for a
+            // portrait canvas (w<h) SizeCalculator.calculateViewPortEncoder then LETTERBOXES the
+            // source (viewport 1080×607 centered) → black bars + squished. Force isPortrait to match
+            // the canvas so the viewport is the FULL frame (0,0,1080,1920) → our portrait source
+            // passes through 1:1, no letterbox, no distortion. (Decompiled from SizeCalculator.)
+            stream.getGlInterface().setIsPortrait(portrait)
+            // Restart the source so it re-allocates its producer buffer at the NEW geometry (portrait
+            // for 90/270). Without this the source keeps the landscape buffer from preview → the
+            // rotated frame is clipped/letterboxed (Bug 10 regression). changeVideoSource = stop()+start();
+            // start() reads the outputRotation we just set and sizes the buffer to match the encoder.
+            currentVideoSource?.let {
+                try { stream.changeVideoSource(it) } catch (e: Exception) { KLog.w(TAG, "source rebind failed", e) }
+            }
             val ap = stream.prepareAudio(44100, true, 128_000)
             if (!vp || !ap) {
                 KLog.e(TAG, "startRecordToFile: prepare failed (video=$vp audio=$ap)")
