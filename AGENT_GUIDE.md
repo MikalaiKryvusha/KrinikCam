@@ -197,7 +197,7 @@ Settings → About. Доступен в ЛЮБОЙ сборке (release == debu
 | `node tools/build.mjs --no-ui` | headless сборка |
 | `node tools/graphics/render.mjs --input x.svg --output x.png --width N --height N` | SVG→PNG |
 | `node tools/graphics/batch.mjs --input x.svg --android` | SVG→Android mipmap set |
-| `node tools/ui.mjs cmd <action> [arg]` | **⭐ ТОЛСТАЯ debug-команда (Idea 22), минует UI** — `virtual-camera on\|off`, `stream-to-file on\|off`, `go-live [1080\|2160]`, `stop`, `set-rotation 0\|90\|180\|270`, `add-overlay`, `rotation-mode on\|off`. Надёжно загнать приложение в нужное состояние на харнесе |
+| `node tools/ui.mjs cmd <action> [arg]` | **⭐ ТОЛСТАЯ debug-команда (Idea 22), минует UI** — `virtual-camera on\|off`, `stream-to-file on\|off`, `go-live [1080\|2160]`, `stop`, `set-rotation 0\|90\|180\|270`, `add-overlay`, `device-camera front\|back\|off` (Idea 24, камера устройства), `rotation-mode on\|off`. Надёжно загнать приложение в нужное состояние на харнесе |
 | `node tools/ui.mjs dump` | dump DOM-иерархии с точными координатами (тонкий слой — для проверки самого UI) |
 | `node tools/ui.mjs tap <query>` | найти элемент по тексту и тапнуть (без скриншота!) |
 | `node tools/ui.mjs find <query>` | найти все элементы, совпадающие с query |

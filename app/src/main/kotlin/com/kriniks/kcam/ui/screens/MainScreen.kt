@@ -46,6 +46,8 @@ import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.model.isLive
 import com.kriniks.kcam.feature.streaming.ui.StreamLayersOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
+import androidx.compose.ui.platform.LocalContext
+import com.kriniks.kcam.streaming.DeviceCameraOpener
 import com.kriniks.kcam.streaming.UvcCameraOpener
 import com.kriniks.kcam.streaming.VirtualCameraOpener
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
@@ -72,6 +74,9 @@ fun MainScreen(
     val videoRotation by streamViewModel.videoRotation.collectAsStateWithLifecycle()
     // Idea 19 — текущая сцена (слои) для панели «Слои».
     val scene by streamViewModel.scene.collectAsStateWithLifecycle()
+
+    // Idea 24 — для DeviceCameraOpener (Camera2) нужен Context.
+    val appContext = LocalContext.current
 
     var showPlatformsOverlay by remember { mutableStateOf(false) }
     var showLayersOverlay by remember { mutableStateOf(false) }
@@ -125,6 +130,11 @@ fun MainScreen(
             }
             // Idea 09 — виртуальная дебаг-камера (нет физической): кормим слой тест-паттерном.
             activeSource is VideoSource.Virtual -> streamViewModel.setCameraOpener(VirtualCameraOpener())
+            // Idea 24 — встроенная камера устройства (Camera2) как слой-источник (реальный GL-продюсер).
+            activeSource is VideoSource.PhoneCamera -> {
+                val pc = activeSource as VideoSource.PhoneCamera
+                streamViewModel.setCameraOpener(DeviceCameraOpener(appContext, pc.cameraId))
+            }
             // Нет источника камеры → снять opener (камера-слой станет пустым → видна чёрная база/нижние слои).
             else -> streamViewModel.setCameraOpener(null)
         }
@@ -188,8 +198,16 @@ fun MainScreen(
                 )
             }
             is VideoSource.PhoneCamera -> {
-                StandbyPlaceholder(
-                    message = "Phone camera preview coming soon",
+                // Idea 24 — встроенная камера устройства: тот же GL-превью путь, что UVC/Virtual
+                // (кадры Camera2 идут в слой-камеру через DeviceCameraOpener).
+                UvcPreviewView(
+                    onTextureViewReady = { tv ->
+                        previewTextureView = tv
+                        streamViewModel.startPreviewOnView(tv)
+                    },
+                    onSurfaceTextureSizeChanged = { tv, _, _ -> streamViewModel.startPreviewOnView(tv) },
+                    onSurfaceDestroyed = { streamViewModel.stopPreview() },
+                    rotationDegrees = if (streamState.isActive) 0 else videoRotation,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

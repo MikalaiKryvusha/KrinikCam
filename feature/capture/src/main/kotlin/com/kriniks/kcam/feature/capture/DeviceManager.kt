@@ -79,6 +79,19 @@ class DeviceManager @Inject constructor() {
         _activeVideoSource.value = source
     }
 
+    /**
+     * Idea 24 — выбрать встроенную камеру устройства (фронт/тыл) активным источником. Для автономных
+     * тестов модели слоёв (Idea 21) реальной камерой, когда USB не подключена. null-результат если
+     * камер нужного типа нет.
+     */
+    fun selectPhoneCamera(isFront: Boolean): Boolean {
+        val cam = _phoneCameras.value.firstOrNull { it.isFront == isFront }
+            ?: _phoneCameras.value.firstOrNull() ?: return false
+        KLog.i(TAG, "Select device camera: ${cam.displayName}")
+        _activeVideoSource.value = cam
+        return true
+    }
+
     /** Idea 09 — enable/disable the virtual debug camera (Developer menu). */
     fun setVirtualCamera(enabled: Boolean) {
         if (virtualEnabled == enabled) return

@@ -18,6 +18,7 @@ import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.core.ui.theme.KrinikCamTheme
 import com.kriniks.kcam.dev.DevSettings
 import com.kriniks.kcam.data.profiles.model.StreamProfile
+import com.kriniks.kcam.streaming.DeviceCameraEnumerator
 import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -80,6 +81,9 @@ class MainActivity : ComponentActivity() {
         setAdbRotationEnabled(DevSettings.isAdbRotation(this))
         deviceManager.setVirtualCamera(DevSettings.isVirtualCamera(this))
         streamingRepository.setVirtualStreamToFile(DevSettings.isVirtualStream(this))
+        // Idea 24 — перечислить встроенные камеры устройства (Camera2) и зарегистрировать их как
+        // источники. Приоритет в DeviceManager сам поднимет телефонную камеру, если нет UVC и виртуалки.
+        deviceManager.registerPhoneCameras(DeviceCameraEnumerator.enumerate(this))
         registerVirtualCamControl()
         if (BuildConfig.DEBUG) registerCmdControl() // Idea 22 — broadcast-команды только в debug
     }
@@ -122,6 +126,12 @@ class MainActivity : ComponentActivity() {
                         id = "overlay_cmd_${System.currentTimeMillis()}", name = "Overlay",
                     )
                     "rotation-mode" -> setAdbRotationEnabled(arg == "on")
+                    // Idea 24 — выбрать встроенную камеру устройства как источник (front|back|off).
+                    "device-camera" -> when (arg) {
+                        "front" -> deviceManager.selectPhoneCamera(isFront = true)
+                        "off" -> deviceManager.selectVideoSource(com.kriniks.kcam.feature.capture.model.VideoSource.None)
+                        else -> deviceManager.selectPhoneCamera(isFront = false) // back / default
+                    }
                     else -> KLog.w("MainActivity", "CMD: unknown action '$action'")
                 }
             }
