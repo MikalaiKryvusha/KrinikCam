@@ -277,6 +277,13 @@ plans/ideas/07_developer_menu.md      →  plans/ideas/07_DONE_developer_menu.md
 - Flow/StateFlow — никогда LiveData
 - Никаких magic numbers — константы с понятными именами
 - Цвет бренда: `#FF1A8C` (acid pink)
+- **Локализация (грунт, Idea 14):** USER-FACING UI-текст выносим в `app/src/main/res/values/strings.xml`
+  и используем `stringResource(R.string.x)` (импорт `androidx.compose.ui.res.stringResource` +
+  `com.kriniks.kcam.R`). НЕ выносим: лог-сообщения, `KLog`-теги, технические константы. `stringResource`
+  зовётся только в `@Composable`-скоупе — для строк внутри `onClick`/лямбд резолвь заранее
+  (`val x = stringResource(...)`). Приложение пока English-only; будущие локали = `values-<lang>/`.
+  Конвертированы: SettingsScreen, DevMenuScreen, RotationMenu. Остаток (FAB-меню, MainScreen,
+  feature-модули, длинные dev-инфо-абзацы) — по тому же паттерну при касании этих файлов.
 
 
 ## Руководство от Криника:

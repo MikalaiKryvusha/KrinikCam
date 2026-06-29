@@ -31,9 +31,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kriniks.kcam.R
 
 private val AcidPink = Color(0xFFFF1A8C)
 
@@ -81,9 +83,9 @@ fun RotationMenu(
                 contentColor = Color.White,
             ) {
                 if (!enabled) {
-                    Icon(Icons.Filled.Lock, contentDescription = "Rotation locked (streaming)")
+                    Icon(Icons.Filled.Lock, contentDescription = stringResource(R.string.rotation_locked))
                 } else if (currentRotation == 0) {
-                    Icon(Icons.Filled.ScreenRotation, contentDescription = "Rotate video")
+                    Icon(Icons.Filled.ScreenRotation, contentDescription = stringResource(R.string.rotation_rotate))
                 } else {
                     // Show the active angle so the chosen rotation is obvious at a glance.
                     Text("${currentRotation}°", color = Color.White, fontSize = 13.sp,

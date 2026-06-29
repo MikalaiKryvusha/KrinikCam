@@ -24,9 +24,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kriniks.kcam.R
 import com.kriniks.kcam.dev.DevSettings
 
 private val AcidPink = Color(0xFFFF1A8C)
@@ -50,10 +52,10 @@ fun DevMenuScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Developer", color = Color.White, fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.dev_title), color = Color.White, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
+                        Icon(Icons.Default.ArrowBack, stringResource(R.string.action_back), tint = Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg),
@@ -70,9 +72,9 @@ fun DevMenuScreen(
         ) {
             Spacer(Modifier.height(8.dp))
 
-            DevSection(title = "Orientation") {
+            DevSection(title = stringResource(R.string.dev_section_orientation)) {
                 DevToggleRow(
-                    title = "ADB rotation",
+                    title = stringResource(R.string.dev_adb_rotation),
                     info = "When enabled, the app stops following the physical rotation sensor and " +
                         "listens for ADB orientation commands (ui.mjs orient). Handy for autonomous " +
                         "orientation testing without physically rotating the device. " +
@@ -86,9 +88,9 @@ fun DevMenuScreen(
                 )
             }
 
-            DevSection(title = "Debug video") {
+            DevSection(title = stringResource(R.string.dev_section_debug_video)) {
                 DevToggleRow(
-                    title = "Virtual camera",
+                    title = stringResource(R.string.dev_virtual_camera),
                     info = "Feeds a synthetic 16:9 test pattern (circle/grid/markers + a moving bar " +
                         "and counter) instead of the physical USB camera. Lets you debug the whole " +
                         "video pipeline (preview, rotation, encoding, streaming) without a camera " +
@@ -101,7 +103,7 @@ fun DevMenuScreen(
                     },
                 )
                 DevToggleRow(
-                    title = "Stream to file (virtual platform)",
+                    title = stringResource(R.string.dev_stream_to_file),
                     info = "When enabled, Go Live doesn't push RTMP online but records the same " +
                         "encoded stream to an MP4 file (a virtual \"platform\"). The file lives in " +
                         "Android/data/<package>/files/rec/ — you can later extract frames and check " +
@@ -154,7 +156,7 @@ private fun DevToggleRow(
     ) {
         Text(title, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
         IconButton(onClick = { showInfo = true }, modifier = Modifier.size(28.dp)) {
-            Icon(Icons.Default.Info, contentDescription = "Info", tint = Color(0xFF888888))
+            Icon(Icons.Default.Info, contentDescription = stringResource(R.string.action_info), tint = Color(0xFF888888))
         }
         Switch(
             checked = checked,
@@ -172,7 +174,7 @@ private fun DevToggleRow(
             title = { Text(title, color = Color.White, fontWeight = FontWeight.Bold) },
             text = { Text(info, color = Color(0xFFBBBBBB), fontSize = 13.sp) },
             confirmButton = {
-                TextButton(onClick = { showInfo = false }) { Text("OK", color = AcidPink) }
+                TextButton(onClick = { showInfo = false }) { Text(stringResource(R.string.action_ok), color = AcidPink) }
             },
         )
     }

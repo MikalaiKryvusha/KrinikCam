@@ -37,6 +37,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,6 +49,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kriniks.kcam.BuildConfig
+import com.kriniks.kcam.R
 import com.kriniks.kcam.core.logging.FileLogger
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
@@ -75,14 +77,16 @@ fun SettingsScreen(
     // see exactly which build is running, in every build type. BUILD_TIME is injected at build
     // time via buildConfigField (see app/build.gradle.kts).
     val buildInfo = "${BuildConfig.BUILD_TYPE} · v${BuildConfig.VERSION_NAME} · ${BuildConfig.BUILD_TIME}"
+    // Resolved in composition (stringResource can't be called inside the onClick lambda below).
+    val shareChooserTitle = stringResource(R.string.settings_share_log_chooser)
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings", color = Color.White, fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.settings_title), color = Color.White, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
+                        Icon(Icons.Default.ArrowBack, stringResource(R.string.action_back), tint = Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg),
@@ -103,18 +107,18 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
 
             // ── Streaming Platforms ───────────────────────────────────
-            SettingsSection(title = "Streaming") {
+            SettingsSection(title = stringResource(R.string.settings_section_streaming)) {
                 SettingsRow(
                     icon = Icons.Default.Wifi,
-                    title = "Platforms",
-                    subtitle = if (profiles.isEmpty()) "No platforms configured"
+                    title = stringResource(R.string.settings_platforms),
+                    subtitle = if (profiles.isEmpty()) stringResource(R.string.settings_no_platforms)
                                else "${profiles.size} platform${if (profiles.size > 1) "s" else ""} · tap to manage",
                     onClick = { showPlatforms = true },
                 )
                 if (activeProfile != null) {
                     SettingsRow(
                         icon = Icons.Default.PlayArrow,
-                        title = "Active profile",
+                        title = stringResource(R.string.settings_active_profile),
                         subtitle = activeProfile!!.name,
                         onClick = { showPlatforms = true },
                     )
@@ -126,24 +130,24 @@ fun SettingsScreen(
             PermissionsSection()
 
             // ── Debug / Logging ───────────────────────────────────────
-            SettingsSection(title = "Debug") {
+            SettingsSection(title = stringResource(R.string.settings_section_debug)) {
                 SettingsRow(
                     icon = Icons.Default.BugReport,
-                    title = "Share log file",
-                    subtitle = "Send today's debug log for analysis",
+                    title = stringResource(R.string.settings_share_log),
+                    subtitle = stringResource(R.string.settings_share_log_sub),
                     onClick = {
                         val intent = fileLogger.shareIntent()
-                        context.startActivity(Intent.createChooser(intent, "Share KrinikCam log"))
+                        context.startActivity(Intent.createChooser(intent, shareChooserTitle))
                     },
                 )
             }
 
             // ── About ─────────────────────────────────────────────────
-            SettingsSection(title = "About") {
+            SettingsSection(title = stringResource(R.string.settings_section_about)) {
                 SettingsRow(
                     icon = Icons.Default.Info,
-                    title = "KrinikCam",
-                    subtitle = "Open-source USB webcam streamer · MIT License",
+                    title = stringResource(R.string.app_name),
+                    subtitle = stringResource(R.string.settings_about_app_sub),
                     // Second gray aux line — build identity (type · version · build time).
                     subtitle2 = buildInfo,
                     onClick = { showProjectInfo = true },
@@ -153,8 +157,8 @@ fun SettingsScreen(
                 )
                 SettingsRow(
                     icon = Icons.Default.Person,
-                    title = "Author",
-                    subtitle = "Mikalai Kryvusha aka KOT KRINIK",
+                    title = stringResource(R.string.settings_author),
+                    subtitle = stringResource(R.string.settings_author_sub),
                     onClick = { showAuthorInfo = true },
                 )
             }
@@ -233,10 +237,10 @@ private fun PermissionsSection() {
 
     val statusLine = "Camera ${if (cameraGranted) "✓" else "✗"} · Mic ${if (micGranted) "✓" else "✗"}"
 
-    SettingsSection(title = "Permissions") {
+    SettingsSection(title = stringResource(R.string.settings_section_permissions)) {
         SettingsRow(
             icon = if (allGranted) Icons.Default.CheckCircle else Icons.Default.Lock,
-            title = if (allGranted) "Permissions granted" else "Grant permissions",
+            title = if (allGranted) stringResource(R.string.settings_permissions_granted) else stringResource(R.string.settings_permissions_grant),
             subtitle = if (allGranted) "$statusLine · tap to manage in system settings"
                        else "$statusLine · tap to grant camera & microphone",
             onClick = {
@@ -364,7 +368,7 @@ private fun ProjectInfoDialog(buildInfo: String, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = DarkSurface,
-        title = { Text("KrinikCam", color = Color.White, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.app_name), color = Color.White, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -372,7 +376,7 @@ private fun ProjectInfoDialog(buildInfo: String, onDismiss: () -> Unit) {
                         "streaming camera for YouTube, Twitch and more. Built by a streamer, for streamers.",
                     color = Color(0xFFBBBBBB), fontSize = 13.sp,
                 )
-                Text("MIT License · © 2026 Mikalai Kryvusha", color = Color(0xFF888888), fontSize = 12.sp)
+                Text(stringResource(R.string.dialog_license), color = Color(0xFF888888), fontSize = 12.sp)
                 Text(buildInfo, color = Color(0xFF666666), fontSize = 11.sp)
                 LinkRow(Icons.Default.Code, "github.com/MikalaiKryvusha/KrinikCam") {
                     openUrl(context, "https://github.com/MikalaiKryvusha/KrinikCam")
@@ -380,7 +384,7 @@ private fun ProjectInfoDialog(buildInfo: String, onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close", color = AcidPink) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close), color = AcidPink) }
         },
     )
 }
@@ -395,14 +399,14 @@ private fun AuthorInfoDialog(onDismiss: () -> Unit) {
         title = {
             // Name + "· aka KOT KRINIK", both light (white) like the title, separated by a bullet.
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Mikalai Kryvusha", color = Color.White, fontWeight = FontWeight.Bold)
-                Text("· aka KOT KRINIK", color = Color.White, fontSize = 14.sp)
+                Text(stringResource(R.string.author_name), color = Color.White, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.author_aka), color = Color.White, fontSize = 14.sp)
             }
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 // Russian aux line only.
-                Text("Николай Кривуша · Кот Криник", color = Color(0xFF888888), fontSize = 12.sp)
+                Text(stringResource(R.string.author_ru), color = Color(0xFF888888), fontSize = 12.sp)
                 Spacer(Modifier.height(4.dp))
                 LinkRow(Icons.Default.Code, "GitHub — Mikalai Kryvusha") {
                     openUrl(context, "https://github.com/MikalaiKryvusha")
@@ -419,7 +423,7 @@ private fun AuthorInfoDialog(onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close", color = AcidPink) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close), color = AcidPink) }
         },
     )
 }
