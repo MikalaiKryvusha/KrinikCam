@@ -19,7 +19,9 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -56,6 +58,7 @@ private val DarkBg = Color(0xFF0D0D0D)
 fun SettingsScreen(
     onBack: () -> Unit,
     fileLogger: FileLogger,
+    onOpenDeveloper: () -> Unit = {},   // long-press on "KrinikCam" → hidden Developer menu (Idea 07)
     streamViewModel: StreamViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -141,6 +144,9 @@ fun SettingsScreen(
                     // Second gray aux line — build identity (type · version · build time).
                     subtitle2 = buildInfo,
                     onClick = { showProjectInfo = true },
+                    // Hidden entry (Idea 07): long-press opens the Developer menu. Discoverable only
+                    // to those who know — normal users just tap for the project info dialog.
+                    onLongClick = onOpenDeveloper,
                 )
                 SettingsRow(
                     icon = Icons.Default.Person,
@@ -270,6 +276,7 @@ private fun SettingsSection(title: String, content: @Composable ColumnScope.() -
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SettingsRow(
     icon: ImageVector,
@@ -277,11 +284,17 @@ private fun SettingsRow(
     subtitle: String? = null,
     subtitle2: String? = null,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,   // optional long-press (e.g. hidden Developer menu)
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            // combinedClickable supports both tap and long-press; fall back to plain row if neither.
+            .then(
+                if (onClick != null || onLongClick != null)
+                    Modifier.combinedClickable(onClick = { onClick?.invoke() }, onLongClick = onLongClick)
+                else Modifier
+            )
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
