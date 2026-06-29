@@ -559,15 +559,22 @@ class RtmpStreamer @Inject constructor(
         isStreamSetupInProgress = true
         try {
             if (stream.isOnPreview) stream.stopPreview()
-            // Bug 10 experiment (harness): keep encoder LANDSCAPE (no dim swap, rotation=0) and rotate
-            // the OUTPUT via setStreamRotation. Hypothesis: this rotates without the fitXY stretch the
-            // prepareVideo(rotation=) path produced (it gave 1080×1920 but a stretched oval).
+            // Bug 10 experiment #2 (harness): the encoder ALWAYS fitXY-stretches the GL scene to the
+            // encoder canvas. So the canvas aspect MUST match the rotated content's aspect, otherwise
+            // distortion. Exp#1 proved setStreamRotation rotates with CORRECT orientation, but a
+            // landscape (16:9) canvas stretched the rotated 9:16 content → horizontal oval. Fix: for
+            // 90/270 make the canvas PORTRAIT (swap W↔H) so the rotated 9:16 content fills 9:16 → 1:1,
+            // no stretch. setStreamRotation does the actual geometric rotation.
+            val deg = _videoRotation.value
+            val portrait = deg == 90 || deg == 270
+            val encW = if (portrait) profile.videoHeight else profile.videoWidth // 90/270 → 1080
+            val encH = if (portrait) profile.videoWidth else profile.videoHeight // 90/270 → 1920
             val vp = stream.prepareVideo(
-                profile.videoWidth, profile.videoHeight,
+                encW, encH,
                 profile.videoBitrateBps, profile.videoFps, 2,
             )
-            stream.getGlInterface().setCameraOrientation(0)              // Bug 02 A: source upright
-            stream.getGlInterface().setStreamRotation(_videoRotation.value) // rotate encoder OUTPUT only
+            stream.getGlInterface().setCameraOrientation(0)   // Bug 02 A: source upright
+            stream.getGlInterface().setStreamRotation(deg)    // true geometric rotation of the scene
             val ap = stream.prepareAudio(44100, true, 128_000)
             if (!vp || !ap) {
                 KLog.e(TAG, "startRecordToFile: prepare failed (video=$vp audio=$ap)")
@@ -577,7 +584,7 @@ class RtmpStreamer @Inject constructor(
             }
             _state.value = StreamState.Live()  // reuse Live state so the UI shows the LIVE badge
             stream.startRecord(path, recordListener)
-            KLog.i(TAG, "startRecordToFile → $path (uiRot=${_videoRotation.value}° via setStreamRotation, enc ${profile.videoWidth}x${profile.videoHeight} landscape)")
+            KLog.i(TAG, "startRecordToFile → $path (uiRot=${deg}° via setStreamRotation, enc ${encW}x${encH} ${if (portrait) "portrait" else "landscape"})")
             schedulePreviewRestoreAfterStream(stream)
             return path
         } catch (e: Exception) {
