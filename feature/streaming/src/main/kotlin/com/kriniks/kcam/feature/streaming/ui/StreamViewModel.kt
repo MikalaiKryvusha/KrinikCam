@@ -47,14 +47,21 @@ class StreamViewModel @Inject constructor(
     /** Текущая сцена (слои) — для панели «Слои». */
     val scene: StateFlow<com.kriniks.kcam.feature.streaming.scene.Scene> = repository.scene
 
-    // Монотонный счётчик для уникальных id добавляемых оверлеев в рамках сессии.
-    private var overlayCounter = 0
+    // Монотонный счётчик ТОЛЬКО для уникальных id (id не должны повторяться даже после удалений).
+    private var overlayIdCounter = 0
+
+    // Видимое ИМЯ нумеруем от количества уже существующих оверлеев-картинок (+1) — чтобы нумерация
+    // начиналась заново с 1, когда оверлеев нет (Криник: «логично вновь начинать с единицы»).
+    private fun nextOverlayName(): String {
+        val n = scene.value.layers.count { it is com.kriniks.kcam.feature.streaming.scene.Layer.Image } + 1
+        return "Overlay $n"
+    }
 
     /** Добавить тестовый PNG-оверлей поверх сцены (быстрая проверка пайплайна без файла). */
     fun addTestOverlay() {
-        overlayCounter += 1
-        repository.addTestOverlay(id = "overlay_$overlayCounter", name = "Overlay $overlayCounter")
-        KLog.i(TAG, "Added test overlay #$overlayCounter")
+        overlayIdCounter += 1
+        repository.addTestOverlay(id = "overlay_$overlayIdCounter", name = nextOverlayName())
+        KLog.i(TAG, "Added test overlay (id #$overlayIdCounter)")
     }
 
     /**
@@ -62,9 +69,9 @@ class StreamViewModel @Inject constructor(
      * (см. ImageOverlayLoader); декод/чтение файла делает UI off-main. [displayName] — имя файла.
      */
     fun addImageOverlay(displayName: String, bitmap: android.graphics.Bitmap) {
-        overlayCounter += 1
-        repository.addImageOverlay(id = "overlay_$overlayCounter", name = displayName, bitmap = bitmap)
-        KLog.i(TAG, "Added image overlay '$displayName' (#$overlayCounter)")
+        overlayIdCounter += 1
+        repository.addImageOverlay(id = "overlay_$overlayIdCounter", name = displayName, bitmap = bitmap)
+        KLog.i(TAG, "Added image overlay '$displayName' (id #$overlayIdCounter)")
     }
 
     fun removeLayer(id: String) = repository.removeLayer(id)
