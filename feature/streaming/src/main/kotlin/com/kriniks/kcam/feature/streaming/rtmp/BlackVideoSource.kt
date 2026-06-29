@@ -42,9 +42,11 @@ class BlackVideoSource : VideoSource() {
     override fun create(width: Int, height: Int, fps: Int, rotation: Int): Boolean = true
 
     override fun start(surfaceTexture: SurfaceTexture) {
-        // width/height приходят из VideoSource.init() (размер энкодера). Фолбэк — 1920×1080.
-        val w = if (width > 0) width else 1920
-        val h = if (height > 0) height else 1080
+        // ⚡ Оптимизация каденса: база — СПЛОШНОЙ чёрный, ей НЕ нужен полный размер энкодера. Берём
+        // крошечный буфер — GL растянет чёрный на весь канвас (чёрный на чёрном, аспект неважен). Это
+        // убирает дорогой lockCanvas+drawColor на 4К каждый кадр (был ~20fps на 4К → должно дать ~30).
+        val w = 64
+        val h = 36
         try {
             surfaceTexture.setDefaultBufferSize(w, h)
             surface = Surface(surfaceTexture)

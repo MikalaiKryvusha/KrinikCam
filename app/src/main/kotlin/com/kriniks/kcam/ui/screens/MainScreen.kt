@@ -46,11 +46,11 @@ import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.model.isLive
 import com.kriniks.kcam.feature.streaming.ui.StreamLayersOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
-import com.kriniks.kcam.feature.streaming.rtmp.VirtualVideoSource
+import com.kriniks.kcam.streaming.UvcCameraOpener
+import com.kriniks.kcam.streaming.VirtualCameraOpener
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import com.kriniks.kcam.feature.usb.ui.UvcPreviewView
-import com.kriniks.kcam.streaming.UvcVideoSource
 import com.kriniks.kcam.ui.overlay.FloatingRadialMenu
 import com.kriniks.kcam.ui.overlay.RotationMenu
 import com.kriniks.kcam.ui.overlay.StandbyPlaceholder
@@ -112,38 +112,21 @@ fun MainScreen(
     // Without this, AUSBC may reconnect the SAME camera object during streaming (so activeCamera
     // ref doesn't change), setVideoSource() is blocked by the guard, and preview stays black
     // after streaming ends because nothing triggers a re-bind.
-    LaunchedEffect(usbState.activeCamera, activeSource, streamState.isActive) {
+    // Idea 21 — камера = обычный СЛОЙ над чёрной базой. Здесь мы лишь сообщаем стримеру, ЧЕМ открывать
+    // слой-камеру (реальная UVC / виртуальная / нет источника). Сам слой-фильтр и его SurfaceTexture
+    // создаёт SceneCompositor; открытие камеры происходит, когда у слоя готова поверхность.
+    LaunchedEffect(usbState.activeCamera, activeSource) {
         val camera = usbState.activeCamera
-        val streaming = streamState.isActive
         when {
             camera != null -> {
                 val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
                 val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
-                val source = UvcVideoSource(camera, previewWidth = w, previewHeight = h)
-                if (streaming) {
-                    // Camera (re)appeared during a live stream. exitStandby swaps the placeholder
-                    // back to the live camera; if we weren't in standby it falls through to a guarded
-                    // setVideoSource() no-op (the existing live-stream behaviour, unchanged).
-                    streamViewModel.exitStandby(source)
-                } else {
-                    streamViewModel.setVideoSource(source)
-                }
+                streamViewModel.setCameraOpener(UvcCameraOpener(camera, previewWidth = w, previewHeight = h))
             }
-            // Idea 09 — virtual debug camera active (no physical cam): feed the synthetic source.
-            activeSource is VideoSource.Virtual -> {
-                val source = VirtualVideoSource()
-                if (streaming) streamViewModel.exitStandby(source) else streamViewModel.setVideoSource(source)
-            }
-            else -> {
-                if (streaming) {
-                    // Camera lost mid-stream: inject the "Please stand by" frame so RTMP stays alive
-                    // instead of starving the encoder. The Compose StandbyPlaceholder also shows
-                    // locally (activeSource → None handled in Layer 0 below).
-                    streamViewModel.enterStandby()
-                } else {
-                    streamViewModel.clearVideoSource()
-                }
-            }
+            // Idea 09 — виртуальная дебаг-камера (нет физической): кормим слой тест-паттерном.
+            activeSource is VideoSource.Virtual -> streamViewModel.setCameraOpener(VirtualCameraOpener())
+            // Нет источника камеры → снять opener (камера-слой станет пустым → видна чёрная база/нижние слои).
+            else -> streamViewModel.setCameraOpener(null)
         }
     }
 

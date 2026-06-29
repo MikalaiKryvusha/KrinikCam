@@ -24,6 +24,7 @@ package com.kriniks.kcam.feature.streaming.rtmp
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.SurfaceTexture
 import android.provider.MediaStore
 import android.view.TextureView
 import java.io.File
@@ -96,6 +97,51 @@ class RtmpStreamer @Inject constructor(
     // UI наблюдает этот StateFlow; правки идут через методы ниже, каждая переприменяет оверлеи.
     private val _scene = MutableStateFlow(Scene.default())
     val scene: StateFlow<Scene> = _scene.asStateFlow()
+
+    // ── Idea 21 — камера как обычный слой над ЧЁРНОЙ базой ───────────────────
+    // Базовый VideoSource энкодера = чёрный кадр (задаёт каденс GL). Камера и картинки — слои-фильтры
+    // поверх (см. SceneCompositor). Камеру в её слой-фильтр открывает :app через CameraOpener (модульность
+    // AUSBC). cameraLayerSurface — последняя выданная фильтром камеры SurfaceTexture.
+    private val blackSource = BlackVideoSource()
+    private val sceneCompositor = SceneCompositor(onCameraSurface = { st -> onCameraLayerSurfaceReady(st) })
+
+    /** Открывает/закрывает камеру в SurfaceTexture слоя-камеры. Реализуется в :app (держит AUSBC-камеру). */
+    interface CameraOpener {
+        fun open(surfaceTexture: SurfaceTexture)
+        fun close()
+    }
+    @Volatile private var cameraOpener: CameraOpener? = null
+    private var cameraLayerSurface: SurfaceTexture? = null
+
+    /**
+     * :app сообщает текущую USB-камеру (или null при отключении). Если слой-камеры уже отдал свою
+     * SurfaceTexture — сразу открываем туда камеру; при null — закрываем предыдущую.
+     */
+    fun setCameraOpener(opener: CameraOpener?) {
+        val old = cameraOpener
+        cameraOpener = opener
+        scope.launch {
+            if (opener != null) cameraLayerSurface?.let { opener.open(it) }
+            else old?.close()
+        }
+    }
+
+    // Колбэк от компоновщика: у слоя-камеры появилась/исчезла SurfaceTexture. Открываем/закрываем камеру.
+    private fun onCameraLayerSurfaceReady(st: SurfaceTexture?) {
+        cameraLayerSurface = st
+        val opener = cameraOpener ?: return
+        scope.launch { if (st != null) opener.open(st) else opener.close() }
+    }
+
+    // Гарантировать, что базой энкодера выставлен чёрный источник (Idea 21). Камера базой больше НЕ бывает.
+    private fun ensureBlackBase() {
+        if (currentVideoSource !is BlackVideoSource) {
+            currentVideoSource = blackSource
+            runCatching { ensureStream().changeVideoSource(blackSource) }
+                .onFailure { KLog.e(TAG, "ensureBlackBase: changeVideoSource failed", it) }
+            KLog.d(TAG, "ensureBlackBase: base set to BlackVideoSource")
+        }
+    }
 
     // Base (landscape-reference) encoder size used for the live preview before a stream profile is
     // applied. rotatedDims() swaps it to portrait for 90/270.
@@ -343,6 +389,8 @@ class RtmpStreamer @Inject constructor(
 
         try {
             KLog.d(TAG, "startPreview: tv=${tv.width}x${tv.height} isOnPreview=${stream.isOnPreview} glRunning=${stream.getGlInterface().isRunning}")
+            // Idea 21: базой энкодера всегда чёрный источник; камера придёт слоем-фильтром (compositor).
+            ensureBlackBase()
             if (stream.isOnPreview) stream.stopPreview()
             // Bug 10: IDLE preview rotates via the TextureView matrix (UvcPreviewView), with a LANDSCAPE
             // source + canvas. Reset the source's own rotation (it was set portrait during streaming/
@@ -754,7 +802,7 @@ class RtmpStreamer @Inject constructor(
      * после каждой правки сцены. No-op до запуска GL — переприменится на следующем хуке.
      */
     private fun applySceneOverlays() {
-        SceneCompositor.apply(rtmpStream?.getGlInterface(), _scene.value)
+        sceneCompositor.apply(rtmpStream?.getGlInterface(), _scene.value)
     }
 
     // Общий помощник: применить трансформацию к сцене, опубликовать и переприменить оверлеи.
