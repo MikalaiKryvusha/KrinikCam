@@ -28,6 +28,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -92,22 +94,27 @@ fun UvcPreviewView(
     rotationDegrees: Int = 0,   // display-only preview rotation (0/90/180/270) — Idea 06
     modifier: Modifier = Modifier.fillMaxSize(),
 ) {
+    // Bug 12: the SurfaceTextureListener is created ONCE in factory{} and would capture the INITIAL
+    // rotationDegrees (0). On device rotation onSurfaceTextureSizeChanged then re-applied 0° → the
+    // manual rotation was lost. rememberUpdatedState gives a stable holder whose .value is always the
+    // latest, so the listener re-applies the CURRENT rotation after every resize.
+    val currentRotation by rememberUpdatedState(rotationDegrees)
     AndroidView(
         factory = { context ->
             TextureView(context).also { tv ->
                 tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, w: Int, h: Int) {
                         KLog.d(TAG, "SurfaceTexture available: ${w}x${h}")
-                        applyPreviewRotation(tv, rotationDegrees)
+                        applyPreviewRotation(tv, currentRotation)
                         onTextureViewReady(tv)
                     }
 
-                    // Device rotated — TextureView resized. GL pipeline must be restarted
-                    // with new surface dimensions, otherwise render stays portrait-sized in landscape.
+                    // Device rotated — TextureView resized. Re-apply the CURRENT rotation (Bug 12)
+                    // and restart the GL pipeline with the new surface dimensions.
                     override fun onSurfaceTextureSizeChanged(s: SurfaceTexture, w: Int, h: Int) {
                         KLog.d(TAG, "SurfaceTexture size changed: ${w}x${h} — restarting preview")
-                        applyPreviewRotation(tv, rotationDegrees)
                         onSurfaceTextureSizeChanged(tv, w, h)
+                        applyPreviewRotation(tv, currentRotation)
                     }
 
                     override fun onSurfaceTextureDestroyed(s: SurfaceTexture): Boolean {
