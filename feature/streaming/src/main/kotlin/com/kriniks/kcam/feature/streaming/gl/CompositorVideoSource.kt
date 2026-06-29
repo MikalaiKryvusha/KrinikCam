@@ -15,6 +15,7 @@
 
 package com.kriniks.kcam.feature.streaming.gl
 
+import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.opengl.EGLSurface
 import android.opengl.GLES20
@@ -39,6 +40,32 @@ class CompositorVideoSource : VideoSource() {
     @Volatile private var running = false
     private var encW = 1920
     private var encH = 1080
+
+    private var renderer: GlQuadRenderer? = null
+    // Слои-картинки: то, что просят (любой поток) и то, что залито в GL (только GL-поток).
+    @Volatile private var requestedBitmaps: List<Bitmap> = emptyList()
+    private val uploaded = ArrayList<Pair<Bitmap, Int>>() // (bitmap, texId), порядок = z (снизу вверх)
+
+    // ── Слой-камера (OES) ────────────────────────────────────────────────────
+    // Компоновщик САМ создаёт OES-текстуру + SurfaceTexture; в неё пишет камера-продюсер (Camera2/USB/
+    // виртуалка) через существующий CameraOpener. Каждый кадр: updateTexImage + рисуем OES-квад.
+    private var cameraOesTex = 0
+    private var cameraSurfaceTexture: SurfaceTexture? = null
+    @Volatile private var newCameraFrame = false
+    private val cameraTexMatrix = FloatArray(16)
+    @Volatile private var cameraVisible = false
+    @Volatile private var cameraBottom = true // true: камера НИЖЕ картинок (типичный кейс)
+    // Вызывается, когда у слоя-камеры готова/исчезла SurfaceTexture (RtmpStreamer → откроет камеру).
+    @Volatile var onCameraSurfaceReady: ((SurfaceTexture?) -> Unit)? = null
+
+    /** Idea 25 — задать видимые слои-картинки (вызывается из RtmpStreamer при смене сцены). */
+    fun setImageLayers(bitmaps: List<Bitmap>) {
+        requestedBitmaps = bitmaps
+        handler?.post { syncTextures() }
+    }
+
+    /** Idea 25 — видим ли слой камеры (рисовать ли OES-камеру). */
+    fun setCameraVisible(visible: Boolean) { cameraVisible = visible }
 
     override fun create(width: Int, height: Int, fps: Int, rotation: Int): Boolean = true
 
@@ -70,6 +97,17 @@ class CompositorVideoSource : VideoSource() {
             core.makeCurrent(es)
             GLES20.glDisable(GLES20.GL_DEPTH_TEST)
             GLES20.glDisable(GLES20.GL_CULL_FACE)
+            val r = GlQuadRenderer()
+            renderer = r
+            // OES-текстура + SurfaceTexture для камеры (создаём в нашем GL-контексте).
+            cameraOesTex = r.createOesTexture()
+            val camSt = SurfaceTexture(cameraOesTex)
+            camSt.setDefaultBufferSize(encW, encH)
+            camSt.setOnFrameAvailableListener { newCameraFrame = true }
+            cameraSurfaceTexture = camSt
+            syncTextures() // залить уже запрошенные слои-картинки
+            // Сообщить наверх, что поверхность камеры готова → откроют камеру в неё (Camera2/USB/вирт).
+            onCameraSurfaceReady?.invoke(camSt)
         } catch (e: Exception) {
             // Ожидаемо, если start вызван ДО готовности GL RootEncoder (SurfaceTexture ещё невалидна):
             // RootEncoder ретраит changeVideoSource после готовности GL → следующий start пройдёт.
@@ -96,6 +134,23 @@ class CompositorVideoSource : VideoSource() {
             // ✅ Шаг 1 ДОКАЗАН: этот GL-кадр реально доходит до энкодера (проверено розовой заливкой).
             GLES20.glClearColor(0f, 0f, 0f, 1f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            val r = renderer
+            if (r != null) {
+                // Забрать свежий кадр камеры (даже если не видим — чтобы не копить очередь буферов).
+                val camSt = cameraSurfaceTexture
+                if (camSt != null && newCameraFrame) {
+                    runCatching { camSt.updateTexImage(); camSt.getTransformMatrix(cameraTexMatrix) }
+                    newCameraFrame = false
+                }
+                // Слои поверх чёрной базы СНИЗУ ВВЕРХ. Пока: камера (OES) внизу, картинки поверх.
+                if (cameraVisible && cameraBottom && cameraOesTex != 0) {
+                    r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, alpha = 1f)
+                }
+                for ((_, texId) in uploaded) r.draw(texId, oes = false, alpha = 1f)
+                if (cameraVisible && !cameraBottom && cameraOesTex != 0) {
+                    r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, alpha = 1f)
+                }
+            }
             core.setPresentationTime(es, SystemClock.elapsedRealtimeNanos())
             core.swapBuffers(es)
         } catch (e: Exception) {
@@ -103,11 +158,36 @@ class CompositorVideoSource : VideoSource() {
         }
     }
 
+    // GL-поток: привести залитые текстуры к requestedBitmaps (удалить ушедшие, залить новые, порядок=z).
+    private fun syncTextures() {
+        val r = renderer ?: return
+        val want = requestedBitmaps
+        val it = uploaded.iterator()
+        while (it.hasNext()) {
+            val (bmp, tex) = it.next()
+            if (want.none { w -> w === bmp }) { r.deleteTexture(tex); it.remove() }
+        }
+        val ordered = ArrayList<Pair<Bitmap, Int>>(want.size)
+        for (bmp in want) {
+            val existing = uploaded.firstOrNull { it2 -> it2.first === bmp }
+            ordered.add(existing ?: (bmp to r.uploadBitmap(bmp)))
+        }
+        uploaded.clear(); uploaded.addAll(ordered)
+    }
+
     override fun stop() {
         running = false
         handler?.removeCallbacksAndMessages(null)
         // Освобождаем GL на рендер-потоке, затем гасим поток.
+        runCatching { onCameraSurfaceReady?.invoke(null) } // закрыть камеру-продюсер
         handler?.post {
+            runCatching { uploaded.forEach { renderer?.deleteTexture(it.second) } }
+            uploaded.clear()
+            runCatching { cameraSurfaceTexture?.release() }
+            cameraSurfaceTexture = null
+            runCatching { if (cameraOesTex != 0) renderer?.deleteTexture(cameraOesTex) }
+            cameraOesTex = 0
+            renderer = null
             runCatching { eglSurface?.let { eglCore?.releaseSurface(it) } }
             runCatching { eglCore?.release() }
             eglSurface = null

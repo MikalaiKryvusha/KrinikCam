@@ -115,6 +115,9 @@ class RtmpStreamer @Inject constructor(
     fun setUseCompositor(enabled: Boolean) {
         useCompositor = enabled
         KLog.i(TAG, "useCompositor = $enabled")
+        // Когда компоновщик готовит OES-поверхность камеры — отдаём её существующему opener'у (:app
+        // откроет туда Camera2/USB/виртуалку). Та же точка onCameraLayerSurfaceReady, что и раньше.
+        compositorSource.onCameraSurfaceReady = { st -> onCameraLayerSurfaceReady(st) }
         // Перезапустить превью, чтобы база переключилась вживую (ensureBlackBase подхватит флаг).
         if (rtmpStream?.isStreaming != true) {
             lastPreviewTextureView?.get()?.let { tv -> scope.launch { startPreview(tv) } }
@@ -823,7 +826,17 @@ class RtmpStreamer @Inject constructor(
         // Idea 25: при нашем GL-композиторе слои рисует ОН сам (в базовый кадр) — фильтры RootEncoder не
         // используем, чистим их. Иначе — прежний путь (камера/картинки как фильтры поверх чёрной базы).
         if (useCompositor) {
-            sceneCompositor.reset(rtmpStream?.getGlInterface())
+            sceneCompositor.reset(rtmpStream?.getGlInterface()) // фильтры RootEncoder не используем
+            // Слои рисует наш GL-композитор: отдаём ему видимые картинки сцены (снизу вверх).
+            val bitmaps = _scene.value.layers
+                .filterIsInstance<com.kriniks.kcam.feature.streaming.scene.Layer.Image>()
+                .filter { it.visible }
+                .map { it.bitmap }
+            compositorSource.setImageLayers(bitmaps)
+            // Камера — обычный слой: рисуем её OES, если слой камеры видим.
+            compositorSource.setCameraVisible(
+                _scene.value.layers.any { it is com.kriniks.kcam.feature.streaming.scene.Layer.Camera && it.visible }
+            )
             return
         }
         sceneCompositor.apply(rtmpStream?.getGlInterface(), _scene.value)
