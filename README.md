@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF1A8C.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2013%2B-3DDC84.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
-[![Version](https://img.shields.io/badge/Version-0.3%20(dev)-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
+[![Version](https://img.shields.io/badge/Version-0.4-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
 
 **An open-source Android app for streamers and bloggers.**  
 Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTube, Instagram, Twitch, or TikTok — all at once.
@@ -25,7 +25,8 @@ Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTub
 | RTMP stream to YouTube / Twitch / custom | ✅ Phase 2 |
 | "Please stand by" frame on camera disconnect | ✅ Phase 2 |
 | Re-grant camera / mic permissions from Settings | ✅ Phase 2 |
-| USB permission — remember device (no re-ask) | 🔧 Phase 2 |
+| Import / export stream profiles (JSON) | ✅ Phase 2 |
+| USB permission — remember device (no re-ask) | ✅ Phase 2 |
 | Manual rotation (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
 | Simultaneous multi-platform streaming | 📅 Phase 2+ |
 | Phone camera fallback (Camera2) | 📅 Phase 2+ |
@@ -152,7 +153,8 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | RTMP-стрим на YouTube / Twitch / custom | ✅ Phase 2 |
 | Заглушка "Please stand by" при отключении | ✅ Phase 2 |
 | Ре-запрос разрешений камера / микрофон из Settings | ✅ Phase 2 |
-| USB permission — запомнить устройство | 🔧 Phase 2 |
+| Импорт / экспорт профилей стримов (JSON) | ✅ Phase 2 |
+| USB permission — запомнить устройство | ✅ Phase 2 |
 | Ручной поворот видео (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
 | Одновременный стрим на несколько платформ | 📅 Phase 2+ |
 | Фолбэк на камеру телефона (Camera2) | 📅 Phase 2+ |
