@@ -292,6 +292,12 @@ class RtmpStreamer @Inject constructor(
         try {
             KLog.d(TAG, "startPreview: tv=${tv.width}x${tv.height} isOnPreview=${stream.isOnPreview} glRunning=${stream.getGlInterface().isRunning}")
             if (stream.isOnPreview) stream.stopPreview()
+            // Bug 10: IDLE preview rotates via the TextureView matrix (UvcPreviewView), with a LANDSCAPE
+            // source + canvas. Reset the source's own rotation (it was set portrait during streaming/
+            // recording) so we DON'T double-rotate — source 90° + matrix 90° = 180° (the "extra 90°
+            // after stopping the stream" bug Krinik saw). One rotation in idle = the matrix only.
+            (currentVideoSource as? RotatableSource)?.setOutputRotation(0)
+            stream.getGlInterface().setIsPortrait(false)
             // GL init lambda (start$lambda$5) calls mainRender.initGl(encoderWidth, encoderHeight).
             // encoderWidth/Height are 0 until prepareVideo() is called, which makes initGl crash.
             // The crash is swallowed silently by secureSubmit → running.set(true) never fires.
