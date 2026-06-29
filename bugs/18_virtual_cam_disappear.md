@@ -47,6 +47,19 @@ RootEncoder 2.4.7 (по крайней мере как настроено сей
    preview/encoder render pass? один external-texture не отдаётся обоим? нужен ли спец-вызов?).
    Возможно, есть конфиг/порядок, который чинит это малой кровью.
 
+## Доп. находка из байткода RootEncoder (важно — склоняет к варианту 3 «починить»)
+
+`GlStreamInterface.draw()`: сцена с фильтрами рендерится в OFFSCREEN FBO ОДИН раз
+(`mainRender.drawOffScreen()` = база + ВСЕ фильтры), затем `surfaceManagerEncoder` и
+`surfaceManagerPreview` ОБА БЛИТЯТ один и тот же offscreen-результат (`drawScreenEncoder` /
+`drawScreenPreview`). Т.е. архитектурно камера-`SurfaceFilterRender` ДОЛЖНА попадать и в энкодер
+(как и картинка-оверлей, что подтверждено). Значит чёрный энкодер при видимом превью — это
+**ТОНКИЙ БАГ (таймингов/контекста/обновления external-texture), а НЕ фундаментальный тупик**.
+Вариант 3 (докопать и починить) — реалистичен. Зацепки на утро: почему external OES-текстура
+`SurfaceFilterRender` пуста именно в блите энкодера; влияет ли `forceRender`/`fpsLimiter`/порядок
+`updateTexImage`; не теряется ли первый кадр; проверить запись БЕЗ привязки превью (вдруг конфликт
+двух потребителей одной SurfaceTexture).
+
 ## Что СДЕЛАНО и оставлено (полезно при любом решении)
 
 - ✅ `lockHardwareCanvas` в `VirtualVideoSource` (рисование в GL-consumer слой) — оставить.
