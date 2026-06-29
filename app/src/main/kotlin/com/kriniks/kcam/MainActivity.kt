@@ -27,6 +27,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var deviceManager: DeviceManager
     @Inject lateinit var fileLogger: FileLogger
+    @Inject lateinit var streamingRepository: com.kriniks.kcam.feature.streaming.domain.StreamingRepository
 
     // UsbViewModel is owned here so we can start monitoring after permissions are granted.
     // It is also passed into MainScreen via the Compose tree (hiltViewModel picks it up).
@@ -57,6 +58,8 @@ class MainActivity : ComponentActivity() {
                     fileLogger = fileLogger,
                     // Dev menu toggle (Idea 07) applies the ADB-rotation mode live.
                     onAdbRotationChanged = ::setAdbRotationEnabled,
+                    // Idea 10 — "stream to file" dev toggle → StreamingRepository.
+                    onVirtualStreamChanged = { streamingRepository.setVirtualStreamToFile(it) },
                 )
             }
         }
@@ -65,6 +68,7 @@ class MainActivity : ComponentActivity() {
         // Apply persisted dev preferences (Idea 07/09). Defaults OFF.
         setAdbRotationEnabled(DevSettings.isAdbRotation(this))
         deviceManager.setVirtualCamera(DevSettings.isVirtualCamera(this))
+        streamingRepository.setVirtualStreamToFile(DevSettings.isVirtualStream(this))
     }
 
     /**

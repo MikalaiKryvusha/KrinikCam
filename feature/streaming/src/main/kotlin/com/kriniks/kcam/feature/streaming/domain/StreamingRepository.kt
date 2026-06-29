@@ -38,6 +38,16 @@ class StreamingRepository @Inject constructor(
     /** Set the manual video rotation (preview + stream aspect). No-op while streaming. */
     fun setVideoRotation(degrees: Int): Boolean = rtmpStreamer.setVideoRotation(degrees)
 
+    // ── Idea 10 — virtual stream platform (record to file instead of RTMP) ──
+    // Dev toggle: when ON, "Go Live" records the encoder output to a file instead of pushing RTMP.
+    @Volatile var virtualStreamToFile: Boolean = false
+        private set
+    fun setVirtualStreamToFile(enabled: Boolean) { virtualStreamToFile = enabled }
+
+    val isRecording: Boolean get() = rtmpStreamer.isRecording
+    fun startRecordToFile(profile: StreamProfile): String? = rtmpStreamer.startRecordToFile(profile)
+    fun stopRecordToFile() = rtmpStreamer.stopRecordToFile()
+
     /**
      * Set the video source (e.g. UvcVideoSource wrapping the USB camera).
      * Called from :app whenever the active USB camera changes.

@@ -121,6 +121,16 @@ class StreamViewModel @Inject constructor(
 
     fun startStream() {
         val profile = _activeProfile.value
+        // Idea 10 — virtual stream platform: record encoder output to a file instead of RTMP.
+        // No stream key needed; use the active profile's video params, or defaults if none.
+        if (repository.virtualStreamToFile) {
+            val p = profile ?: StreamProfile()
+            val path = repository.startRecordToFile(p)
+            viewModelScope.launch {
+                _snackbar.emit(if (path != null) "Virtual stream → file: $path" else "Record failed")
+            }
+            return
+        }
         if (profile == null) {
             viewModelScope.launch { _snackbar.emit("No streaming platform configured") }
             return
@@ -133,6 +143,11 @@ class StreamViewModel @Inject constructor(
     }
 
     fun stopStream() {
+        if (repository.isRecording) {
+            KLog.i(TAG, "Stopping virtual stream (record)")
+            repository.stopRecordToFile()
+            return
+        }
         KLog.i(TAG, "Stopping stream")
         repository.stopStream()
     }

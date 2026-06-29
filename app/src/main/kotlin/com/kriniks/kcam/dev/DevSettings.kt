@@ -19,6 +19,7 @@ object DevSettings {
     private const val PREFS = "kcam_dev"
     private const val KEY_ADB_ROTATION = "adb_rotation"
     private const val KEY_VIRTUAL_CAMERA = "virtual_camera"
+    private const val KEY_VIRTUAL_STREAM = "virtual_stream"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -37,5 +38,13 @@ object DevSettings {
 
     fun setVirtualCamera(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_VIRTUAL_CAMERA, enabled).apply()
+    }
+
+    /** When ON: "Go Live" records the encoder output to a file instead of RTMP (Idea 10). */
+    fun isVirtualStream(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_VIRTUAL_STREAM, false)
+
+    fun setVirtualStream(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_VIRTUAL_STREAM, enabled).apply()
     }
 }
