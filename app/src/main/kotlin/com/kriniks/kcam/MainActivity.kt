@@ -17,6 +17,7 @@ import com.kriniks.kcam.core.logging.FileLogger
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.core.ui.theme.KrinikCamTheme
 import com.kriniks.kcam.dev.DevSettings
+import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -41,6 +42,11 @@ class MainActivity : ComponentActivity() {
     // (Interview #004 testing): SET_VIRTUAL_CAM state=off → source drop → standby/freeze; state=on →
     // source back → exitStandby. Lets us test the dropout flow WITHOUT a physical USB camera.
     private var virtualCamReceiver: BroadcastReceiver? = null
+
+    // Idea 22 — ЕДИНЫЙ debug-command-receiver автоматизатора (`com.kriniks.kcam.CMD`). Принимает
+    // `--es action <name>` (+ доп. extras) и диспетчеризует напрямую в deviceManager/streamingRepository
+    // (минуя UI) → надёжно/быстро/детерминированно для автономных тестов на харнесе. DEBUG-ONLY.
+    private var cmdReceiver: BroadcastReceiver? = null
 
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -75,6 +81,57 @@ class MainActivity : ComponentActivity() {
         deviceManager.setVirtualCamera(DevSettings.isVirtualCamera(this))
         streamingRepository.setVirtualStreamToFile(DevSettings.isVirtualStream(this))
         registerVirtualCamControl()
+        if (BuildConfig.DEBUG) registerCmdControl() // Idea 22 — broadcast-команды только в debug
+    }
+
+    /**
+     * Idea 22 — единый debug-command-receiver автоматизатора. Одна команда уровня НАМЕРЕНИЯ меняет
+     * состояние приложения детерминированно, без навигации по UI. Расширяется новыми `action`.
+     *
+     * ADB: `adb shell am broadcast -a com.kriniks.kcam.CMD --es action <name> [--es arg <v>] -p <pkg.debug>`
+     * Команды:
+     *   virtual-camera  arg=on|off     — вкл/выкл виртуальную дебаг-камеру
+     *   stream-to-file  arg=on|off     — режим записи в файл вместо RTMP (harness)
+     *   go-live         [arg=<height>] — старт (в harness — запись в MP4); arg = высота кадра (1080/2160)
+     *   stop                           — остановить запись/стрим
+     *   set-rotation    arg=0|90|180|270 — поворот видео (портрет/ландшафт)
+     *   add-overlay                    — добавить тестовый PNG-оверлей
+     *   rotation-mode   arg=on|off     — режим «вращение по ADB» (для SET_ORIENTATION)
+     */
+    private fun registerCmdControl() {
+        if (cmdReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val action = intent?.getStringExtra("action") ?: return
+                val arg = intent.getStringExtra("arg")
+                KLog.i("MainActivity", "CMD: action=$action arg=$arg")
+                when (action) {
+                    "virtual-camera" -> deviceManager.setVirtualCamera(arg == "on")
+                    "stream-to-file" -> streamingRepository.setVirtualStreamToFile(arg == "on")
+                    "go-live" -> {
+                        // arg = высота кадра (опц.); строим профиль с 16:9-шириной, иначе дефолт.
+                        val h = arg?.toIntOrNull()
+                        val profile = if (h != null) StreamProfile(videoWidth = h * 16 / 9, videoHeight = h)
+                                      else StreamProfile()
+                        val path = streamingRepository.goLiveHarness(profile)
+                        KLog.i("MainActivity", "CMD go-live → ${path ?: "(rtmp)"}")
+                    }
+                    "stop" -> streamingRepository.stopAll()
+                    "set-rotation" -> arg?.toIntOrNull()?.let { streamingRepository.setVideoRotation(it) }
+                    "add-overlay" -> streamingRepository.addTestOverlay(
+                        id = "overlay_cmd_${System.currentTimeMillis()}", name = "Overlay",
+                    )
+                    "rotation-mode" -> setAdbRotationEnabled(arg == "on")
+                    else -> KLog.w("MainActivity", "CMD: unknown action '$action'")
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            this, receiver,
+            IntentFilter("com.kriniks.kcam.CMD"),
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+        cmdReceiver = receiver
     }
 
     /**
@@ -154,6 +211,7 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         adbOrientationReceiver?.let { runCatching { unregisterReceiver(it) } }
         virtualCamReceiver?.let { runCatching { unregisterReceiver(it) } }
+        cmdReceiver?.let { runCatching { unregisterReceiver(it) } }
     }
 
     private fun requestRequiredPermissions() {

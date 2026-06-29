@@ -581,6 +581,35 @@ switch (cmd) {
     break
   }
 
+  case 'cmd': {
+    // Idea 22 — ТОЛСТЫЙ/надёжный слой: debug-broadcast-команды уровня НАМЕРЕНИЯ. Меняют состояние
+    // приложения детерминированно, минуя UI-навигацию (надёжно/быстро). Диспетчер — CMD-receiver в
+    // MainActivity (DEBUG-only). Это ПРЕДПОЧТИТЕЛЬНЫЙ способ загнать приложение в нужное состояние для
+    // тестов на харнесе; на тонкий уровень (tap/swipe) спускаемся только когда команды не хватает.
+    //
+    //   node tools/ui.mjs cmd virtual-camera on|off   — вкл/выкл виртуальную дебаг-камеру
+    //   node tools/ui.mjs cmd stream-to-file on|off    — запись в файл вместо RTMP (harness)
+    //   node tools/ui.mjs cmd go-live [1080|2160|...]  — старт (в harness — запись MP4); arg = высота кадра
+    //   node tools/ui.mjs cmd stop                     — остановить запись/стрим
+    //   node tools/ui.mjs cmd set-rotation 0|90|180|270 — поворот видео
+    //   node tools/ui.mjs cmd add-overlay              — добавить тестовый PNG-оверлей
+    //   node tools/ui.mjs cmd rotation-mode on|off     — режим «вращение по ADB» (для orient)
+    const action = rest[0];
+    const arg = rest[1];
+    if (!action) {
+      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|stop|set-rotation|add-overlay|rotation-mode)');
+      process.exit(1);
+    }
+    const pkg = PKG_DEBUG; // CMD-receiver только в debug
+    const args = ['shell', 'am', 'broadcast', '-a', 'com.kriniks.kcam.CMD', '--es', 'action', action];
+    if (arg !== undefined) args.push('--es', 'arg', String(arg));
+    args.push('-p', pkg);
+    const out = adb(...args);
+    const ok = /Broadcast completed: result=0/.test(out);
+    console.log(`${ok ? '✓' : '⚠️'} cmd ${action}${arg !== undefined ? ' ' + arg : ''} → ${ok ? 'sent' : out.trim()}`);
+    break;
+  }
+
   default: {
     console.log(`
 KrinikCam UI Automation Tool
@@ -599,8 +628,12 @@ Usage:
   node tools/ui.mjs restart [debug|release]     — force-stop + relaunch (default: debug)
   node tools/ui.mjs anim [on|off]               — toggle device animations (off lets dump reach idle)
   node tools/ui.mjs orient <auto|portrait|landscape|reverseportrait|reverselandscape>  — force app orientation over ADB (debug receiver)
+  node tools/ui.mjs cmd <action> [arg]  — ⭐ ТОЛСТАЯ debug-команда (минует UI): virtual-camera|stream-to-file|go-live|stop|set-rotation|add-overlay|rotation-mode
 
 Examples:
+  node tools/ui.mjs cmd virtual-camera on   # включить виртуалку (надёжно, без навигации)
+  node tools/ui.mjs cmd stream-to-file on   # режим записи в файл
+  node tools/ui.mjs cmd go-live 1080        # старт записи 1080p
   node tools/ui.mjs dump
   node tools/ui.mjs tap "go live"
   node tools/ui.mjs allow              # grant camera/mic/USB without bothering Krinik
