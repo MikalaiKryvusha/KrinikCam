@@ -559,14 +559,15 @@ class RtmpStreamer @Inject constructor(
         isStreamSetupInProgress = true
         try {
             if (stream.isOnPreview) stream.stopPreview()
-            // Mirror startStream's encoder config so the file reflects EXACTLY what would be streamed
-            // (same size/rotation handling — incl. the Idea 06 rotation inversion).
-            val streamRotation = (360 - _videoRotation.value) % 360
+            // Bug 10 experiment (harness): keep encoder LANDSCAPE (no dim swap, rotation=0) and rotate
+            // the OUTPUT via setStreamRotation. Hypothesis: this rotates without the fitXY stretch the
+            // prepareVideo(rotation=) path produced (it gave 1080×1920 but a stretched oval).
             val vp = stream.prepareVideo(
                 profile.videoWidth, profile.videoHeight,
-                profile.videoBitrateBps, profile.videoFps, 2, streamRotation,
+                profile.videoBitrateBps, profile.videoFps, 2,
             )
-            applyVideoRotation()
+            stream.getGlInterface().setCameraOrientation(0)              // Bug 02 A: source upright
+            stream.getGlInterface().setStreamRotation(_videoRotation.value) // rotate encoder OUTPUT only
             val ap = stream.prepareAudio(44100, true, 128_000)
             if (!vp || !ap) {
                 KLog.e(TAG, "startRecordToFile: prepare failed (video=$vp audio=$ap)")
@@ -576,7 +577,7 @@ class RtmpStreamer @Inject constructor(
             }
             _state.value = StreamState.Live()  // reuse Live state so the UI shows the LIVE badge
             stream.startRecord(path, recordListener)
-            KLog.i(TAG, "startRecordToFile → $path (uiRot=${_videoRotation.value}° prepRot=${streamRotation}° ${profile.videoWidth}x${profile.videoHeight})")
+            KLog.i(TAG, "startRecordToFile → $path (uiRot=${_videoRotation.value}° via setStreamRotation, enc ${profile.videoWidth}x${profile.videoHeight} landscape)")
             schedulePreviewRestoreAfterStream(stream)
             return path
         } catch (e: Exception) {
