@@ -66,12 +66,18 @@ class VirtualVideoSource : VideoSource(), RotatableSource {
         // for a PORTRAIT canvas (1080×1920); for 0/180 it's landscape (1920×1080). The producer
         // Surface buffer matches the encoder 1:1, so with encoder rotation=0 the GL maps it without
         // any scale → no distortion (Bug 10 variant C).
-        val bufW = if (width > 0) width else 1920
-        val bufH = if (height > 0) height else 1080
         // The virtual "sensor" is ALWAYS 16:9 landscape (like a real webcam): render at LONG×SHORT.
-        // For a portrait buffer (90/270) we rotate this landscape frame into place ourselves (variant C).
-        val sensorW = maxOf(bufW, bufH)
-        val sensorH = minOf(bufW, bufH)
+        val reqW = if (width > 0) width else 1920
+        val reqH = if (height > 0) height else 1080
+        val sensorW = maxOf(reqW, reqH)
+        val sensorH = minOf(reqW, reqH)
+        // The SOURCE is authoritative on its output geometry (variant C): for 90/270 we emit a PORTRAIT
+        // buffer (1080×1920) holding the landscape frame rotated; for 0/180 a landscape buffer. This
+        // must NOT depend on the init dims (which may still be landscape from preview) — otherwise the
+        // rotated frame is drawn into a landscape buffer and gets clipped/letterboxed (Bug 10 regress).
+        val portrait = outputRotation == 90 || outputRotation == 270
+        val bufW = if (portrait) sensorH else sensorW
+        val bufH = if (portrait) sensorW else sensorH
         try {
             staticFrame = VirtualFrameRenderer.renderStatic(sensorW, sensorH)
             textPaint.textSize = sensorH * 0.045f
