@@ -21,8 +21,10 @@
 
 package com.kriniks.kcam.feature.streaming.rtmp
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.provider.MediaStore
 import android.view.TextureView
 import java.io.File
 import com.pedro.common.ConnectChecker
@@ -527,14 +529,60 @@ class RtmpStreamer @Inject constructor(
 
     // ── Idea 10 — virtual stream platform (record to file) ──────────────────
 
-    /** Record status callback (logging only). */
+    /** Absolute path of the in-progress recording (app-private). Published to DCIM on STOPPED. */
+    private var lastRecordPath: String? = null
+
+    /** Record status callback. On STOPPED → publish the finished file to the public DCIM/KrinikCam. */
     private val recordListener = object : RecordController.Listener {
         override fun onStatusChange(status: RecordController.Status) {
             KLog.i(TAG, "Record status: $status")
+            // Idea 11: the file is finalized (moov written) when status becomes STOPPED — only then
+            // copy it to the PUBLIC DCIM/KrinikCam so Krinik can see/analyse recordings in the gallery.
+            if (status == RecordController.Status.STOPPED) {
+                lastRecordPath?.let { publishRecordingToDcim(it) }
+            }
         }
         override fun onNewBitrate(bitrate: Long) {
             val current = _state.value
             if (current is StreamState.Live) _state.value = current.copy(bitrateKbps = (bitrate / 1000).toInt())
+        }
+    }
+
+    /**
+     * Idea 11 — copy a finished recording from the app-private dir into the PUBLIC DCIM/KrinikCam
+     * folder via MediaStore (scoped storage, minSdk 33 — no direct file path to public dirs). The file
+     * then shows up in the gallery / Files app, visible to Krinik. This MediaStore pipeline is also the
+     * groundwork for the future "save video/photo to gallery" feature.
+     */
+    private fun publishRecordingToDcim(srcPath: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val src = File(srcPath)
+                if (!src.exists() || src.length() == 0L) {
+                    KLog.w(TAG, "publishToDcim: source missing/empty — $srcPath")
+                    return@launch
+                }
+                val values = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, src.name)
+                    put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Video.Media.RELATIVE_PATH, "DCIM/KrinikCam")
+                    put(MediaStore.Video.Media.IS_PENDING, 1) // hide until the copy finishes
+                }
+                val resolver = context.contentResolver
+                val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                val uri = resolver.insert(collection, values)
+                if (uri == null) {
+                    KLog.e(TAG, "publishToDcim: MediaStore insert returned null")
+                    return@launch
+                }
+                resolver.openOutputStream(uri)?.use { out -> src.inputStream().use { it.copyTo(out) } }
+                values.clear()
+                values.put(MediaStore.Video.Media.IS_PENDING, 0) // publish (make visible)
+                resolver.update(uri, values, null, null)
+                KLog.i(TAG, "publishToDcim: → DCIM/KrinikCam/${src.name} ($uri)")
+            } catch (e: Exception) {
+                KLog.e(TAG, "publishToDcim failed", e)
+            }
         }
     }
 
@@ -600,6 +648,7 @@ class RtmpStreamer @Inject constructor(
                 return null
             }
             _state.value = StreamState.Live()  // reuse Live state so the UI shows the LIVE badge
+            lastRecordPath = path              // Idea 11: published to DCIM on STOPPED
             stream.startRecord(path, recordListener)
             KLog.i(TAG, "startRecordToFile → $path (uiRot=${deg}° via source-rotation/variant C, enc ${encW}x${encH})")
             schedulePreviewRestoreAfterStream(stream)
