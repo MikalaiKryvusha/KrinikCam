@@ -158,6 +158,20 @@ export JAVA_HOME="..." && node tools/build.mjs --no-ui 2>&1 | grep "^e:"
 
 ---
 
+## Меню «Для разработчиков» (dev-функционал) — Idea 07
+
+В приложении есть СКРЫТЫЙ экран **Developer**: открывается **лонг-тапом** по строке «KrinikCam» в
+Settings → About. Доступен в ЛЮБОЙ сборке (release == debug; никакой «магии» только в debug).
+
+**Правило:** любой отладочный/разработческий функционал выноси СЮДА (тумблеры в стиле приложения +
+кнопка [i] с описанием), а НЕ делай его debug-only через `BuildConfig.DEBUG`. Так release и debug
+не расходятся по фичам — кто знает про лонг-тап, тот найдёт; остальные не догадаются.
+
+Файлы: `dev/DevSettings.kt` (персист через SharedPreferences), `ui/screens/DevMenuScreen.kt` (UI),
+роут `developer` в `NavGraph.kt`. Первый пункт — тумблер «Вращение по ADB» (см. `ui.mjs orient`).
+
+---
+
 ## Коммиты
 
 Стиль: `feat:`, `fix:`, `docs:`, `refactor:`, `ci:` + одна строка что сделано.

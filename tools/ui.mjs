@@ -392,6 +392,23 @@ switch (cmd) {
     break;
   }
 
+  case 'longpress':
+  case 'hold': {
+    // Long-press an element by text/desc/id (e.g. hidden Developer menu = long-press on "KrinikCam").
+    // Implemented as input swipe with same start/end point and a long duration.
+    if (!rest[0]) { console.error('Usage: ui.mjs longpress <query> [ms]'); process.exit(1); }
+    const ms = /^\d+$/.test(rest[rest.length - 1]) ? parseInt(rest.pop(), 10) : 700;
+    const query = rest.join(' ');
+    const nodes = parseNodes(dumpUi());
+    const matches = findNodes(nodes, query);
+    if (!matches.length) { console.log(`❌ No elements found matching "${query}"`); process.exit(1); }
+    const t = matches[0];
+    console.log(`🖐  long-press: ${label(t)} at (${t.center.x},${t.center.y}) for ${ms}ms`);
+    adb('shell', 'input', 'swipe', String(t.center.x), String(t.center.y), String(t.center.x), String(t.center.y), String(ms));
+    console.log('✅ long-press sent');
+    break;
+  }
+
   case 'tap-all': {
     if (!rest[0]) { console.error('Usage: ui.mjs tap-all <query>'); process.exit(1); }
     const query = rest.join(' ');
@@ -512,9 +529,12 @@ switch (cmd) {
     //
     // KrinikCam's MainActivity is screenOrientation="fullSensor" → it follows the PHYSICAL sensor
     // and IGNORES the system rotation lock (settings user_rotation). So we force orientation via a
-    // debug-only broadcast the app listens for (MainActivity.registerDebugOrientationReceiver),
-    // which sets requestedOrientation at runtime — overriding fullSensor regardless of the sensor.
-    // We ALSO set the system rotation so Home/Settings (non-fixed UI) rotate too.
+    // broadcast the app listens for, which sets requestedOrientation at runtime — overriding
+    // fullSensor regardless of the sensor. We ALSO set the system rotation so Home/Settings rotate.
+    //
+    // ⚠️ REQUIRES the "Вращение по ADB" toggle ON in the app's hidden Developer menu (Idea 07):
+    //    Settings → long-press "KrinikCam" → Developer → enable "Вращение по ADB". When OFF, the app
+    //    follows the physical sensor and ignores these broadcasts. (Available in any build.)
     //   orient auto                              — restore fullSensor (follows the physical device)
     //   orient portrait | landscape              — force the app to that orientation
     //   orient reverseportrait | reverselandscape — force the flipped variant
@@ -566,6 +586,7 @@ Usage:
   node tools/ui.mjs dump              — show all visible elements with exact coordinates
   node tools/ui.mjs find <query>      — find element(s) by text / content-desc / resource-id
   node tools/ui.mjs tap  <query>      — find and tap first matching element
+  node tools/ui.mjs longpress <query> [ms]  — long-press element (e.g. hidden Developer menu)
   node tools/ui.mjs tap-all <query>   — list all matches and tap first
   node tools/ui.mjs swipe <up|down|left|right> [fraction] [ms]  — swipe gesture (scroll screens)
   node tools/ui.mjs dump-xml          — print raw UIAutomator XML

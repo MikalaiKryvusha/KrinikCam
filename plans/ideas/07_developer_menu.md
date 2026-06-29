@@ -1,3 +1,14 @@
+> ✅ РЕАЛИЗОВАНО 2026-06-29 — экран «Developer» открывается ЛОНГ-ТАПОМ по строке «KrinikCam» в
+> Settings → About (`combinedClickable`). Первый тумблер — «Вращение по ADB» с [i]-описанием: вкл →
+> приложение перестаёт слушать физ-датчик (`requestedOrientation=LOCKED`) и слушает ADB-команды
+> (`com.kriniks.kcam.SET_ORIENTATION`), выкл → `FULL_SENSOR` (сенсор). DEBUG-гейт убран — работает в
+> ЛЮБОЙ сборке. Файлы: `dev/DevSettings.kt` (SharedPreferences), `ui/screens/DevMenuScreen.kt`,
+> `NavGraph.kt` (route `developer`), `SettingsScreen.kt` (onLongClick), `MainActivity.kt`
+> (`setAdbRotationEnabled`). Проверено на устройстве: лонг-тап → меню; ON → `ui.mjs orient` ворочает
+> (2560×1600); OFF → сенсор, orient игнорируется. Инструмент: `ui.mjs longpress` добавлен.
+
+---
+
 Делаем release и debug сборки почти ничем друг от друга не отличающимися, с похожим функционалом.
 
 В дебаг сборках не должно быть ОСОБОГО МАГИЧЕСКОГО функционала, которого нет в релиз сборках. Есть есть функционал в дебаг сборке - то он есть и в релизной сборке.
