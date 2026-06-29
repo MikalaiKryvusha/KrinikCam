@@ -128,6 +128,8 @@ class MainActivity : ComponentActivity() {
                     "rotation-mode" -> setAdbRotationEnabled(arg == "on")
                     // Idea 25 — переключить базу энкодера на наш GL-композитор (мобильный OBS).
                     "compositor" -> streamingRepository.setUseCompositor(arg != "off")
+                    // Тонкая команда: переключить видимость слоя по id (напр. camera) — для тестов OBS-поведения.
+                    "toggle-layer" -> arg?.let { streamingRepository.toggleLayerVisible(it) }
                     // Idea 24 — выбрать встроенную камеру устройства как источник (front|back|off).
                     "device-camera" -> when (arg) {
                         "front" -> deviceManager.selectPhoneCamera(isFront = true)
