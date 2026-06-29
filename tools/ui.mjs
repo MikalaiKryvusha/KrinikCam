@@ -397,7 +397,9 @@ switch (cmd) {
     // Long-press an element by text/desc/id (e.g. hidden Developer menu = long-press on "KrinikCam").
     // Implemented as input swipe with same start/end point and a long duration.
     if (!rest[0]) { console.error('Usage: ui.mjs longpress <query> [ms]'); process.exit(1); }
-    const ms = /^\d+$/.test(rest[rest.length - 1]) ? parseInt(rest.pop(), 10) : 700;
+    // Default 2500ms: the hidden Developer menu now needs a ≥2s long-press (Idea 14), so hold a bit
+    // longer than that to reliably trigger it. Override with an explicit [ms] arg if needed.
+    const ms = /^\d+$/.test(rest[rest.length - 1]) ? parseInt(rest.pop(), 10) : 2500;
     const query = rest.join(' ');
     const nodes = parseNodes(dumpUi());
     const matches = findNodes(nodes, query);

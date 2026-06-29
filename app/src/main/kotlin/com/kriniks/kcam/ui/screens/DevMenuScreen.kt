@@ -69,19 +69,14 @@ fun DevMenuScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Spacer(Modifier.height(8.dp))
-            Text(
-                "Скрытое меню для отладки. Доступно во всех сборках. Опции применяются сразу.",
-                color = Color(0xFF888888), fontSize = 12.sp,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-            )
 
             DevSection(title = "Orientation") {
                 DevToggleRow(
-                    title = "Вращение по ADB",
-                    info = "Когда включено, приложение перестаёт следовать физическому датчику " +
-                        "поворота и слушает ADB-команды ориентации (ui.mjs orient). Удобно для " +
-                        "автономного тестирования ориентаций без физического поворота устройства. " +
-                        "Выключено — обычное поведение: поворот по датчику.",
+                    title = "ADB rotation",
+                    info = "When enabled, the app stops following the physical rotation sensor and " +
+                        "listens for ADB orientation commands (ui.mjs orient). Handy for autonomous " +
+                        "orientation testing without physically rotating the device. " +
+                        "Off — normal behavior: rotate by sensor.",
                     checked = adbRotation,
                     onCheckedChange = {
                         adbRotation = it
@@ -93,11 +88,11 @@ fun DevMenuScreen(
 
             DevSection(title = "Debug video") {
                 DevToggleRow(
-                    title = "Виртуальная камера",
-                    info = "Подаёт синтетический тест-паттерн 16:9 (круг/сетка/маркеры + движущаяся " +
-                        "полоса и счётчик) вместо физической USB-камеры. Позволяет отлаживать весь " +
-                        "видеопайплайн (превью, поворот, кодирование, стрим) без подключённой камеры. " +
-                        "Круг должен оставаться кругом — если стал овалом, кадр искажён.",
+                    title = "Virtual camera",
+                    info = "Feeds a synthetic 16:9 test pattern (circle/grid/markers + a moving bar " +
+                        "and counter) instead of the physical USB camera. Lets you debug the whole " +
+                        "video pipeline (preview, rotation, encoding, streaming) without a camera " +
+                        "connected. The circle must stay a circle — if it becomes an oval, the frame is distorted.",
                     checked = virtualCamera,
                     onCheckedChange = {
                         virtualCamera = it
@@ -106,11 +101,11 @@ fun DevMenuScreen(
                     },
                 )
                 DevToggleRow(
-                    title = "Стрим в файл (вирт. платформа)",
-                    info = "Когда включено, кнопка Go Live не пушит RTMP в онлайн, а записывает тот " +
-                        "же кодируемый поток в MP4-файл (вирт. «платформа»). Файл лежит в " +
-                        "Android/data/<пакет>/files/rec/ — позже можно нарезать кадры и проверить, " +
-                        "не искажён ли вывод (растяжение/сжатие/поворот). Стрим-ключ не нужен.",
+                    title = "Stream to file (virtual platform)",
+                    info = "When enabled, Go Live doesn't push RTMP online but records the same " +
+                        "encoded stream to an MP4 file (a virtual \"platform\"). The file lives in " +
+                        "Android/data/<package>/files/rec/ — you can later extract frames and check " +
+                        "whether the output is distorted (stretch/squish/rotation). No stream key needed.",
                     checked = virtualStream,
                     onCheckedChange = {
                         virtualStream = it

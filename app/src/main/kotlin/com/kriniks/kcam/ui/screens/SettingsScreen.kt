@@ -33,7 +33,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -288,33 +291,48 @@ private fun SettingsRow(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,   // optional long-press (e.g. hidden Developer menu)
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // combinedClickable supports both tap and long-press; fall back to plain row if neither.
-            .then(
-                if (onClick != null || onLongClick != null)
-                    Modifier.combinedClickable(onClick = { onClick?.invoke() }, onLongClick = onLongClick)
-                else Modifier
-            )
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Icon(icon, contentDescription = null, tint = AcidPink, modifier = Modifier.size(22.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            if (subtitle != null) {
-                Text(subtitle, color = Color(0xFF888888), fontSize = 12.sp)
+    val rowContent = @Composable {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // combinedClickable supports both tap and long-press; fall back to plain row if neither.
+                .then(
+                    if (onClick != null || onLongClick != null)
+                        Modifier.combinedClickable(onClick = { onClick?.invoke() }, onLongClick = onLongClick)
+                    else Modifier
+                )
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = AcidPink, modifier = Modifier.size(22.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                if (subtitle != null) {
+                    Text(subtitle, color = Color(0xFF888888), fontSize = 12.sp)
+                }
+                // Optional second gray aux line (e.g. build identity under "KrinikCam").
+                if (subtitle2 != null) {
+                    Text(subtitle2, color = Color(0xFF666666), fontSize = 11.sp)
+                }
             }
-            // Optional second gray aux line (e.g. build identity under "KrinikCam").
-            if (subtitle2 != null) {
-                Text(subtitle2, color = Color(0xFF666666), fontSize = 11.sp)
+            if (onClick != null) {
+                Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF555555))
             }
         }
-        if (onClick != null) {
-            Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF555555))
+    }
+
+    // Idea 14: opening the hidden Developer menu must require a LONGER long-press (2s) so it isn't
+    // triggered accidentally. combinedClickable reads longPressTimeoutMillis from LocalViewConfiguration
+    // (default ~500ms), so for rows with a long-press we provide an override. NOTE: ui.mjs `longpress`
+    // must hold ≥2s to match.
+    if (onLongClick != null) {
+        val longPressCfg = object : ViewConfiguration by LocalViewConfiguration.current {
+            override val longPressTimeoutMillis: Long get() = 2000L
         }
+        CompositionLocalProvider(LocalViewConfiguration provides longPressCfg) { rowContent() }
+    } else {
+        rowContent()
     }
 }
 
