@@ -121,7 +121,11 @@ class VirtualVideoSource : VideoSource(), RotatableSource, LastFrameProvider {
         val s = surface ?: return
         val bmp = staticFrame ?: return
         try {
-            val canvas = s.lockCanvas(null) ?: return
+            // ВАЖНО (Idea 21): когда виртуалка кормит СЛОЙ-камеру (SurfaceFilterRender), его
+            // SurfaceTexture — GL-consumer и НЕ принимает софтверный lockCanvas (→ null → чёрный кадр,
+            // bug 18). lockHardwareCanvas() рисует через GPU (RenderThread) → буфер совместим с
+            // GL-consumer. Фолбэк на software lockCanvas — для поверхностей, не поддерживающих hardware.
+            val canvas = (runCatching { s.lockHardwareCanvas() }.getOrNull() ?: s.lockCanvas(null)) ?: return
             canvas.save()
             when (outputRotation) {
                 90 -> { canvas.translate(bufW.toFloat(), 0f); canvas.rotate(90f) }

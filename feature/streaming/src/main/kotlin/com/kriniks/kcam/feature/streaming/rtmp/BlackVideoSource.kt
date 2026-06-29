@@ -42,11 +42,11 @@ class BlackVideoSource : VideoSource() {
     override fun create(width: Int, height: Int, fps: Int, rotation: Int): Boolean = true
 
     override fun start(surfaceTexture: SurfaceTexture) {
-        // ⚡ Оптимизация каденса: база — СПЛОШНОЙ чёрный, ей НЕ нужен полный размер энкодера. Берём
-        // крошечный буфер — GL растянет чёрный на весь канвас (чёрный на чёрном, аспект неважен). Это
-        // убирает дорогой lockCanvas+drawColor на 4К каждый кадр (был ~20fps на 4К → должно дать ~30).
-        val w = 64
-        val h = 36
+        // База — СПЛОШНОЙ чёрный. ВАЖНО (диагностика bug 18): размер буфера базы = размеру энкодера
+        // (width/height из init). Крошечный буфер (64×36) подозревается в поломке композита фильтров в
+        // ЭНКОДЕРЕ (камера-слой не попадал в запись → чёрный), хотя в превью был виден. Полный размер — безопасно.
+        val w = if (width > 0) width else 1920
+        val h = if (height > 0) height else 1080
         try {
             surfaceTexture.setDefaultBufferSize(w, h)
             surface = Surface(surfaceTexture)
