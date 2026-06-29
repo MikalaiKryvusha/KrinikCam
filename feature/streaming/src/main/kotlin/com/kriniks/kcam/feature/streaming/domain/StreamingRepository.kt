@@ -51,6 +51,10 @@ class StreamingRepository @Inject constructor(
         rtmpStreamer.addImageOverlay(id, name, bmp)
     }
 
+    /** Добавить слой-картинку с уже готовым (декодированным/вписанным) [bitmap] — реальный PNG из файла. */
+    fun addImageOverlay(id: String, name: String, bitmap: android.graphics.Bitmap) =
+        rtmpStreamer.addImageOverlay(id, name, bitmap)
+
     fun removeLayer(id: String) = rtmpStreamer.removeLayer(id)
     fun toggleLayerVisible(id: String) = rtmpStreamer.toggleLayerVisible(id)
     fun moveLayerUp(id: String) = rtmpStreamer.moveLayerUp(id)

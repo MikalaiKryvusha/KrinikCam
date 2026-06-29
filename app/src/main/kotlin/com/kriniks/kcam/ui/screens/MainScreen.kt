@@ -280,6 +280,7 @@ fun MainScreen(
             scene = scene,
             onDismiss = { showLayersOverlay = false },
             onAddTestOverlay = { streamViewModel.addTestOverlay() },
+            onAddImage = { name, bitmap -> streamViewModel.addImageOverlay(name, bitmap) },
             onToggleVisible = { streamViewModel.toggleLayerVisible(it) },
             onRemove = { streamViewModel.removeLayer(it) },
             onMoveUp = { streamViewModel.moveLayerUp(it) },

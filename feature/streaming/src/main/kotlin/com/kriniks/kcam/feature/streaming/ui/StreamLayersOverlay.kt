@@ -13,6 +13,11 @@
 
 package com.kriniks.kcam.feature.streaming.ui
 
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -23,12 +28,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kriniks.kcam.feature.streaming.scene.ImageOverlayLoader
 import com.kriniks.kcam.feature.streaming.scene.Layer
 import com.kriniks.kcam.feature.streaming.scene.Scene
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val AcidPink = Color(0xFFFF1A8C)
 private val DarkSurface = Color(0xFF1A1A1A)
@@ -40,12 +53,40 @@ fun StreamLayersOverlay(
     scene: Scene,
     onDismiss: () -> Unit,
     onAddTestOverlay: () -> Unit,
+    // Фаза 1: добавить слой-картинку из файла. [bitmap] уже декодирован и вписан в кадр.
+    onAddImage: (name: String, bitmap: android.graphics.Bitmap) -> Unit,
     onToggleVisible: (String) -> Unit,
     onRemove: (String) -> Unit,
     onMoveUp: (String) -> Unit,
     onMoveDown: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // SAF «open document» для картинок: пользователь выбирает файл, читаем и декодируем off-main,
+    // вписываем в кадр (ImageOverlayLoader) и добавляем слой. Имя слоя = имя файла.
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bitmap = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: return@runCatching null
+                    ImageOverlayLoader.loadOverlay(bytes)
+                }.getOrNull()
+            }
+            // Имя файла из SAF (DISPLAY_NAME), иначе дефолт.
+            val name = runCatching {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+            }.getOrNull() ?: "Image"
+            if (bitmap != null) onAddImage(name, bitmap)
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = DarkSurface,
@@ -91,15 +132,19 @@ fun StreamLayersOverlay(
             }
 
             Spacer(Modifier.height(16.dp))
-            // Добавить тестовый оверлей (первый заход).
+            // Основная кнопка — добавить картинку из файла (SAF, любые image/*).
             Button(
-                onClick = onAddTestOverlay,
+                onClick = { imagePicker.launch(arrayOf("image/*")) },
                 colors = ButtonDefaults.buttonColors(containerColor = AcidPink),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Default.AddPhotoAlternate, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Add image overlay (test)")
+                Text("Add image overlay")
+            }
+            // Вторичная — быстрый тестовый оверлей (без файла), для проверки/отладки.
+            TextButton(onClick = onAddTestOverlay, modifier = Modifier.align(Alignment.End)) {
+                Text("Add test overlay", color = Color(0xFF999999))
             }
         }
     }
@@ -124,12 +169,24 @@ private fun LayerRow(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            // Иконка типа слоя.
-            Icon(
-                imageVector = if (isCamera) Icons.Default.Videocam else Icons.Default.Image,
-                contentDescription = null,
-                tint = if (layer.visible) Color.White else Color(0xFF666666),
-            )
+            // Превью слоя: для картинки — миниатюра её содержимого, для камеры — иконка.
+            if (layer is Layer.Image) {
+                Image(
+                    bitmap = layer.bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .size(44.dp, 28.dp)               // 16:9-миниатюра
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF111111)),    // подложка под прозрачные области
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = null,
+                    tint = if (layer.visible) Color.White else Color(0xFF666666),
+                )
+            }
             Spacer(Modifier.width(12.dp))
             Text(
                 layer.name,

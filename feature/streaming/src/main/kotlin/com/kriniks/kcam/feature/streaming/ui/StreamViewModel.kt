@@ -50,11 +50,21 @@ class StreamViewModel @Inject constructor(
     // Монотонный счётчик для уникальных id добавляемых оверлеев в рамках сессии.
     private var overlayCounter = 0
 
-    /** Добавить тестовый PNG-оверлей поверх сцены (первый заход — доказать пайплайн). */
+    /** Добавить тестовый PNG-оверлей поверх сцены (быстрая проверка пайплайна без файла). */
     fun addTestOverlay() {
         overlayCounter += 1
         repository.addTestOverlay(id = "overlay_$overlayCounter", name = "Overlay $overlayCounter")
         KLog.i(TAG, "Added test overlay #$overlayCounter")
+    }
+
+    /**
+     * Добавить слой-картинку из выбранного файла (фаза 1). [bitmap] уже декодирован и вписан в кадр
+     * (см. ImageOverlayLoader); декод/чтение файла делает UI off-main. [displayName] — имя файла.
+     */
+    fun addImageOverlay(displayName: String, bitmap: android.graphics.Bitmap) {
+        overlayCounter += 1
+        repository.addImageOverlay(id = "overlay_$overlayCounter", name = displayName, bitmap = bitmap)
+        KLog.i(TAG, "Added image overlay '$displayName' (#$overlayCounter)")
     }
 
     fun removeLayer(id: String) = repository.removeLayer(id)
