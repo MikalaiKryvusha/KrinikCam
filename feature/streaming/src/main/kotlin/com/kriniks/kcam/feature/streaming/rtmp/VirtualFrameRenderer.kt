@@ -66,22 +66,26 @@ object VirtualFrameRenderer {
             color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = height * 0.008f
         }
         val m = height * 0.05f
-        val pad = height * 0.03f
+        // Idea 13: pull the L-markers DEEPER inside the frame (was 3% of height ≈ hugging the edges,
+        // so they hid under the status bar / FAB / rotate button). 6% of EACH axis keeps them clearly
+        // inside and balanced (horizontal inset proportional to width, vertical to height).
+        val padX = width * 0.06f
+        val padY = height * 0.06f
         // TL
-        c.drawLine(pad, pad, pad + m, pad, cornerPaint); c.drawLine(pad, pad, pad, pad + m, cornerPaint)
+        c.drawLine(padX, padY, padX + m, padY, cornerPaint); c.drawLine(padX, padY, padX, padY + m, cornerPaint)
         // TR
-        c.drawLine(width - pad, pad, width - pad - m, pad, cornerPaint); c.drawLine(width - pad, pad, width - pad, pad + m, cornerPaint)
+        c.drawLine(width - padX, padY, width - padX - m, padY, cornerPaint); c.drawLine(width - padX, padY, width - padX, padY + m, cornerPaint)
         // BL
-        c.drawLine(pad, height - pad, pad + m, height - pad, cornerPaint); c.drawLine(pad, height - pad, pad, height - pad - m, cornerPaint)
+        c.drawLine(padX, height - padY, padX + m, height - padY, cornerPaint); c.drawLine(padX, height - padY, padX, height - padY - m, cornerPaint)
         // BR
-        c.drawLine(width - pad, height - pad, width - pad - m, height - pad, cornerPaint); c.drawLine(width - pad, height - pad, width - pad, height - pad - m, cornerPaint)
+        c.drawLine(width - padX, height - padY, width - padX - m, height - padY, cornerPaint); c.drawLine(width - padX, height - padY, width - padX, height - padY - m, cornerPaint)
 
         // ── "TOP" label (orientation) ───────────────────────────────────────
         val topPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = ACID_PINK; textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textSize = height * 0.06f
         }
-        c.drawText("▲ TOP", cx, pad + height * 0.10f, topPaint)
+        c.drawText("▲ TOP", cx, padY + height * 0.10f, topPaint)
 
         // ── Wordmark + aspect ───────────────────────────────────────────────
         val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
