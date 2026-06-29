@@ -43,6 +43,10 @@ class DeviceManager @Inject constructor() {
     private val _activeVideoSource = MutableStateFlow<VideoSource>(VideoSource.None)
     val activeVideoSource: StateFlow<VideoSource> = _activeVideoSource.asStateFlow()
 
+    // Idea 09 — virtual debug camera toggle (Developer menu). When ON and no real UVC camera is
+    // connected, the active source becomes VideoSource.Virtual (synthetic test pattern).
+    private var virtualEnabled = false
+
     // ── Audio sources ────────────────────────────────────────────────────
 
     private val _activeAudioSource = MutableStateFlow<AudioSource>(AudioSource.PhoneMic())
@@ -75,6 +79,18 @@ class DeviceManager @Inject constructor() {
         _activeVideoSource.value = source
     }
 
+    /** Idea 09 — enable/disable the virtual debug camera (Developer menu). */
+    fun setVirtualCamera(enabled: Boolean) {
+        if (virtualEnabled == enabled) return
+        virtualEnabled = enabled
+        KLog.i(TAG, "Virtual camera ${if (enabled) "ENABLED" else "disabled"}")
+        // Force re-evaluation: a Virtual source is not a UvcCamera, so clear the guard by resetting.
+        if (!enabled && _activeVideoSource.value is VideoSource.Virtual) {
+            _activeVideoSource.value = VideoSource.None
+        }
+        updateActiveSource()
+    }
+
     fun selectAudioSource(source: AudioSource) {
         KLog.d(TAG, "User selected audio source: ${source.displayName}")
         _activeAudioSource.value = source
@@ -88,6 +104,7 @@ class DeviceManager @Inject constructor() {
         if (current is VideoSource.UvcCamera && current in _uvcSources.value) return
 
         val best: VideoSource = _uvcSources.value.firstOrNull()
+            ?: (if (virtualEnabled) VideoSource.Virtual else null)  // debug virtual cam (Idea 09)
             ?: _phoneCameras.value.firstOrNull { !it.isFront }   // rear
             ?: _phoneCameras.value.firstOrNull { it.isFront }    // front
             ?: _phoneCameras.value.firstOrNull()                  // any

@@ -18,6 +18,7 @@ import android.content.Context
 object DevSettings {
     private const val PREFS = "kcam_dev"
     private const val KEY_ADB_ROTATION = "adb_rotation"
+    private const val KEY_VIRTUAL_CAMERA = "virtual_camera"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -28,5 +29,13 @@ object DevSettings {
 
     fun setAdbRotation(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ADB_ROTATION, enabled).apply()
+    }
+
+    /** When ON: feed a synthetic test pattern as the camera (Idea 09) — debug without USB cam. */
+    fun isVirtualCamera(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_VIRTUAL_CAMERA, false)
+
+    fun setVirtualCamera(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_VIRTUAL_CAMERA, enabled).apply()
     }
 }

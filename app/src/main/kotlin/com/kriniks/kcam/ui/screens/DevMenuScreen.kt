@@ -38,10 +38,12 @@ private val DarkBg = Color(0xFF0D0D0D)
 fun DevMenuScreen(
     onBack: () -> Unit,
     onAdbRotationChanged: (Boolean) -> Unit,
+    onVirtualCameraChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
-    // Read current persisted value once; toggles write back to DevSettings + apply live.
+    // Read current persisted values once; toggles write back to DevSettings + apply live.
     var adbRotation by remember { mutableStateOf(DevSettings.isAdbRotation(context)) }
+    var virtualCamera by remember { mutableStateOf(DevSettings.isVirtualCamera(context)) }
 
     Scaffold(
         topBar = {
@@ -83,6 +85,22 @@ fun DevMenuScreen(
                         adbRotation = it
                         DevSettings.setAdbRotation(context, it) // персист
                         onAdbRotationChanged(it)                // применить в MainActivity сразу
+                    },
+                )
+            }
+
+            DevSection(title = "Debug video") {
+                DevToggleRow(
+                    title = "Виртуальная камера",
+                    info = "Подаёт синтетический тест-паттерн 16:9 (круг/сетка/маркеры + движущаяся " +
+                        "полоса и счётчик) вместо физической USB-камеры. Позволяет отлаживать весь " +
+                        "видеопайплайн (превью, поворот, кодирование, стрим) без подключённой камеры. " +
+                        "Круг должен оставаться кругом — если стал овалом, кадр искажён.",
+                    checked = virtualCamera,
+                    onCheckedChange = {
+                        virtualCamera = it
+                        DevSettings.setVirtualCamera(context, it)
+                        onVirtualCameraChanged(it)
                     },
                 )
             }
