@@ -13,6 +13,8 @@
 
 package com.kriniks.kcam.feature.streaming.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -29,6 +31,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -55,10 +58,33 @@ fun StreamPlatformsOverlay(
     onSaveProfile: (StreamProfile) -> Unit,
     onDeleteProfile: (StreamProfile) -> Unit,
     onStartStream: () -> Unit,
+    // Idea 01 — config import/export. buildExportJson() returns the JSON to write to the file the
+    // user picks; onImportJson(text) receives the JSON read from a picked file.
+    buildExportJson: () -> String = { "" },
+    onImportJson: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     var editingProfile by remember { mutableStateOf<StreamProfile?>(null) }
     var showAddNew by remember { mutableStateOf(false) }
+
+    // SAF "create document" — user picks where to save; we write the export JSON there (no runtime
+    // storage permission needed). Default filename suggested via the launch() call below.
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { it.write(buildExportJson().toByteArray()) }
+        }
+    }
+    // SAF "open document" — user picks a config file; we read its text and hand it to the importer.
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) runCatching {
+            context.contentResolver.openInputStream(uri)?.use { onImportJson(it.readBytes().decodeToString()) }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -86,6 +112,22 @@ fun StreamPlatformsOverlay(
                 IconButton(onClick = { showAddNew = true }) {
                     Icon(Icons.Default.Add, contentDescription = "Add platform", tint = AcidPink)
                 }
+            }
+
+            // ── Import / Export config (Idea 01) ──────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { exportLauncher.launch("krinikcam_profiles.json") },
+                    enabled = profiles.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Export", color = AcidPink) }
+                OutlinedButton(
+                    onClick = { importLauncher.launch(arrayOf("application/json", "text/*", "application/octet-stream")) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Import", color = AcidPink) }
             }
 
             Spacer(Modifier.height(12.dp))

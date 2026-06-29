@@ -21,6 +21,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pedro.library.util.sources.video.VideoSource
 import com.kriniks.kcam.core.logging.KLog
+import com.kriniks.kcam.data.profiles.model.ProfilesBackupCodec
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.feature.streaming.domain.StreamingRepository
 import com.kriniks.kcam.feature.streaming.model.StreamState
@@ -144,6 +145,31 @@ class StreamViewModel @Inject constructor(
         viewModelScope.launch {
             repository.saveProfile(profile)
             KLog.i(TAG, "Saved profile '${profile.name}'")
+        }
+    }
+
+    /**
+     * Export all configured profiles to a JSON string (Idea 01). The UI writes this to a file the
+     * user picks via the system document picker (SAF). Stream keys ARE included — it's the user's
+     * own backup of their own config.
+     */
+    fun buildExportJson(): String = ProfilesBackupCodec.encode(profiles.value)
+
+    /**
+     * Import profiles from a config file's JSON (Idea 01). Tolerant: extra fields ignored, missing
+     * fields defaulted. Each imported profile is saved as a NEW row (id reset to 0) so existing
+     * profiles are never overwritten. Emits a snackbar with the result.
+     */
+    fun importProfilesFromJson(json: String) {
+        val imported = ProfilesBackupCodec.decode(json)
+        if (imported.isEmpty()) {
+            viewModelScope.launch { _snackbar.emit("Import failed — no valid profiles in file") }
+            return
+        }
+        viewModelScope.launch {
+            imported.forEach { repository.saveProfile(it.copy(id = 0)) } // insert as new
+            KLog.i(TAG, "Imported ${imported.size} profile(s)")
+            _snackbar.emit("Imported ${imported.size} profile(s)")
         }
     }
 

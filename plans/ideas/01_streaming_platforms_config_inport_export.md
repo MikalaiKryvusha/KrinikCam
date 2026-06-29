@@ -1,3 +1,15 @@
+> ✅ РЕАЛИЗОВАНО 2026-06-29 — кнопки **Export/Import** в Platforms overlay. Export → SAF
+> `CreateDocument` (имя по умолчанию `krinikcam_profiles.json`), Import → SAF `OpenDocument` (без
+> рантайм-пермиссий на хранилище). Формат — человекочитаемый JSON `{app, version, profiles[]}`
+> (`ProfilesBackup`/`ProfilesBackupCodec` в `:data:profiles`): лишние поля игнорируются, недостающие
+> → дефолты (`StreamProfile` получил дефолты на все поля; Json `ignoreUnknownKeys`+`coerceInputValues`).
+> Импорт сохраняет профили как НОВЫЕ (id=0) — без перезаписи; snackbar «Imported N profile(s)».
+> Проверено на устройстве: round-trip export→файл (адекватный JSON)→import (2 профиля добавились).
+> Файлы: `ProfilesBackup.kt`, `StreamViewModel.buildExportJson/importProfilesFromJson`,
+> `StreamPlatformsOverlay.kt` (кнопки + SAF-лаунчеры). Инструмент: `ui.mjs longpress` (для dev-меню).
+
+---
+
 Фича:
 - У профилей стриминг платформ есть кнопки экспорта импорта конфига в/из внешнего файла. Можно сохранить настройку в конфиг файл на устройство, или загрузить настройку из конфиг файла с устройства.
 
