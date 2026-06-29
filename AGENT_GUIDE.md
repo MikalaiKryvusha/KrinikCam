@@ -197,7 +197,8 @@ Settings → About. Доступен в ЛЮБОЙ сборке (release == debu
 | `node tools/build.mjs --no-ui` | headless сборка |
 | `node tools/graphics/render.mjs --input x.svg --output x.png --width N --height N` | SVG→PNG |
 | `node tools/graphics/batch.mjs --input x.svg --android` | SVG→Android mipmap set |
-| `node tools/ui.mjs dump` | **ПРИОРИТЕТНЫЙ** — dump DOM-иерархии с точными координатами элементов |
+| `node tools/ui.mjs cmd <action> [arg]` | **⭐ ТОЛСТАЯ debug-команда (Idea 22), минует UI** — `virtual-camera on\|off`, `stream-to-file on\|off`, `go-live [1080\|2160]`, `stop`, `set-rotation 0\|90\|180\|270`, `add-overlay`, `rotation-mode on\|off`. Надёжно загнать приложение в нужное состояние на харнесе |
+| `node tools/ui.mjs dump` | dump DOM-иерархии с точными координатами (тонкий слой — для проверки самого UI) |
 | `node tools/ui.mjs tap <query>` | найти элемент по тексту и тапнуть (без скриншота!) |
 | `node tools/ui.mjs find <query>` | найти все элементы, совпадающие с query |
 | `node tools/ui.mjs swipe <up\|down\|left\|right> [frac] [ms]` | жест свайпа для прокрутки экранов (ориентационно-корректный) |
@@ -214,6 +215,20 @@ Settings → About. Доступен в ЛЮБОЙ сборке (release == debu
 | `node tools/adb.mjs stop` | force-stop приложения |
 
 > **Полное руководство по UI автоматизации:** [tools/UI_AUTOMATION_GUIDE.md](tools/UI_AUTOMATION_GUIDE.md)
+
+### 🧭 Правило автоматизации (Idea 22) — как агенту действовать в приложении
+
+Хочешь что-то сделать/проверить в приложении — выбирай слой инструмента СВЕРХУ ВНИЗ:
+1. **Толстый `ui.mjs cmd <action>`** (debug-broadcast) — загнать в нужное СОСТОЯНИЕ надёжно/быстро,
+   минуя навигацию. Это путь по умолчанию для тестов на харнесе.
+2. **Тонкий `dump`/`tap`/`swipe`/`longpress`** — только если (а) проверяешь САМ UI, или
+   (б) толстой команды для действия ещё НЕТ.
+3. **После тонкого пути — ДОРАБОТАЙ инструмент:** добавь новую `cmd`-команду (action в CMD-receiver
+   `MainActivity` + ветка в `ui.mjs cmd` + строка в таблицах AGENT_GUIDE/UI_AUTOMATION_GUIDE), чтобы
+   впредь это делалось толстым слоем. Инструмент — живой, активно расширяем и документируем.
+
+CMD-receiver — **DEBUG-only** (`BuildConfig.DEBUG`), action `com.kriniks.kcam.CMD`. Камеры на ночь
+нет → харнес = виртуалка + запись в файл + `ffprobe`/кадры.
 
 ### UI Automation — быстрый старт
 
