@@ -255,6 +255,46 @@ class RtmpStreamer @Inject constructor(
     }
 
     /**
+     * Bug 10 / Idea 06 — configure the encoder + source for the current rotation. Used by BOTH
+     * [startStream] (real RTMP) and [startRecordToFile] (virtual stream / harness) so preview, stream
+     * and record stay IDENTICAL. Returns whether prepareVideo succeeded.
+     *
+     * For 90/270 the encoder canvas is PORTRAIT (1080×1920) and `setIsPortrait(true)` makes
+     * `SizeCalculator.calculateViewPortEncoder` use the FULL frame (no letterbox — decompiled). The
+     * actual rotation depends on the source kind:
+     *  • [RotatableSource] (e.g. VirtualVideoSource — drawn via Canvas) rotates its OWN frame, so the
+     *    encoder does NO rotation (rotation=0 → getScale returns 1,1 → zero distortion). We restart the
+     *    source so it re-allocates its producer buffer at the new (portrait) geometry.
+     *  • A real camera (UvcVideoSource — writes its frame straight into the GL OES texture, can't
+     *    Canvas-rotate) → let the library rotate the camera INPUT via `setCameraOrientation(deg)`
+     *    (CameraRender path) into the portrait canvas.
+     * NO `setStreamRotation`, NO `(360-deg)` inversion — those distorted our custom source.
+     */
+    private fun configureCaptureRotation(stream: RtmpStream, profile: StreamProfile): Boolean {
+        val deg = _videoRotation.value
+        val portrait = deg == 90 || deg == 270
+        val encW = if (portrait) profile.videoHeight else profile.videoWidth // 90/270 → 1080
+        val encH = if (portrait) profile.videoWidth else profile.videoHeight // 90/270 → 1920
+        val src = currentVideoSource
+        (src as? RotatableSource)?.setOutputRotation(deg)
+        val vp = stream.prepareVideo(encW, encH, profile.videoBitrateBps, profile.videoFps, 2)
+        val gl = stream.getGlInterface()
+        gl.setIsPortrait(portrait)        // full-frame viewport for the portrait canvas (no letterbox)
+        if (src is RotatableSource) {
+            gl.setCameraOrientation(0)    // custom source already rotated its own frame
+        } else {
+            gl.setCameraOrientation(deg)  // real camera: library rotates the input texture into canvas
+        }
+        // Restart the source so it re-allocates its buffer at the new geometry (RotatableSource sizes
+        // its buffer from outputRotation; camera reopens at the requested orientation).
+        src?.let {
+            try { stream.changeVideoSource(it) } catch (e: Exception) { KLog.w(TAG, "configureCaptureRotation: source rebind failed", e) }
+        }
+        KLog.i(TAG, "configureCaptureRotation: uiRot=$deg enc ${encW}x${encH} portrait=$portrait src=${src?.javaClass?.simpleName} vp=$vp")
+        return vp
+    }
+
+    /**
      * Attach the preview TextureView. Starts the GL pipeline and opens the USB camera
      * (via the active VideoSource). Must be called from the main thread.
      *
@@ -451,38 +491,15 @@ class RtmpStreamer @Inject constructor(
 
             // CRITICAL: RootEncoder StreamBase.prepareVideo signature is
             //   prepareVideo(width, height, bitrate, fps = 30, iFrameInterval = 2, ...)
-            // i.e. BITRATE is the 3rd param and FPS the 4th — NOT (w, h, fps, bitrate) like the
-            // old RtmpCamera1 API. The migration kept the old order, so we were configuring the
-            // video encoder with bitrate=30 bps and fps=4_000_000 → encoder produced an empty
-            // video track → YouTube received audio only (~132 kbps) → Broken Pipe after 15s.
-            // iFrameInterval=2 → 2-second GOP, which YouTube expects.
-            // Idea 06 portrait stream — use RootEncoder's INTENDED portrait mechanism: pass the
-            // SOURCE landscape dims + the rotation as prepareVideo's 6th param. The library then
-            // rotates AND sets the output to portrait (1080×1920 for 90/270) with aspect preserved.
-            // (Manual size-swap squished; setStreamRotation kept 16:9 dims → stretched. The rotation
-            // param is the canonical path — see plans/ideas/06_video_rotation.md.)
-            // Attempt 5: prepareVideo(rotation=90) made the output canvas portrait (good) but rotated
-            // the content the WRONG way (90° CCW) + stretched. RootEncoder's rotation appears opposite
-            // to our convention for this custom UvcVideoSource, so invert: UI 90° → prepareVideo 270.
-            val streamRotation = (360 - _videoRotation.value) % 360
-            val videoPrepared = stream.prepareVideo(
-                profile.videoWidth,
-                profile.videoHeight,
-                profile.videoBitrateBps,  // bitrate (3rd param)
-                profile.videoFps,         // fps (4th param)
-                2,                        // iFrameInterval (seconds) — YouTube wants ~2s keyframes
-                streamRotation,           // rotation (6th param), inverted to match our convention
-            )
-            KLog.d(TAG, "startStream: prepareVideo → $videoPrepared (${profile.videoWidth}x${profile.videoHeight} src, uiRot=${_videoRotation.value}° prepareRot=${streamRotation}° ${profile.videoFps}fps iFrame=2s)")
-
-            // Fix Bug A (stream rotated 90° CCW + stretched): prepareVideo(rotation=0) internally
-            // calls glInterface.setCameraOrientation(270), which rotates the camera input texture
-            // 270° (= 90° CCW). That's correct for phone camera sensors (mounted at 90°) but WRONG
-            // for a USB webcam, which already outputs an upright landscape frame. Override back to
-            // the user's chosen rotation: setCameraOrientation(deg) rotates the camera into the
-            // (now portrait, for 90/270) encoder canvas → correct 9:16 stream.
-            applyVideoRotation()
-            KLog.d(TAG, "startStream: stream rotation applied = ${_videoRotation.value}°")
+            // i.e. BITRATE is the 3rd param and FPS the 4th. (Old RtmpCamera1 order was w,h,fps,bitrate
+            // → encoder got bitrate=30bps → audio-only → Broken Pipe. Fixed.) iFrameInterval=2 = 2s GOP.
+            //
+            // Bug 10 / Idea 06 — portrait/landscape rotation via the SHARED helper (identical to the
+            // virtual-stream/record path that's verified by the harness): portrait canvas for 90/270 +
+            // setIsPortrait + source-side rotation (custom) OR setCameraOrientation (real camera). NO
+            // (360-deg) inversion, NO setStreamRotation, NO applyVideoRotation juggling — those distorted.
+            val videoPrepared = configureCaptureRotation(stream, profile)
+            KLog.d(TAG, "startStream: prepareVideo+rotation → $videoPrepared (uiRot=${_videoRotation.value}° ${profile.videoFps}fps iFrame=2s)")
 
             val audioPrepared = stream.prepareAudio(44100, true, 128_000)
             KLog.d(TAG, "startStream: prepareAudio → $audioPrepared (44100Hz stereo 128kbps)")
@@ -613,33 +630,8 @@ class RtmpStreamer @Inject constructor(
         isStreamSetupInProgress = true
         try {
             if (stream.isOnPreview) stream.stopPreview()
-            // Bug 10 — variant C: the SOURCE rotates its own 16:9 frame into a portrait buffer; the
-            // encoder does NO rotation (rotation=0 → SizeCalculator.getScale returns 1,1 → zero
-            // distortion). We just set a PORTRAIT encoder canvas for 90/270 and tell the source which
-            // way to rotate. No setStreamRotation / encoder rotation — that path distorts our
-            // non-camera source. (Krinik's model: WE virtually rotate the incoming stream.)
-            val deg = _videoRotation.value
-            val portrait = deg == 90 || deg == 270
-            val encW = if (portrait) profile.videoHeight else profile.videoWidth // 90/270 → 1080
-            val encH = if (portrait) profile.videoWidth else profile.videoHeight // 90/270 → 1920
-            (currentVideoSource as? RotatableSource)?.setOutputRotation(deg)
-            val vp = stream.prepareVideo(
-                encW, encH, profile.videoBitrateBps, profile.videoFps, 2,
-            )
-            stream.getGlInterface().setCameraOrientation(0) // Bug 02 A: keep source upright (no input rot)
-            // Bug 10 — THE missing piece: prepareVideo(rotation=0) sets isPortrait=false, and for a
-            // portrait canvas (w<h) SizeCalculator.calculateViewPortEncoder then LETTERBOXES the
-            // source (viewport 1080×607 centered) → black bars + squished. Force isPortrait to match
-            // the canvas so the viewport is the FULL frame (0,0,1080,1920) → our portrait source
-            // passes through 1:1, no letterbox, no distortion. (Decompiled from SizeCalculator.)
-            stream.getGlInterface().setIsPortrait(portrait)
-            // Restart the source so it re-allocates its producer buffer at the NEW geometry (portrait
-            // for 90/270). Without this the source keeps the landscape buffer from preview → the
-            // rotated frame is clipped/letterboxed (Bug 10 regression). changeVideoSource = stop()+start();
-            // start() reads the outputRotation we just set and sizes the buffer to match the encoder.
-            currentVideoSource?.let {
-                try { stream.changeVideoSource(it) } catch (e: Exception) { KLog.w(TAG, "source rebind failed", e) }
-            }
+            // Bug 10 / Idea 06 — same rotation config as the real stream (shared helper).
+            val vp = configureCaptureRotation(stream, profile)
             val ap = stream.prepareAudio(44100, true, 128_000)
             if (!vp || !ap) {
                 KLog.e(TAG, "startRecordToFile: prepare failed (video=$vp audio=$ap)")
@@ -650,7 +642,7 @@ class RtmpStreamer @Inject constructor(
             _state.value = StreamState.Live()  // reuse Live state so the UI shows the LIVE badge
             lastRecordPath = path              // Idea 11: published to DCIM on STOPPED
             stream.startRecord(path, recordListener)
-            KLog.i(TAG, "startRecordToFile → $path (uiRot=${deg}° via source-rotation/variant C, enc ${encW}x${encH})")
+            KLog.i(TAG, "startRecordToFile → $path (uiRot=${_videoRotation.value}°)")
             schedulePreviewRestoreAfterStream(stream)
             return path
         } catch (e: Exception) {
