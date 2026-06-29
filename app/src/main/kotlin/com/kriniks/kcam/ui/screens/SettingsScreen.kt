@@ -326,13 +326,13 @@ private fun SettingsRow(
         }
     }
 
-    // Idea 14: opening the hidden Developer menu must require a LONGER long-press (2s) so it isn't
+    // Idea 14/18: opening the hidden Developer menu requires a LONGER long-press so it isn't
     // triggered accidentally. combinedClickable reads longPressTimeoutMillis from LocalViewConfiguration
-    // (default ~500ms), so for rows with a long-press we provide an override. NOTE: ui.mjs `longpress`
-    // must hold ≥2s to match.
+    // (default ~500ms), so for rows with a long-press we provide an override. Idea 18: 2000ms felt too
+    // long → lowered to 1000ms (still deliberate, but snappy). NOTE: ui.mjs `longpress` must hold ≥1s.
     if (onLongClick != null) {
         val longPressCfg = object : ViewConfiguration by LocalViewConfiguration.current {
-            override val longPressTimeoutMillis: Long get() = 2000L
+            override val longPressTimeoutMillis: Long get() = 1000L
         }
         CompositionLocalProvider(LocalViewConfiguration provides longPressCfg) { rowContent() }
     } else {
