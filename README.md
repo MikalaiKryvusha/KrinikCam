@@ -28,6 +28,7 @@ Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTub
 | Import / export stream profiles (JSON) | ✅ Phase 2 |
 | USB permission — remember device (no re-ask) | ✅ Phase 2 |
 | Manual rotation (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
+| Multi-source scene layers (camera + image overlays, z-order, visibility) | 🔧 foundation done |
 | Simultaneous multi-platform streaming | 📅 Phase 2+ |
 | Phone camera fallback (Camera2) | 📅 Phase 2+ |
 | Auto image regulation (exposure, white balance) | 📅 Phase 3 |
@@ -156,6 +157,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Импорт / экспорт профилей стримов (JSON) | ✅ Phase 2 |
 | USB permission — запомнить устройство | ✅ Phase 2 |
 | Ручной поворот видео (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
+| Слои-источники сцены (камера + картинки-оверлеи, z-order, видимость) | 🔧 фундамент готов |
 | Одновременный стрим на несколько платформ | 📅 Phase 2+ |
 | Фолбэк на камеру телефона (Camera2) | 📅 Phase 2+ |
 | Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 3 |
