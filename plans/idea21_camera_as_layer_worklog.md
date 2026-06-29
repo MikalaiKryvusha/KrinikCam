@@ -51,12 +51,29 @@ YouTube — только когда фича готова end-to-end и пров
 Рисующий источник: сплошной чёрный кадр в SurfaceTexture энкодера, низкий fps (по образцу
 `StandbyVideoSource`). Тест: сделать базой → запись в файл → кадр чёрный (+ оверлеи поверх работают).
 
-### Шаг 2 — Камера как `SurfaceFilterRender`-слой (ЛАНДШАФТ). ⬜
-- `SceneCompositor` → стейтфул: держит инстансы фильтров по id слоя (НЕ пересоздавать камеру-фильтр
-  каждый apply — иначе шторм переоткрытия). Диффим стек под сцену (add/remove/reorder).
-- Камеру в фильтр открывает :app (callback): `RtmpStreamer` отдаёт SurfaceTexture камеры-слоя →
-  :app зовёт `camera.openCamera(st, request)`. Закрытие — при удалении/скрытии слоя.
-- Тест (реальная камера, landscape 0°): запись в файл → камера видна над чёрной базой + оверлеи.
+### Шаг 2 — Камера как `SurfaceFilterRender`-слой (ЛАНДШАФТ). ⏳ В РАБОТЕ (дизайн зафиксирован)
+
+**Находка (байткод):** фильтры идут через `filterQueue` (`FilterAction` ADD/ADD_INDEX/SET_INDEX/
+REMOVE/REMOVE_INDEX/CLEAR), обработка на GL-потоке. ⚠️ `clearFilters` каждый apply НЕЛЬЗЯ — пересоздаст
+камеру-`SurfaceFilterRender` → её `surfaceReady` снова → переоткрытие камеры (шторм/мерцание). Нужен
+ИНКРЕМЕНТАЛЬНЫЙ компоновщик со стабильным инстансом камеры-фильтра. (Открытый вопрос: re-init ли
+`SurfaceFilterRender` при REMOVE/SET_INDEX — выяснить эмпирически по логам surfaceReady.)
+
+**Дизайн (зафиксирован):**
+- `SceneCompositor` → СТЕЙТФУЛ-класс (инстанс в `RtmpStreamer`), хранит фильтры по id слоя:
+  `imageFilters: Map<id, ImageObjectFilterRender>`, `cameraFilter: SurfaceFilterRender?`.
+- apply(scene): диффим текущий стек → желаемый (видимые слои bottom→top). Картинки add/remove/reorder
+  свободно (дёшево). Камеру-фильтр НЕ трогаем, если её присутствие не изменилось (только overlay-changes
+  → камеру не переоткрываем). Первый милстоун: камера ВНИЗУ (index 0), оверлеи поверх; произвольный
+  reorder камеры — позже (ограничение RootEncoder на churn). Это уже даёт: камера удаляемая/скрываемая
+  (скрыл → чёрная база + оверлеи), без переоткрытия на overlay-changes.
+- **Glue открытия камеры (модульность):** `MultiCameraClient.Camera` живёт в :app (AUSBC). Поэтому
+  `RtmpStreamer` выставляет `var onCameraLayerSurface: (SurfaceTexture?) -> Unit` (ставит :app). Когда
+  компоновщик создаёт/удаляет камеру-фильтр → `RtmpStreamer` зовёт callback с
+  `cameraFilter.getSurfaceTexture()` (или null). :app: `st!=null → camera.openCamera(st,req)`,
+  `st==null → camera.closeCamera()`. База энкодера = `BlackVideoSource` (ставится в ensureStream/preview).
+- Тест (реальная камера, landscape 0°): запись в файл → камера над чёрной базой + оверлеи; ffprobe
+  ~30fps (проверить, что чёрная база не режет каденс).
 
 ### Шаг 3 — Поворот/портрет для камеры-слоя. ⬜ (⚠️ риск, Bug 10)
 Перенести логику портрета на новую модель; проверить запись 9:16 (ffprobe 1080×1920, круг круглый),
