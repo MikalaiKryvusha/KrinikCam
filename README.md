@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF1A8C.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2013%2B-3DDC84.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
-[![Version](https://img.shields.io/badge/Version-0.4-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
+[![Version](https://img.shields.io/badge/Version-0.5-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
 
 **An open-source Android app for streamers and bloggers.**  
 Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTube, Instagram, Twitch, or TikTok — all at once.

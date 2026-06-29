@@ -33,18 +33,28 @@ const isMajor = args.includes('--major')
 const isDryRun = args.includes('--dry-run')
 const gradlew = process.platform === 'win32' ? 'gradlew.bat' : './gradlew'
 
-// --- Version bump ---
-const v = isMajor ? bumpMajor() : bumpMinor()
-const vStr = formatVersion(v)
-const tag = formatTag(v)
+// --- Version (compute WITHOUT mutating, so --dry-run has NO side effect) ---
+// Bug fix: previously this called bumpMinor()/bumpMajor() (which WRITE version.json) BEFORE the
+// dry-run check → a `--dry-run` followed by a real run bumped the minor TWICE and skipped a version
+// (e.g. 0.3 → dry-run wrote 0.4 → real run wrote 0.5, v0.4 never released). Now we only PEEK here;
+// the real, writing bump happens below only on a real run.
+const current = readVersion()
+const next = isMajor
+  ? { major: current.major + 1, minor: 0, build: 0 }
+  : { major: current.major, minor: current.minor + 1, build: 0 }
+const vStr = formatVersion(next)
+const tag = formatTag(next)
 
 console.log(`\n🚀 KrinikCam — Release ${vStr}  (tag: ${tag})\n`)
 
 if (isDryRun) {
-  console.log('🔍 Dry run — skipping build, commit, and GitHub deploy.')
+  console.log('🔍 Dry run — skipping build, commit, and GitHub deploy. (version.json NOT modified)')
   console.log(`   Would release: ${vStr}  tag: ${tag}`)
   process.exit(0)
 }
+
+// --- Real run: NOW actually bump + write version.json ---
+const v = isMajor ? bumpMajor() : bumpMinor()
 
 // --- Build ---
 const gradlewPath = resolve(ROOT, gradlew)
