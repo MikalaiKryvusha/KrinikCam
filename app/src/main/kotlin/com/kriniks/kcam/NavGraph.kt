@@ -37,6 +37,8 @@ fun KrinikCamNavGraph(
     fileLogger: FileLogger,
     // Applied live by MainActivity when the "ADB rotation" dev toggle changes (Idea 07).
     onAdbRotationChanged: (Boolean) -> Unit,
+    // Idea 10 — "stream to file" dev toggle → StreamingRepository (wired in MainActivity).
+    onVirtualStreamChanged: (Boolean) -> Unit,
     navController: NavHostController = rememberNavController(),
 ) {
     NavHost(navController = navController, startDestination = Routes.MAIN) {
@@ -63,6 +65,8 @@ fun KrinikCamNavGraph(
                 onAdbRotationChanged = onAdbRotationChanged,
                 // Idea 09 — toggle the virtual debug camera via DeviceManager (it drives the source).
                 onVirtualCameraChanged = { deviceManager.setVirtualCamera(it) },
+                // Idea 10 — toggle "stream to file" (record instead of RTMP).
+                onVirtualStreamChanged = onVirtualStreamChanged,
             )
         }
     }

@@ -24,7 +24,9 @@ package com.kriniks.kcam.feature.streaming.rtmp
 import android.content.Context
 import android.graphics.Bitmap
 import android.view.TextureView
+import java.io.File
 import com.pedro.common.ConnectChecker
+import com.pedro.library.base.recording.RecordController
 import java.lang.ref.WeakReference
 import com.pedro.encoder.utils.gl.AspectRatioMode
 import com.pedro.library.rtmp.RtmpStream
@@ -514,6 +516,85 @@ class RtmpStreamer @Inject constructor(
         rtmpStream?.stopStream()
         _state.value = StreamState.Idle
         // Restore preview after stream stops — camera is still physically connected
+        lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
+    }
+
+    // ── Idea 10 — virtual stream platform (record to file) ──────────────────
+
+    /** Record status callback (logging only). */
+    private val recordListener = object : RecordController.Listener {
+        override fun onStatusChange(status: RecordController.Status) {
+            KLog.i(TAG, "Record status: $status")
+        }
+        override fun onNewBitrate(bitrate: Long) {
+            val current = _state.value
+            if (current is StreamState.Live) _state.value = current.copy(bitrateKbps = (bitrate / 1000).toInt())
+        }
+    }
+
+    val isRecording: Boolean get() = rtmpStream?.isRecording == true
+
+    /**
+     * Idea 10 — "virtual stream platform": record the SAME encoder output to an MP4 file instead of
+     * pushing RTMP. Runs the full encode path (one MediaCodec, same dimensions/rotation as a real
+     * stream), so the recorded file == what would be streamed. Extract frames from it later to verify
+     * distortion deterministically — no real YouTube / no Krinik needed.
+     *
+     * File goes to the app's external files dir (adb-pullable):
+     *   /sdcard/Android/data/<pkg>/files/rec/krinikcam_rec_<ts>.mp4
+     * Returns the path, or null on failure.
+     */
+    fun startRecordToFile(profile: StreamProfile): String? {
+        val stream = rtmpStream ?: run {
+            KLog.e(TAG, "startRecordToFile: no rtmpStream — start preview/source first")
+            return null
+        }
+        if (stream.isStreaming || stream.isRecording) {
+            KLog.w(TAG, "startRecordToFile: already streaming/recording — ignoring")
+            return null
+        }
+        val dir = File(context.getExternalFilesDir(null), "rec").apply { mkdirs() }
+        val path = File(dir, "krinikcam_rec_${System.currentTimeMillis()}.mp4").absolutePath
+
+        isStreamSetupInProgress = true
+        try {
+            if (stream.isOnPreview) stream.stopPreview()
+            // Mirror startStream's encoder config so the file reflects EXACTLY what would be streamed
+            // (same size/rotation handling — incl. the Idea 06 rotation inversion).
+            val streamRotation = (360 - _videoRotation.value) % 360
+            val vp = stream.prepareVideo(
+                profile.videoWidth, profile.videoHeight,
+                profile.videoBitrateBps, profile.videoFps, 2, streamRotation,
+            )
+            applyVideoRotation()
+            val ap = stream.prepareAudio(44100, true, 128_000)
+            if (!vp || !ap) {
+                KLog.e(TAG, "startRecordToFile: prepare failed (video=$vp audio=$ap)")
+                isStreamSetupInProgress = false
+                lastPreviewTextureView?.get()?.let { startPreview(it) }
+                return null
+            }
+            _state.value = StreamState.Live()  // reuse Live state so the UI shows the LIVE badge
+            stream.startRecord(path, recordListener)
+            KLog.i(TAG, "startRecordToFile → $path (uiRot=${_videoRotation.value}° prepRot=${streamRotation}° ${profile.videoWidth}x${profile.videoHeight})")
+            schedulePreviewRestoreAfterStream(stream)
+            return path
+        } catch (e: Exception) {
+            KLog.e(TAG, "startRecordToFile: exception", e)
+            _state.value = StreamState.Error("Record setup crashed: ${e.message}")
+            isStreamSetupInProgress = false
+            lastPreviewTextureView?.get()?.let { startPreview(it) }
+            return null
+        }
+    }
+
+    /** Stop the file recording (Idea 10) and restore preview. */
+    fun stopRecordToFile() {
+        KLog.i(TAG, "stopRecordToFile: stopping record")
+        isStreamSetupInProgress = false
+        _state.value = StreamState.Stopping
+        rtmpStream?.let { if (it.isRecording) it.stopRecord() }
+        _state.value = StreamState.Idle
         lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
     }
 

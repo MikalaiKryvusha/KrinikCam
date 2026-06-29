@@ -1,3 +1,16 @@
+> ✅ РЕАЛИЗОВАНО 2026-06-29 — тумблер «Стрим в файл (вирт. платформа)» в dev-меню (Idea 07). Когда
+> включён, Go Live не пушит RTMP, а пишет ТОТ ЖЕ кодируемый поток в MP4 через RootEncoder
+> `startRecord(path)` (`RtmpStreamer.startRecordToFile`, тот же prepareVideo/rotation, что и реальный
+> стрим → файл == то, что ушло бы в эфир). Файл: `Android/data/<pkg>/files/rec/krinikcam_rec_*.mp4`,
+> стрим-ключ не нужен. Проверено на устройстве (с виртуальной камерой Idea 09): записал 25.7с,
+> `ffprobe` → H.264 1920×1080, извлечён кадр → **круг идеально круглый** (без искажений).
+> Связка 09+10 = автономный дев-харнесс: вирт.камера → пайплайн → запись в файл → анализ кадров
+> (ffprobe/ffmpeg). Позволит добить Bug 10 (портрет): 90° → запись → ffprobe ожидаемо 1080×1920,
+> кадр покажет, кругл ли круг. Файлы: `RtmpStreamer.startRecordToFile/stopRecordToFile`,
+> `StreamingRepository.virtualStreamToFile`, `StreamViewModel`, dev-меню.
+
+---
+
 Аналогично идее и задаче об винтуальной заглушке-источнике видео
 /Users/kryvusha/ai_sandbox/KrinikCam/plans/ideas/09_input_debug_virtual_camera.md
 

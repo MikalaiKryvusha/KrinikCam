@@ -103,9 +103,10 @@ class VirtualVideoSource : VideoSource() {
             val bx = ((elapsed % period) / period) * w
             canvas.drawRect(bx, 0f, bx + barW, h.toFloat(), barPaint)
 
-            // Live counter + elapsed seconds at the very bottom (Bug 11: below the static label).
+            // Live counter: target FPS + frame # + elapsed seconds at the very bottom (Bug 11:
+            // below the static label). FPS label lets you see the virtual framerate at a glance.
             val secs = elapsed / 1000f
-            canvas.drawText("frame %d · %.1fs".format(frameCount, secs), w / 2f, h * 0.96f, textPaint)
+            canvas.drawText("%d FPS · frame %d · %.1fs".format(VIRTUAL_FPS, frameCount, secs), w / 2f, h * 0.96f, textPaint)
 
             s.unlockCanvasAndPost(canvas)
             frameCount++

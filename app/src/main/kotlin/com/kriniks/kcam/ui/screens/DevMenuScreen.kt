@@ -39,11 +39,13 @@ fun DevMenuScreen(
     onBack: () -> Unit,
     onAdbRotationChanged: (Boolean) -> Unit,
     onVirtualCameraChanged: (Boolean) -> Unit = {},
+    onVirtualStreamChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     // Read current persisted values once; toggles write back to DevSettings + apply live.
     var adbRotation by remember { mutableStateOf(DevSettings.isAdbRotation(context)) }
     var virtualCamera by remember { mutableStateOf(DevSettings.isVirtualCamera(context)) }
+    var virtualStream by remember { mutableStateOf(DevSettings.isVirtualStream(context)) }
 
     Scaffold(
         topBar = {
@@ -101,6 +103,19 @@ fun DevMenuScreen(
                         virtualCamera = it
                         DevSettings.setVirtualCamera(context, it)
                         onVirtualCameraChanged(it)
+                    },
+                )
+                DevToggleRow(
+                    title = "Стрим в файл (вирт. платформа)",
+                    info = "Когда включено, кнопка Go Live не пушит RTMP в онлайн, а записывает тот " +
+                        "же кодируемый поток в MP4-файл (вирт. «платформа»). Файл лежит в " +
+                        "Android/data/<пакет>/files/rec/ — позже можно нарезать кадры и проверить, " +
+                        "не искажён ли вывод (растяжение/сжатие/поворот). Стрим-ключ не нужен.",
+                    checked = virtualStream,
+                    onCheckedChange = {
+                        virtualStream = it
+                        DevSettings.setVirtualStream(context, it)
+                        onVirtualStreamChanged(it)
                     },
                 )
             }
