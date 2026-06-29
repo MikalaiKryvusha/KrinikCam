@@ -39,18 +39,32 @@ object OverlayTestImage {
         }
         canvas.drawRect(20f, 20f, W - 20f, H - 20f, border)
 
-        // Бейдж в левом-верхнем углу.
-        val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = BRAND }
-        val badgeRect = RectF(60f, 60f, 720f, 220f)
-        canvas.drawRoundRect(badgeRect, 28f, 28f, badge)
-
-        // Текст бейджа.
+        // Текст бейджа — сначала измеряем, чтобы плашка точно села по тексту (не обрезала его).
+        val label = "KrinikCam · overlay"
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             textSize = 84f
             isFakeBoldText = true
         }
-        canvas.drawText("KrinikCam · overlay", 96f, 168f, text)
+        val textW = text.measureText(label)
+        val fm = text.fontMetrics
+        val textH = fm.descent - fm.ascent
+        // Внутренние отступы плашки и её положение в левом-верхнем углу.
+        val padX = 40f
+        val padY = 24f
+        val badgeLeft = 60f
+        val badgeTop = 60f
+        val badgeRect = RectF(
+            badgeLeft, badgeTop,
+            badgeLeft + textW + padX * 2,
+            badgeTop + textH + padY * 2,
+        )
+        val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = BRAND }
+        canvas.drawRoundRect(badgeRect, 28f, 28f, badge)
+
+        // Базовая линия текста: верх плашки + паддинг − ascent (ascent отрицателен).
+        val baseline = badgeTop + padY - fm.ascent
+        canvas.drawText(label, badgeLeft + padX, baseline, text)
         return bmp
     }
 }
