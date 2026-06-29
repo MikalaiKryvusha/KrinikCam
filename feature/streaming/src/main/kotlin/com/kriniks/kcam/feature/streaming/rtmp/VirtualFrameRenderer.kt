@@ -88,7 +88,9 @@ object VirtualFrameRenderer {
             color = WHITE_DIM; textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL); textSize = height * 0.04f
         }
-        c.drawText("KrinikCam · VIRTUAL CAM · 16:9", cx, cy + r + height * 0.10f, labelPaint)
+        // Поднято ближе к кругу (Bug 11): низ кадра занимает движущийся счётчик из VirtualVideoSource,
+        // поэтому статичную подпись держим выше, чтобы не накладывались.
+        c.drawText("KrinikCam · VIRTUAL CAM · 16:9", cx, cy + r + height * 0.06f, labelPaint)
 
         return bmp
     }

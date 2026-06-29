@@ -30,8 +30,8 @@ import com.pedro.library.util.sources.video.VideoSource
 
 private const val TAG = "VirtualVideoSource"
 
-// 15 fps — smooth enough to look live, light on CPU for a debug source.
-private const val VIRTUAL_FPS = 15L
+// 30 fps — matches a real webcam's cadence (Bug 11 / Krinik's request).
+private const val VIRTUAL_FPS = 30L
 private const val FRAME_INTERVAL_MS = 1000L / VIRTUAL_FPS
 private const val ACID_PINK = 0xFFFF1A8C.toInt()
 
@@ -103,9 +103,9 @@ class VirtualVideoSource : VideoSource() {
             val bx = ((elapsed % period) / period) * w
             canvas.drawRect(bx, 0f, bx + barW, h.toFloat(), barPaint)
 
-            // Live counter + elapsed seconds at the bottom.
+            // Live counter + elapsed seconds at the very bottom (Bug 11: below the static label).
             val secs = elapsed / 1000f
-            canvas.drawText("frame %d · %.1fs".format(frameCount, secs), w / 2f, h * 0.93f, textPaint)
+            canvas.drawText("frame %d · %.1fs".format(frameCount, secs), w / 2f, h * 0.96f, textPaint)
 
             s.unlockCanvasAndPost(canvas)
             frameCount++
