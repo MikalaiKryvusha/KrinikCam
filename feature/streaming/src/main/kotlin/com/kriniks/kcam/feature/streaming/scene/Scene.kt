@@ -14,9 +14,22 @@ package com.kriniks.kcam.feature.streaming.scene
 data class Scene(
     val layers: List<Layer> = emptyList(),
 ) {
-    /** Только видимые слои-оверлеи (картинки) в порядке снизу вверх — то, что кладёт компоновщик. */
-    fun visibleImageOverlays(): List<Layer.Image> =
-        layers.filterIsInstance<Layer.Image>().filter { it.visible }
+    /**
+     * Видимые слои-картинки, лежащие ВЫШЕ камеры в z-order — именно их кладёт компоновщик поверх кадра.
+     *
+     * Почему «выше камеры»: видео камеры — НЕПРОЗРАЧНЫЙ слой во весь канвас (базовый источник энкодера).
+     * Всё, что ниже него в списке, физически перекрыто этим видео → рисовать не нужно (и нельзя — в
+     * backend RootEncoder фильтры всегда поверх базового источника). Поэтому корректная семантика
+     * z-order: оверлеи ВЫШЕ камеры видны (фильтры поверх), оверлеи НИЖЕ камеры скрыты (перекрыты).
+     * Камера сверху всех → ни один оверлей не виден (камера заполняет кадр). Если камеры в сцене нет
+     * (edge case) — считаем базой «дно» и рисуем все видимые картинки.
+     */
+    fun visibleImageOverlays(): List<Layer.Image> {
+        val cameraIndex = layers.indexOfFirst { it is Layer.Camera } // -1 если камеры нет
+        return layers
+            .filterIndexed { index, layer -> index > cameraIndex && layer is Layer.Image && layer.visible }
+            .filterIsInstance<Layer.Image>()
+    }
 
     /** Добавить слой НА ВЕРХ стека (поверх остальных). */
     fun addOnTop(layer: Layer): Scene = copy(layers = layers + layer)

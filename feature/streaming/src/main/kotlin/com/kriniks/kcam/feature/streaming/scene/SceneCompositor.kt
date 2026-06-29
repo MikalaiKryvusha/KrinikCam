@@ -17,6 +17,8 @@
 
 package com.kriniks.kcam.feature.streaming.scene
 
+import android.graphics.Bitmap
+import android.graphics.Color
 import com.kriniks.kcam.core.logging.KLog
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
 import com.pedro.library.view.GlStreamInterface
@@ -24,6 +26,15 @@ import com.pedro.library.view.GlStreamInterface
 private const val TAG = "SceneCompositor"
 
 object SceneCompositor {
+
+    // Мастер-битмап непрозрачного чёрного «покрывала» во весь кадр. Используется, когда слой камеры
+    // ВЫКЛЮЧЕН: камера-источник физически всегда базовый (низ пайплайна RootEncoder), поэтому, чтобы
+    // «спрятать» её, кладём поверх непрозрачный чёрный фильтр — визуально получается пустой чёрный
+    // канвас, а включённые оверлеи рисуются уже поверх него. Ленивая инициализация, копия отдаётся
+    // фильтру (как и оверлеям — RootEncoder рециклит переданный битмап, см. Bug 14).
+    private val blackCover: Bitmap by lazy {
+        Bitmap.createBitmap(1920, 1080, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLACK) }
+    }
 
     /**
      * Привести стек фильтров [gl] в соответствие со сценой [scene]: убрать все оверлеи и заново
@@ -34,9 +45,23 @@ object SceneCompositor {
         try {
             // Полная пересборка стека под текущую сцену.
             gl.clearFilters()
+            // Если слой камеры ВЫКЛЮЧЕН — кладём непрозрачное чёрное покрывало поверх камеры-источника
+            // (первым фильтром, т.е. ниже всех оверлеев) → визуально пустой чёрный канвас. Камера при
+            // этом физически продолжает кормить базу, но её не видно.
+            val cameraHidden = scene.layers.any { it is Layer.Camera && !it.visible }
+            if (cameraHidden) {
+                gl.addFilter(ImageObjectFilterRender().apply { setImage(blackCover.copy(Bitmap.Config.ARGB_8888, false)) })
+            }
             val overlays = scene.visibleImageOverlays()
             overlays.forEach { layer ->
-                val render = ImageObjectFilterRender().apply { setImage(layer.bitmap) }
+                // ВАЖНО (Bug 14): отдаём фильтру КОПИЮ битмапа, НЕ сам layer.bitmap. RootEncoder
+                // при clearFilters/release РЕЦИКЛИТ переданный в setImage битмап; если отдать общий
+                // layer.bitmap — он умрёт, и следующий apply (после reorder/toggle) + миниатюра слоя
+                // в Compose нарисуют переработанный битмап → краш «trying to use a recycled bitmap».
+                // Копия принадлежит фильтру (его и переработают), а layer.bitmap остаётся живым.
+                val render = ImageObjectFilterRender().apply {
+                    setImage(layer.bitmap.copy(Bitmap.Config.ARGB_8888, false))
+                }
                 // addFilter без индекса = добавить на верх стека; идём снизу вверх → корректный z-order.
                 gl.addFilter(render)
             }
