@@ -105,6 +105,11 @@ class StreamingRepository @Inject constructor(
         rtmpStreamer.clearVideoSource()
     }
 
+    /** Idea 21 — задать/снять источник камеры-слоя (реальная/виртуальная); null = камера отключена. */
+    fun setCameraOpener(opener: RtmpStreamer.CameraOpener?) {
+        rtmpStreamer.setCameraOpener(opener)
+    }
+
     /** Camera lost while streaming → inject the "Please stand by" frame to keep RTMP alive. */
     fun enterStandby() {
         rtmpStreamer.enterStandby()

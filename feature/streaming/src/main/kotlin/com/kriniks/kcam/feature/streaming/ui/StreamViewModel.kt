@@ -136,6 +136,12 @@ class StreamViewModel @Inject constructor(
         KLog.d(TAG, "VideoSource cleared")
     }
 
+    /** Idea 21 — задать/снять источник камеры-слоя (реальная/виртуальная камера); null = отключена. */
+    fun setCameraOpener(opener: com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer.CameraOpener?) {
+        repository.setCameraOpener(opener)
+        KLog.d(TAG, "CameraOpener set: ${opener != null}")
+    }
+
     /**
      * USB camera disconnected while streaming → inject the "Please stand by" placeholder into
      * the live stream so the RTMP session survives the dropout (no Broken Pipe).
