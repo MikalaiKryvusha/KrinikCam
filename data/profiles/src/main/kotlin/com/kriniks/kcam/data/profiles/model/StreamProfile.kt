@@ -14,10 +14,12 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class StreamProfile(
     val id: Long = 0,
-    val name: String,                    // display name, e.g. "My YouTube"
-    val platform: StreamPlatform,
-    val rtmpUrl: String,                 // full base URL, e.g. "rtmp://a.rtmp.youtube.com/live2"
-    val streamKey: String,               // secret stream key
+    // All fields have defaults so import/export (Idea 01) is tolerant: a config file with missing
+    // fields decodes with sensible defaults instead of failing (Json coerceInputValues=true).
+    val name: String = "",               // display name, e.g. "My YouTube"
+    val platform: StreamPlatform = StreamPlatform.CUSTOM,
+    val rtmpUrl: String = "",            // full base URL, e.g. "rtmp://a.rtmp.youtube.com/live2"
+    val streamKey: String = "",          // secret stream key
     val isEnabled: Boolean = true,       // user can toggle without deleting
     val videoWidth: Int = 1920,
     val videoHeight: Int = 1080,

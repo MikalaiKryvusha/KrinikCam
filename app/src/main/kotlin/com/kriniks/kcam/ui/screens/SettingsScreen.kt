@@ -171,6 +171,8 @@ fun SettingsScreen(
             onSaveProfile = { streamViewModel.saveProfile(it) },
             onDeleteProfile = { streamViewModel.deleteProfile(it) },
             onStartStream = {},
+            buildExportJson = { streamViewModel.buildExportJson() },
+            onImportJson = { streamViewModel.importProfilesFromJson(it) },
         )
     }
 

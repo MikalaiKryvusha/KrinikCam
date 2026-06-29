@@ -242,6 +242,8 @@ fun MainScreen(
             onSaveProfile = { streamViewModel.saveProfile(it) },
             onDeleteProfile = { streamViewModel.deleteProfile(it) },
             onStartStream = { streamViewModel.startStream(); showPlatformsOverlay = false },
+            buildExportJson = { streamViewModel.buildExportJson() },
+            onImportJson = { streamViewModel.importProfilesFromJson(it) },
         )
     }
 }
