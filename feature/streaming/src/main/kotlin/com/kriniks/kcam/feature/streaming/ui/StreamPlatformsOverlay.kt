@@ -248,8 +248,10 @@ private fun ProfileEditDialog(
     var rtmpUrl by remember { mutableStateOf(initial.rtmpUrl) }
     var streamKey by remember { mutableStateOf(initial.streamKey) }
     var keyVisible by remember { mutableStateOf(false) }
-    var width by remember { mutableStateOf(initial.videoWidth.toString()) }
-    var height by remember { mutableStateOf(initial.videoHeight.toString()) }
+    // Idea 16: resolution is now picked from a dropdown of standard 16:9 presets instead of typed by
+    // hand. Stored landscape (16:9); portrait 9:16 is produced by the rotation feature at stream time.
+    var resW by remember { mutableStateOf(initial.videoWidth) }
+    var resH by remember { mutableStateOf(initial.videoHeight) }
     var fps by remember { mutableStateOf(initial.videoFps.toString()) }
 
     AlertDialog(
@@ -312,9 +314,12 @@ private fun ProfileEditDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                // Resolution preset (16:9) + FPS. Width/Height are no longer typed by hand (Idea 16).
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    KcamTextField("Width", width, Modifier.weight(1f)) { width = it }
-                    KcamTextField("Height", height, Modifier.weight(1f)) { height = it }
+                    ResolutionDropdown(
+                        width = resW, height = resH,
+                        modifier = Modifier.weight(2f),
+                    ) { w, h -> resW = w; resH = h }
                     KcamTextField("FPS", fps, Modifier.weight(1f)) { fps = it }
                 }
             }
@@ -327,8 +332,8 @@ private fun ProfileEditDialog(
                         platform = platform,
                         rtmpUrl = rtmpUrl.ifBlank { platform.defaultRtmpUrl },
                         streamKey = streamKey,
-                        videoWidth = width.toIntOrNull() ?: 1920,
-                        videoHeight = height.toIntOrNull() ?: 1080,
+                        videoWidth = resW,
+                        videoHeight = resH,
                         videoFps = fps.toIntOrNull() ?: 30,
                     ))
                 },
@@ -361,6 +366,47 @@ private fun PlatformDropdown(selected: StreamPlatform, onSelect: (StreamPlatform
                 DropdownMenuItem(
                     text = { Text(platform.displayName, color = Color.White) },
                     onClick = { onSelect(platform); expanded = false },
+                )
+            }
+        }
+    }
+}
+
+/** Standard 16:9 resolution presets (Idea 16). Stored landscape; portrait is via rotation at stream time. */
+private data class ResPreset(val w: Int, val h: Int, val label: String)
+private val RESOLUTION_PRESETS = listOf(
+    ResPreset(3840, 2160, "2160p · 4K"),
+    ResPreset(2560, 1440, "1440p · 2K"),
+    ResPreset(1920, 1080, "1080p · Full HD"),
+    ResPreset(1280, 720, "720p · HD"),
+    ResPreset(854, 480, "480p"),
+    ResPreset(640, 360, "360p"),
+)
+
+/**
+ * Resolution picker (Idea 16) — dropdown of standard 16:9 presets instead of hand-typed Width/Height.
+ * Shows "W×H"; a profile with a non-preset size still displays its raw W×H until the user picks one.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ResolutionDropdown(width: Int, height: Int, modifier: Modifier = Modifier, onSelect: (Int, Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = "${width}×${height}",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Resolution (16:9)", color = Color(0xFF888888)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            colors = kcamTextFieldColors(),
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false },
+            modifier = Modifier.background(DropdownSurface)) {
+            RESOLUTION_PRESETS.forEach { r ->
+                DropdownMenuItem(
+                    text = { Text("${r.w}×${r.h}  ·  ${r.label}", color = Color.White) },
+                    onClick = { onSelect(r.w, r.h); expanded = false },
                 )
             }
         }
