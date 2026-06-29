@@ -79,6 +79,9 @@ class StreamingRepository @Inject constructor(
         else { rtmpStreamer.startStream(profile); null }
 
     /** Остановить активный вывод (запись или стрим). */
+    /** Idea 25 — переключить базу на наш GL-композитор (мобильный OBS). */
+    fun setUseCompositor(enabled: Boolean) = rtmpStreamer.setUseCompositor(enabled)
+
     fun stopAll() {
         if (rtmpStreamer.isRecording) rtmpStreamer.stopRecordToFile() else rtmpStreamer.stopStream()
     }

@@ -126,6 +126,8 @@ class MainActivity : ComponentActivity() {
                         id = "overlay_cmd_${System.currentTimeMillis()}", name = "Overlay",
                     )
                     "rotation-mode" -> setAdbRotationEnabled(arg == "on")
+                    // Idea 25 — переключить базу энкодера на наш GL-композитор (мобильный OBS).
+                    "compositor" -> streamingRepository.setUseCompositor(arg != "off")
                     // Idea 24 — выбрать встроенную камеру устройства как источник (front|back|off).
                     "device-camera" -> when (arg) {
                         "front" -> deviceManager.selectPhoneCamera(isFront = true)

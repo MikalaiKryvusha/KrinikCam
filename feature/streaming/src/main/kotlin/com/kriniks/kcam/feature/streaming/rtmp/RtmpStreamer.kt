@@ -105,6 +105,22 @@ class RtmpStreamer @Inject constructor(
     private val blackSource = BlackVideoSource()
     private val sceneCompositor = SceneCompositor(onCameraSurface = { st -> onCameraLayerSurfaceReady(st) })
 
+    // ── Idea 25 — НАШ GL-композитор (мобильный OBS) как базовый источник ──────
+    // Мигрируем с «камера = SurfaceFilterRender-фильтр» (не доходил до энкодера, bugs/18) на свой
+    // GL-композитор: он рисует все слои в один кадр и отдаётся базовым VideoSource. useCompositor —
+    // флаг-мост на время миграции (cmd compositor on). Когда композитор закроет все шаги — станет
+    // единственным режимом, а blackSource/SurfaceFilterRender-камера уйдут.
+    private val compositorSource = com.kriniks.kcam.feature.streaming.gl.CompositorVideoSource()
+    @Volatile private var useCompositor = false
+    fun setUseCompositor(enabled: Boolean) {
+        useCompositor = enabled
+        KLog.i(TAG, "useCompositor = $enabled")
+        // Перезапустить превью, чтобы база переключилась вживую (ensureBlackBase подхватит флаг).
+        if (rtmpStream?.isStreaming != true) {
+            lastPreviewTextureView?.get()?.let { tv -> scope.launch { startPreview(tv) } }
+        }
+    }
+
     /** Открывает/закрывает камеру в SurfaceTexture слоя-камеры. Реализуется в :app (держит AUSBC-камеру). */
     interface CameraOpener {
         fun open(surfaceTexture: SurfaceTexture)
@@ -135,11 +151,13 @@ class RtmpStreamer @Inject constructor(
 
     // Гарантировать, что базой энкодера выставлен чёрный источник (Idea 21). Камера базой больше НЕ бывает.
     private fun ensureBlackBase() {
-        if (currentVideoSource !is BlackVideoSource) {
-            currentVideoSource = blackSource
-            runCatching { ensureStream().changeVideoSource(blackSource) }
+        // Idea 25: базой может быть наш GL-композитор (useCompositor) либо простой чёрный источник.
+        val base: VideoSource = if (useCompositor) compositorSource else blackSource
+        if (currentVideoSource !== base) {
+            currentVideoSource = base
+            runCatching { ensureStream().changeVideoSource(base) }
                 .onFailure { KLog.e(TAG, "ensureBlackBase: changeVideoSource failed", it) }
-            KLog.d(TAG, "ensureBlackBase: base set to BlackVideoSource")
+            KLog.d(TAG, "ensureBlackBase: base set to ${base.javaClass.simpleName}")
         }
     }
 
@@ -802,6 +820,12 @@ class RtmpStreamer @Inject constructor(
      * после каждой правки сцены. No-op до запуска GL — переприменится на следующем хуке.
      */
     private fun applySceneOverlays() {
+        // Idea 25: при нашем GL-композиторе слои рисует ОН сам (в базовый кадр) — фильтры RootEncoder не
+        // используем, чистим их. Иначе — прежний путь (камера/картинки как фильтры поверх чёрной базы).
+        if (useCompositor) {
+            sceneCompositor.reset(rtmpStream?.getGlInterface())
+            return
+        }
         sceneCompositor.apply(rtmpStream?.getGlInterface(), _scene.value)
     }
 
