@@ -37,6 +37,16 @@ sealed interface VideoSource {
         override val isAvailable = true
     }
 
+    /**
+     * Virtual debug camera (Idea 09) — a synthetic 16:9 test pattern fed into the pipeline so the
+     * app can run/be debugged WITHOUT a physical USB camera. Enabled via the Developer menu.
+     */
+    object Virtual : VideoSource {
+        override val id = "virtual"
+        override val displayName = "Virtual camera (debug)"
+        override val isAvailable = true
+    }
+
     /** No video source — app shows black screen + standby placeholder */
     object None : VideoSource {
         override val id = "none"

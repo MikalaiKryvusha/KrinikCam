@@ -45,6 +45,7 @@ import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.model.isLive
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
+import com.kriniks.kcam.feature.streaming.rtmp.VirtualVideoSource
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import com.kriniks.kcam.feature.usb.ui.UvcPreviewView
@@ -107,29 +108,37 @@ fun MainScreen(
     // Without this, AUSBC may reconnect the SAME camera object during streaming (so activeCamera
     // ref doesn't change), setVideoSource() is blocked by the guard, and preview stays black
     // after streaming ends because nothing triggers a re-bind.
-    LaunchedEffect(usbState.activeCamera, streamState.isActive) {
+    LaunchedEffect(usbState.activeCamera, activeSource, streamState.isActive) {
         val camera = usbState.activeCamera
         val streaming = streamState.isActive
-        if (camera != null) {
-            val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
-            val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
-            val source = UvcVideoSource(camera, previewWidth = w, previewHeight = h)
-            if (streaming) {
-                // Camera (re)appeared during a live stream. exitStandby swaps the placeholder
-                // back to the live camera; if we weren't in standby it falls through to a guarded
-                // setVideoSource() no-op (the existing live-stream behaviour, unchanged).
-                streamViewModel.exitStandby(source)
-            } else {
-                streamViewModel.setVideoSource(source)
+        when {
+            camera != null -> {
+                val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
+                val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
+                val source = UvcVideoSource(camera, previewWidth = w, previewHeight = h)
+                if (streaming) {
+                    // Camera (re)appeared during a live stream. exitStandby swaps the placeholder
+                    // back to the live camera; if we weren't in standby it falls through to a guarded
+                    // setVideoSource() no-op (the existing live-stream behaviour, unchanged).
+                    streamViewModel.exitStandby(source)
+                } else {
+                    streamViewModel.setVideoSource(source)
+                }
             }
-        } else {
-            if (streaming) {
-                // Camera lost mid-stream: inject the "Please stand by" frame so RTMP stays alive
-                // instead of starving the encoder. The Compose StandbyPlaceholder also shows
-                // locally (activeSource → None handled in Layer 0 below).
-                streamViewModel.enterStandby()
-            } else {
-                streamViewModel.clearVideoSource()
+            // Idea 09 — virtual debug camera active (no physical cam): feed the synthetic source.
+            activeSource is VideoSource.Virtual -> {
+                val source = VirtualVideoSource()
+                if (streaming) streamViewModel.exitStandby(source) else streamViewModel.setVideoSource(source)
+            }
+            else -> {
+                if (streaming) {
+                    // Camera lost mid-stream: inject the "Please stand by" frame so RTMP stays alive
+                    // instead of starving the encoder. The Compose StandbyPlaceholder also shows
+                    // locally (activeSource → None handled in Layer 0 below).
+                    streamViewModel.enterStandby()
+                } else {
+                    streamViewModel.clearVideoSource()
+                }
             }
         }
     }
@@ -172,6 +181,19 @@ fun MainScreen(
                     StandbyPlaceholder(modifier = Modifier.fillMaxSize())
                 }
             }
+            is VideoSource.Virtual -> {
+                // Idea 09 — virtual debug camera: same GL preview path as UVC (synthetic frames).
+                UvcPreviewView(
+                    onTextureViewReady = { tv ->
+                        previewTextureView = tv
+                        streamViewModel.startPreviewOnView(tv)
+                    },
+                    onSurfaceTextureSizeChanged = { tv, _, _ -> streamViewModel.startPreviewOnView(tv) },
+                    onSurfaceDestroyed = { streamViewModel.stopPreview() },
+                    rotationDegrees = if (streamState.isActive) 0 else videoRotation,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             is VideoSource.PhoneCamera -> {
                 StandbyPlaceholder(
                     message = "Phone camera preview coming soon",
@@ -189,7 +211,7 @@ fun MainScreen(
         // ── Layer 1: Rotation menu (top-right, camera active only) ──────────
         // Tap → pick angle (0/90/180/270). 90/270 = portrait 9:16 stream (Idea 06). Locked while
         // streaming (changing resolution mid-RTMP breaks YouTube) — tap then shows a hint.
-        if (usbState.activeCamera != null) {
+        if (usbState.activeCamera != null || activeSource is VideoSource.Virtual) {
             RotationMenu(
                 currentRotation = videoRotation,
                 enabled = !streamState.isActive,

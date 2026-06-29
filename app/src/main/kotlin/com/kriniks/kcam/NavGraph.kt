@@ -61,6 +61,8 @@ fun KrinikCamNavGraph(
             DevMenuScreen(
                 onBack = { navController.popBackStack() },
                 onAdbRotationChanged = onAdbRotationChanged,
+                // Idea 09 — toggle the virtual debug camera via DeviceManager (it drives the source).
+                onVirtualCameraChanged = { deviceManager.setVirtualCamera(it) },
             )
         }
     }

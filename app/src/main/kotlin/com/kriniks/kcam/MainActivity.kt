@@ -62,8 +62,9 @@ class MainActivity : ComponentActivity() {
         }
 
         requestRequiredPermissions()
-        // Apply persisted dev preference: ADB-rotation mode ON/OFF (Idea 07). Default OFF → sensor.
+        // Apply persisted dev preferences (Idea 07/09). Defaults OFF.
         setAdbRotationEnabled(DevSettings.isAdbRotation(this))
+        deviceManager.setVirtualCamera(DevSettings.isVirtualCamera(this))
     }
 
     /**
