@@ -594,8 +594,11 @@ switch (cmd) {
     //   node tools/ui.mjs cmd set-rotation 0|90|180|270 — поворот видео
     //   node tools/ui.mjs cmd add-overlay              — добавить тестовый PNG-оверлей
     //   node tools/ui.mjs cmd rotation-mode on|off     — режим «вращение по ADB» (для orient)
+    //   node tools/ui.mjs cmd set-transform <id> <scale> <cx> <cy> [alpha] — PiP-трансформа слоя (композитор)
     const action = rest[0];
-    const arg = rest[1];
+    // Хвост аргументов склеиваем в один токен ЧЕРЕЗ ЗАПЯТУЮ (без пробелов: иначе `am broadcast --es arg`
+    // на устройстве расщепит значение по пробелам). Приёмник в MainActivity парсит по [,\s]+.
+    const arg = rest.length > 1 ? rest.slice(1).join(',') : undefined;
     if (!action) {
       console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|stop|set-rotation|add-overlay|rotation-mode)');
       process.exit(1);

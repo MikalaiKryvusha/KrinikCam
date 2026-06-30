@@ -59,6 +59,8 @@ class StreamingRepository @Inject constructor(
     fun toggleLayerVisible(id: String) = rtmpStreamer.toggleLayerVisible(id)
     fun moveLayerUp(id: String) = rtmpStreamer.moveLayerUp(id)
     fun moveLayerDown(id: String) = rtmpStreamer.moveLayerDown(id)
+    fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f) =
+        rtmpStreamer.setLayerTransform(id, scale, cx, cy, alpha)
 
     // ── Idea 10 — virtual stream platform (record to file instead of RTMP) ──
     // Dev toggle: when ON, "Go Live" records the encoder output to a file instead of pushing RTMP.

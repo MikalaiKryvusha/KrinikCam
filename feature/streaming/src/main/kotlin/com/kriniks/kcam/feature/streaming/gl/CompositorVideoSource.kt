@@ -30,12 +30,34 @@ private const val TAG = "CompositorVideoSource"
 private const val FPS = 30L
 private const val FRAME_MS = 1000L / FPS
 
-/** Описание слоя для GL-композитора (z-order = порядок в списке, снизу вверх). */
+/**
+ * Описание слоя для GL-композитора (z-order = порядок в списке, снизу вверх).
+ *
+ * Трансформа (PiP, Idea 25 шаг 4) — нормализована к кадру: [scale] доля кадра, [cx],[cy] центр в [0,1]
+ * (0,0=верх-лево), [alpha] прозрачность. Дефолт — во весь кадр по центру (как было до трансформы).
+ */
 sealed interface CompositorLayer {
+    val scale: Float
+    val cx: Float
+    val cy: Float
+    val alpha: Float
+
     /** Слой камеры (OES external texture, кадры от камеры-продюсера). */
-    data object Camera : CompositorLayer
+    data class Camera(
+        override val scale: Float = 1f,
+        override val cx: Float = 0.5f,
+        override val cy: Float = 0.5f,
+        override val alpha: Float = 1f,
+    ) : CompositorLayer
+
     /** Слой-картинка (2D-текстура из bitmap). */
-    data class Image(val bitmap: android.graphics.Bitmap) : CompositorLayer
+    data class Image(
+        val bitmap: android.graphics.Bitmap,
+        override val scale: Float = 1f,
+        override val cx: Float = 0.5f,
+        override val cy: Float = 0.5f,
+        override val alpha: Float = 1f,
+    ) : CompositorLayer
 }
 
 class CompositorVideoSource : VideoSource() {
@@ -150,13 +172,15 @@ class CompositorVideoSource : VideoSource() {
                     newCameraFrame = false
                 }
                 // Рисуем слои в порядке сцены (снизу вверх). Камера и картинки равноправны.
+                // Каждому слою — своя модельная матрица позиции (PiP-трансформа) и альфа.
                 for (layer in requestedLayers) {
+                    val pos = posMatrixOf(layer.scale, layer.cx, layer.cy)
                     when (layer) {
                         is CompositorLayer.Camera -> if (cameraOesTex != 0)
-                            r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, alpha = 1f)
+                            r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, posMatrix = pos, alpha = layer.alpha)
                         is CompositorLayer.Image -> {
                             val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
-                            if (texId != null) r.draw(texId, oes = false, alpha = 1f)
+                            if (texId != null) r.draw(texId, oes = false, posMatrix = pos, alpha = layer.alpha)
                         }
                     }
                 }
@@ -166,6 +190,20 @@ class CompositorVideoSource : VideoSource() {
         } catch (e: Exception) {
             KLog.w(TAG, "drawFrame failed: ${e.message}")
         }
+    }
+
+    // Модельная матрица позиции квада в clip-space по нормализованной трансформе слоя (PiP).
+    // Полноэкранный квад [-1..1] масштабируем на [scale] и сдвигаем в центр (cx,cy)∈[0,1]
+    // (Y экранный сверху-вниз → clip-Y флипается: cy=0 (верх) → ty=+1). Column-major float[16].
+    private fun posMatrixOf(scale: Float, cx: Float, cy: Float): FloatArray {
+        val tx = 2f * cx - 1f
+        val ty = 1f - 2f * cy
+        return floatArrayOf(
+            scale, 0f, 0f, 0f,
+            0f, scale, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            tx, ty, 0f, 1f,
+        )
     }
 
     // GL-поток: привести залитые текстуры к requestedBitmaps (удалить ушедшие, залить новые, порядок=z).

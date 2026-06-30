@@ -831,11 +831,16 @@ class RtmpStreamer @Inject constructor(
             // Камера и картинки равноправны: отдаём композитору слои В ПОРЯДКЕ СЦЕНЫ (снизу вверх),
             // только видимые. Камера переставляема как обычный слой (истинный OBS).
             val layers = _scene.value.layers.filter { it.visible }.mapNotNull { layer ->
+                val t = layer.transform // PiP-трансформа слоя (позиция/масштаб/альфа) → композитору
                 when (layer) {
                     is com.kriniks.kcam.feature.streaming.scene.Layer.Camera ->
-                        com.kriniks.kcam.feature.streaming.gl.CompositorLayer.Camera
+                        com.kriniks.kcam.feature.streaming.gl.CompositorLayer.Camera(
+                            scale = t.scale, cx = t.cx, cy = t.cy, alpha = t.alpha,
+                        )
                     is com.kriniks.kcam.feature.streaming.scene.Layer.Image ->
-                        com.kriniks.kcam.feature.streaming.gl.CompositorLayer.Image(layer.bitmap)
+                        com.kriniks.kcam.feature.streaming.gl.CompositorLayer.Image(
+                            bitmap = layer.bitmap, scale = t.scale, cx = t.cx, cy = t.cy, alpha = t.alpha,
+                        )
                 }
             }
             compositorSource.setLayers(layers)
@@ -876,6 +881,21 @@ class RtmpStreamer @Inject constructor(
 
     /** Опустить слой на одну позицию ниже в z-order. */
     fun moveLayerDown(id: String) = mutateScene { it.moveDown(id) }
+
+    /**
+     * Idea 25 шаг 4 — задать PiP-трансформу слоя (масштаб/позиция/альфа). Работает в нашем GL-композиторе
+     * (useCompositor): композитор рисует слой квадом в подпрямоугольнике кадра. [scale] доля кадра,
+     * [cx],[cy] центр в [0,1] (0,0=верх-лево), [alpha] прозрачность.
+     */
+    fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f) {
+        mutateScene {
+            it.setTransform(
+                id,
+                com.kriniks.kcam.feature.streaming.scene.LayerTransform(scale = scale, cx = cx, cy = cy, alpha = alpha),
+            )
+        }
+        KLog.i(TAG, "Scene: set transform of layer id=$id → scale=$scale cx=$cx cy=$cy alpha=$alpha")
+    }
 
     val isStreaming: Boolean get() = rtmpStream?.isStreaming == true
     val isOnPreview: Boolean get() = rtmpStream?.isOnPreview == true

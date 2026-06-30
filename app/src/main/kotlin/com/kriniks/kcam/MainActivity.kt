@@ -132,6 +132,17 @@ class MainActivity : ComponentActivity() {
                     "toggle-layer" -> arg?.let { streamingRepository.toggleLayerVisible(it) }
                     "layer-up" -> arg?.let { streamingRepository.moveLayerUp(it) }
                     "layer-down" -> arg?.let { streamingRepository.moveLayerDown(it) }
+                    // Idea 25 шаг 4 — PiP-трансформа слоя. arg = "<id> <scale> <cx> <cy> [alpha]"
+                    // (id — напр. camera; scale доля кадра; cx,cy центр в [0,1] (0,0=верх-лево); alpha опц.).
+                    "set-transform" -> arg?.split(Regex("[,\\s]+"))?.let { p ->
+                        if (p.size >= 4) streamingRepository.setLayerTransform(
+                            id = p[0],
+                            scale = p[1].toFloatOrNull() ?: 1f,
+                            cx = p[2].toFloatOrNull() ?: 0.5f,
+                            cy = p[3].toFloatOrNull() ?: 0.5f,
+                            alpha = p.getOrNull(4)?.toFloatOrNull() ?: 1f,
+                        ) else KLog.w("MainActivity", "set-transform: need '<id> <scale> <cx> <cy> [alpha]'")
+                    }
                     // Idea 24 — выбрать встроенную камеру устройства как источник (front|back|off).
                     "device-camera" -> when (arg) {
                         "front" -> deviceManager.selectPhoneCamera(isFront = true)

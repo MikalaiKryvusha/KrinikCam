@@ -78,6 +78,8 @@ class StreamViewModel @Inject constructor(
     fun toggleLayerVisible(id: String) = repository.toggleLayerVisible(id)
     fun moveLayerUp(id: String) = repository.moveLayerUp(id)
     fun moveLayerDown(id: String) = repository.moveLayerDown(id)
+    fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f) =
+        repository.setLayerTransform(id, scale, cx, cy, alpha)
 
     /**
      * Set the manual video rotation. Blocked while streaming (changing resolution mid-RTMP breaks

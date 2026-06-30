@@ -69,10 +69,17 @@ class GlQuadRenderer {
     fun deleteTexture(id: Int) { if (id != 0) GLES20.glDeleteTextures(1, intArrayOf(id), 0) }
 
     /**
-     * Нарисовать текстуру на весь кадр. [oes]=true → OES-программа (камера) с [texMatrix] от
-     * SurfaceTexture; иначе 2D с V-flip. [alpha] — прозрачность слоя.
+     * Нарисовать текстуру квадом. [oes]=true → OES-программа (камера) с [texMatrix] от SurfaceTexture;
+     * иначе 2D с V-flip. [posMatrix] — модельная матрица позиции квада в clip-space (масштаб/сдвиг для
+     * PiP; null = во весь кадр). [alpha] — прозрачность слоя.
      */
-    fun draw(texId: Int, oes: Boolean, texMatrix: FloatArray? = null, alpha: Float = 1f) {
+    fun draw(
+        texId: Int,
+        oes: Boolean,
+        texMatrix: FloatArray? = null,
+        posMatrix: FloatArray? = null,
+        alpha: Float = 1f,
+    ) {
         val prog = if (oes) progOes else prog2d
         GLES20.glUseProgram(prog)
         val target = if (oes) GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES20.GL_TEXTURE_2D
@@ -80,6 +87,7 @@ class GlQuadRenderer {
         val aPos = GLES20.glGetAttribLocation(prog, "aPosition")
         val aTex = GLES20.glGetAttribLocation(prog, "aTexCoord")
         val uTexM = GLES20.glGetUniformLocation(prog, "uTexMatrix")
+        val uPosM = GLES20.glGetUniformLocation(prog, "uPosMatrix")
         val uAlpha = GLES20.glGetUniformLocation(prog, "uAlpha")
         val uTexture = GLES20.glGetUniformLocation(prog, "uTexture")
 
@@ -91,6 +99,7 @@ class GlQuadRenderer {
         GLES20.glVertexAttribPointer(aTex, 2, GLES20.GL_FLOAT, false, 16, vbo)
 
         GLES20.glUniformMatrix4fv(uTexM, 1, false, texMatrix ?: if (oes) identity else flipY, 0)
+        GLES20.glUniformMatrix4fv(uPosM, 1, false, posMatrix ?: identity, 0)
         GLES20.glUniform1f(uAlpha, alpha)
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -134,11 +143,12 @@ class GlQuadRenderer {
     private companion object {
         const val VERTEX = """
             uniform mat4 uTexMatrix;
+            uniform mat4 uPosMatrix;
             attribute vec4 aPosition;
             attribute vec4 aTexCoord;
             varying vec2 vTexCoord;
             void main() {
-                gl_Position = aPosition;
+                gl_Position = uPosMatrix * aPosition;
                 vTexCoord = (uTexMatrix * aTexCoord).xy;
             }
         """

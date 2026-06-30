@@ -42,6 +42,11 @@ data class Scene(
         layers = layers.map { if (it.id == layerId) it.withVisible(!it.visible) else it },
     )
 
+    /** Задать трансформу (позиция/масштаб/альфа, PiP) слою по id — Idea 25 шаг 4. */
+    fun setTransform(layerId: String, transform: LayerTransform): Scene = copy(
+        layers = layers.map { if (it.id == layerId) it.withTransform(transform) else it },
+    )
+
     /** Сдвинуть слой по id на одну позицию выше в z-order (ближе к зрителю). */
     fun moveUp(layerId: String): Scene = swap(layerId, +1)
 
@@ -69,4 +74,10 @@ data class Scene(
 private fun Layer.withVisible(value: Boolean): Layer = when (this) {
     is Layer.Camera -> copy(visible = value)
     is Layer.Image -> copy(visible = value)
+}
+
+// Иммутабельное копирование слоя со сменой трансформы.
+private fun Layer.withTransform(value: LayerTransform): Layer = when (this) {
+    is Layer.Camera -> copy(transform = value)
+    is Layer.Image -> copy(transform = value)
 }
