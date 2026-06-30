@@ -600,7 +600,7 @@ switch (cmd) {
     // на устройстве расщепит значение по пробелам). Приёмник в MainActivity парсит по [,\s]+.
     const arg = rest.length > 1 ? rest.slice(1).join(',') : undefined;
     if (!action) {
-      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|stop|set-rotation|add-overlay|rotation-mode)');
+      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|stop|set-rotation|add-overlay|rotation-mode|compositor|device-camera|toggle-layer|layer-up|layer-down|set-transform)');
       process.exit(1);
     }
     const pkg = PKG_DEBUG; // CMD-receiver только в debug
@@ -631,10 +631,15 @@ Usage:
   node tools/ui.mjs restart [debug|release]     — force-stop + relaunch (default: debug)
   node tools/ui.mjs anim [on|off]               — toggle device animations (off lets dump reach idle)
   node tools/ui.mjs orient <auto|portrait|landscape|reverseportrait|reverselandscape>  — force app orientation over ADB (debug receiver)
-  node tools/ui.mjs cmd <action> [arg]  — ⭐ ТОЛСТАЯ debug-команда (минует UI): virtual-camera|stream-to-file|go-live|stop|set-rotation|add-overlay|rotation-mode
+  node tools/ui.mjs cmd <action> [arg]  — ⭐ ТОЛСТАЯ debug-команда (минует UI). Действия:
+       virtual-camera on|off · stream-to-file on|off · go-live [1080|2160] · stop · set-rotation 0|90|180|270
+       · add-overlay · rotation-mode on|off · compositor on|off · device-camera front|back|off
+       · toggle-layer <id> · layer-up <id> · layer-down <id> · set-transform <id> <scale> <cx> <cy> [alpha]
 
 Examples:
   node tools/ui.mjs cmd virtual-camera on   # включить виртуалку (надёжно, без навигации)
+  node tools/ui.mjs cmd compositor on       # база энкодера = наш GL-композитор (мобильный OBS, Idea 25)
+  node tools/ui.mjs cmd set-transform camera 0.35 0.8 0.8   # камера-PiP в правый-нижний угол (scale, cx, cy в [0,1])
   node tools/ui.mjs cmd stream-to-file on   # режим записи в файл
   node tools/ui.mjs cmd go-live 1080        # старт записи 1080p
   node tools/ui.mjs dump
