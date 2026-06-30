@@ -757,10 +757,19 @@ class RtmpStreamer @Inject constructor(
      */
     fun enterStandby() {
         val stream = rtmpStream ?: return
-        // Triggered for an active RTMP stream OR a file recording (harness, Idea 10) — both run the
-        // encoder and benefit from the freeze→standby on a source drop. (Recording reuses Live state.)
         if (!stream.isStreaming && !stream.isRecording) {
             KLog.d(TAG, "enterStandby: not streaming/recording — ignoring")
+            return
+        }
+        // Idea 17 (решение Криника): при ЗАПИСИ В ФАЙЛ источник на лету подменять НЕЛЬЗЯ —
+        // changeVideoSource во время активного MediaMuxer бьёт таймлайн/индекс MP4 (битый файл).
+        // Заглушка/заморозка нужна ТОЛЬКО для СТРИМА (там нет muxer'а — подмена безопасна и держит RTMP
+        // живым). Для записи на отрыв камеры — чисто финализируем уже записанный файл (валидное видео до
+        // момента разрыва сохраняется), без подмены и без «Please stand by». Запись и стрим
+        // взаимоисключающи (см. startRecordToFile), так что эта ветка покрывает кейс записи целиком.
+        if (stream.isRecording) {
+            KLog.i(TAG, "enterStandby: recording — финализирую файл чисто (без подмены источника, защита MediaMuxer)")
+            stopRecordToFile()
             return
         }
         if (inStandby) {
