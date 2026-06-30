@@ -130,6 +130,8 @@ class MainActivity : ComponentActivity() {
                     "compositor" -> streamingRepository.setUseCompositor(arg != "off")
                     // Тонкая команда: переключить видимость слоя по id (напр. camera) — для тестов OBS-поведения.
                     "toggle-layer" -> arg?.let { streamingRepository.toggleLayerVisible(it) }
+                    "layer-up" -> arg?.let { streamingRepository.moveLayerUp(it) }
+                    "layer-down" -> arg?.let { streamingRepository.moveLayerDown(it) }
                     // Idea 24 — выбрать встроенную камеру устройства как источник (front|back|off).
                     "device-camera" -> when (arg) {
                         "front" -> deviceManager.selectPhoneCamera(isFront = true)

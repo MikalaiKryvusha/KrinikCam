@@ -828,15 +828,17 @@ class RtmpStreamer @Inject constructor(
         if (useCompositor) {
             sceneCompositor.reset(rtmpStream?.getGlInterface()) // фильтры RootEncoder не используем
             // Слои рисует наш GL-композитор: отдаём ему видимые картинки сцены (снизу вверх).
-            val bitmaps = _scene.value.layers
-                .filterIsInstance<com.kriniks.kcam.feature.streaming.scene.Layer.Image>()
-                .filter { it.visible }
-                .map { it.bitmap }
-            compositorSource.setImageLayers(bitmaps)
-            // Камера — обычный слой: рисуем её OES, если слой камеры видим.
-            compositorSource.setCameraVisible(
-                _scene.value.layers.any { it is com.kriniks.kcam.feature.streaming.scene.Layer.Camera && it.visible }
-            )
+            // Камера и картинки равноправны: отдаём композитору слои В ПОРЯДКЕ СЦЕНЫ (снизу вверх),
+            // только видимые. Камера переставляема как обычный слой (истинный OBS).
+            val layers = _scene.value.layers.filter { it.visible }.mapNotNull { layer ->
+                when (layer) {
+                    is com.kriniks.kcam.feature.streaming.scene.Layer.Camera ->
+                        com.kriniks.kcam.feature.streaming.gl.CompositorLayer.Camera
+                    is com.kriniks.kcam.feature.streaming.scene.Layer.Image ->
+                        com.kriniks.kcam.feature.streaming.gl.CompositorLayer.Image(layer.bitmap)
+                }
+            }
+            compositorSource.setLayers(layers)
             return
         }
         sceneCompositor.apply(rtmpStream?.getGlInterface(), _scene.value)

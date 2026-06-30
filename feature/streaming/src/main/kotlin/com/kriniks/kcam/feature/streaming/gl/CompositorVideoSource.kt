@@ -30,6 +30,14 @@ private const val TAG = "CompositorVideoSource"
 private const val FPS = 30L
 private const val FRAME_MS = 1000L / FPS
 
+/** Описание слоя для GL-композитора (z-order = порядок в списке, снизу вверх). */
+sealed interface CompositorLayer {
+    /** Слой камеры (OES external texture, кадры от камеры-продюсера). */
+    data object Camera : CompositorLayer
+    /** Слой-картинка (2D-текстура из bitmap). */
+    data class Image(val bitmap: android.graphics.Bitmap) : CompositorLayer
+}
+
 class CompositorVideoSource : VideoSource() {
 
     private var surface: Surface? = null
@@ -42,30 +50,29 @@ class CompositorVideoSource : VideoSource() {
     private var encH = 1080
 
     private var renderer: GlQuadRenderer? = null
-    // Слои-картинки: то, что просят (любой поток) и то, что залито в GL (только GL-поток).
-    @Volatile private var requestedBitmaps: List<Bitmap> = emptyList()
-    private val uploaded = ArrayList<Pair<Bitmap, Int>>() // (bitmap, texId), порядок = z (снизу вверх)
+    // Упорядоченный список слоёв (z-order СНИЗУ ВВЕРХ) — из Scene. Камера и картинки РАВНОПРАВНЫ
+    // и идут в порядке сцены (камера переставляема, как в OBS).
+    @Volatile private var requestedLayers: List<CompositorLayer> = emptyList()
+    private val uploaded = ArrayList<Pair<Bitmap, Int>>() // (bitmap, texId) для картинок-слоёв
 
     // ── Слой-камера (OES) ────────────────────────────────────────────────────
     // Компоновщик САМ создаёт OES-текстуру + SurfaceTexture; в неё пишет камера-продюсер (Camera2/USB/
-    // виртуалка) через существующий CameraOpener. Каждый кадр: updateTexImage + рисуем OES-квад.
+    // виртуалка) через CameraOpener. Каждый кадр: updateTexImage + рисуем OES-квад на позиции слоя камеры.
     private var cameraOesTex = 0
     private var cameraSurfaceTexture: SurfaceTexture? = null
     @Volatile private var newCameraFrame = false
     private val cameraTexMatrix = FloatArray(16)
-    @Volatile private var cameraVisible = false
-    @Volatile private var cameraBottom = true // true: камера НИЖЕ картинок (типичный кейс)
     // Вызывается, когда у слоя-камеры готова/исчезла SurfaceTexture (RtmpStreamer → откроет камеру).
     @Volatile var onCameraSurfaceReady: ((SurfaceTexture?) -> Unit)? = null
 
-    /** Idea 25 — задать видимые слои-картинки (вызывается из RtmpStreamer при смене сцены). */
-    fun setImageLayers(bitmaps: List<Bitmap>) {
-        requestedBitmaps = bitmaps
+    /**
+     * Idea 25 — задать упорядоченный список слоёв сцены (снизу вверх). Камера и картинки равноправны;
+     * порядок = z. Вызывается из RtmpStreamer при изменении сцены.
+     */
+    fun setLayers(layers: List<CompositorLayer>) {
+        requestedLayers = layers
         handler?.post { syncTextures() }
     }
-
-    /** Idea 25 — видим ли слой камеры (рисовать ли OES-камеру). */
-    fun setCameraVisible(visible: Boolean) { cameraVisible = visible }
 
     override fun create(width: Int, height: Int, fps: Int, rotation: Int): Boolean = true
 
@@ -136,19 +143,22 @@ class CompositorVideoSource : VideoSource() {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
             val r = renderer
             if (r != null) {
-                // Забрать свежий кадр камеры (даже если не видим — чтобы не копить очередь буферов).
+                // Забрать свежий кадр камеры (даже если слой камеры скрыт — чтобы не копить очередь).
                 val camSt = cameraSurfaceTexture
                 if (camSt != null && newCameraFrame) {
                     runCatching { camSt.updateTexImage(); camSt.getTransformMatrix(cameraTexMatrix) }
                     newCameraFrame = false
                 }
-                // Слои поверх чёрной базы СНИЗУ ВВЕРХ. Пока: камера (OES) внизу, картинки поверх.
-                if (cameraVisible && cameraBottom && cameraOesTex != 0) {
-                    r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, alpha = 1f)
-                }
-                for ((_, texId) in uploaded) r.draw(texId, oes = false, alpha = 1f)
-                if (cameraVisible && !cameraBottom && cameraOesTex != 0) {
-                    r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, alpha = 1f)
+                // Рисуем слои в порядке сцены (снизу вверх). Камера и картинки равноправны.
+                for (layer in requestedLayers) {
+                    when (layer) {
+                        is CompositorLayer.Camera -> if (cameraOesTex != 0)
+                            r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, alpha = 1f)
+                        is CompositorLayer.Image -> {
+                            val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
+                            if (texId != null) r.draw(texId, oes = false, alpha = 1f)
+                        }
+                    }
                 }
             }
             core.setPresentationTime(es, SystemClock.elapsedRealtimeNanos())
@@ -161,7 +171,7 @@ class CompositorVideoSource : VideoSource() {
     // GL-поток: привести залитые текстуры к requestedBitmaps (удалить ушедшие, залить новые, порядок=z).
     private fun syncTextures() {
         val r = renderer ?: return
-        val want = requestedBitmaps
+        val want = requestedLayers.filterIsInstance<CompositorLayer.Image>().map { it.bitmap }
         val it = uploaded.iterator()
         while (it.hasNext()) {
             val (bmp, tex) = it.next()
