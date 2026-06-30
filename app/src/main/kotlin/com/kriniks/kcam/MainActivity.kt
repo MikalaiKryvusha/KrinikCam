@@ -121,6 +121,8 @@ class MainActivity : ComponentActivity() {
                         KLog.i("MainActivity", "CMD go-live → ${path ?: "(rtmp)"}")
                     }
                     "stop" -> streamingRepository.stopAll()
+                    // Idea 17 — снять фото (кадр композита) в галерею DCIM/KrinikCam.
+                    "photo" -> streamingRepository.capturePhoto()
                     "set-rotation" -> arg?.toIntOrNull()?.let { streamingRepository.setVideoRotation(it) }
                     "add-overlay" -> streamingRepository.addTestOverlay(
                         id = "overlay_cmd_${System.currentTimeMillis()}", name = "Overlay",

@@ -7,8 +7,19 @@
 ## Суть
 
 - **Запись видео в файл** на устройство (одновременно со стримингом или отдельно).
-- **Фото-снимок** (захват одного кадра в файл).
+- **Фото-снимок** (захват одного кадра в файл). ✅ СДЕЛАНО (см. ниже).
 - Вывод — в публичную галерею (`DCIM/KrinikCam`) через MediaStore (пайплайн из Idea 11 готов).
+
+## ✅ ФОТО-ЗАХВАТ СДЕЛАН (dayloop 2026-06-30) — на GL-композиторе
+
+`cmd photo` → `CompositorVideoSource.capturePhoto` (`glReadPixels` текущего кадра на GL-потоке, V-flip) →
+`RtmpStreamer.publishPhotoToDcim` (JPEG q95 в публичную `DCIM/KrinikCam` через MediaStore). Захватывает
+ИМЕННО композит (то, что видит зритель). Проверено на харнесе: `compositor on` + вирт.камера + оверлей +
+камера-PiP → `cmd photo` → JPEG 1920×1080 в галерее = оверлей фоном + камера-PiP в углу, круг круглый,
+upright. Файлы: `CompositorVideoSource.capturePhoto/readPixelsToBitmap`, `RtmpStreamer.capturePhoto/
+publishPhotoToDcim`, repo/cmd `photo`. Требует режим композитора (Idea 25). Остаётся: запись ВИДЕО как
+явная фича (механизм есть — `stream-to-file`+`go-live`; нужна обвязка UI — за дизайном Криника) и
+кнопки в UI (UX Криника).
 
 ## ✅ Проверено: 4К-запись РАБОТАЕТ (2026-06-29)
 

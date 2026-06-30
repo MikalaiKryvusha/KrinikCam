@@ -632,7 +632,7 @@ Usage:
   node tools/ui.mjs anim [on|off]               — toggle device animations (off lets dump reach idle)
   node tools/ui.mjs orient <auto|portrait|landscape|reverseportrait|reverselandscape>  — force app orientation over ADB (debug receiver)
   node tools/ui.mjs cmd <action> [arg]  — ⭐ ТОЛСТАЯ debug-команда (минует UI). Действия:
-       virtual-camera on|off · stream-to-file on|off · go-live [1080|2160] · stop · set-rotation 0|90|180|270
+       virtual-camera on|off · stream-to-file on|off · go-live [1080|2160] · stop · photo · set-rotation 0|90|180|270
        · add-overlay · rotation-mode on|off · compositor on|off · device-camera front|back|off
        · toggle-layer <id> · layer-up <id> · layer-down <id> · set-transform <id> <scale> <cx> <cy> [alpha]
 

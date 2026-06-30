@@ -685,6 +685,50 @@ class RtmpStreamer @Inject constructor(
         }
     }
 
+    /**
+     * Idea 17 — снять ФОТО (один кадр композита) и сохранить JPEG в публичную галерею DCIM/KrinikCam.
+     * Работает в режиме GL-композитора (он рисует итоговый кадр — то, что видит зритель). Захват кадра —
+     * на GL-потоке (`glReadPixels`), публикация — в IO-корутине.
+     */
+    fun capturePhoto() {
+        if (!useCompositor) {
+            KLog.w(TAG, "capturePhoto: поддерживается только с GL-композитором (Idea 25) — включи compositor")
+            return
+        }
+        compositorSource.capturePhoto { bmp ->
+            if (bmp != null) publishPhotoToDcim(bmp)
+            else KLog.w(TAG, "capturePhoto: получен null-кадр")
+        }
+    }
+
+    // Idea 17 — сохранить Bitmap-кадр как JPEG в публичную DCIM/KrinikCam (MediaStore, как publishRecordingToDcim).
+    private fun publishPhotoToDcim(bmp: Bitmap) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val name = "krinikcam_photo_${System.currentTimeMillis()}.jpg"
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/KrinikCam")
+                    put(MediaStore.Images.Media.IS_PENDING, 1) // скрыть до завершения записи
+                }
+                val resolver = context.contentResolver
+                val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                val uri = resolver.insert(collection, values)
+                if (uri == null) { KLog.e(TAG, "publishPhotoToDcim: MediaStore insert returned null"); return@launch }
+                resolver.openOutputStream(uri)?.use { out -> bmp.compress(Bitmap.CompressFormat.JPEG, 95, out) }
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0) // опубликовать
+                resolver.update(uri, values, null, null)
+                KLog.i(TAG, "capturePhoto: → DCIM/KrinikCam/$name ($uri)")
+            } catch (e: Exception) {
+                KLog.e(TAG, "publishPhotoToDcim failed", e)
+            } finally {
+                runCatching { bmp.recycle() }
+            }
+        }
+    }
+
     val isRecording: Boolean get() = rtmpStream?.isRecording == true
 
     /**

@@ -16,6 +16,7 @@
 package com.kriniks.kcam.feature.streaming.gl
 
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.opengl.EGLSurface
 import android.opengl.GLES20
@@ -25,6 +26,8 @@ import android.os.SystemClock
 import android.view.Surface
 import com.kriniks.kcam.core.logging.KLog
 import com.pedro.library.util.sources.video.VideoSource
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 private const val TAG = "CompositorVideoSource"
 private const val FPS = 30L
@@ -86,6 +89,19 @@ class CompositorVideoSource : VideoSource() {
     private val cameraTexMatrix = FloatArray(16)
     // Вызывается, когда у слоя-камеры готова/исчезла SurfaceTexture (RtmpStreamer → откроет камеру).
     @Volatile var onCameraSurfaceReady: ((SurfaceTexture?) -> Unit)? = null
+
+    // Idea 17 — отложенный захват фото: callback выполняется на GL-потоке после отрисовки кадра.
+    @Volatile private var pendingCapture: ((Bitmap?) -> Unit)? = null
+
+    /**
+     * Idea 17 — захватить ТЕКУЩИЙ композит-кадр (то, что видит зритель) в Bitmap. Чтение пикселей
+     * (`glReadPixels`) делается на GL-потоке сразу после отрисовки слоёв, [onResult] вызывается оттуда же
+     * (RtmpStreamer публикует в галерею в IO-корутине). null — если композитор не запущен/ошибка.
+     */
+    fun capturePhoto(onResult: (Bitmap?) -> Unit) {
+        if (!running) { onResult(null); return }
+        pendingCapture = onResult
+    }
 
     /**
      * Idea 25 — задать упорядоченный список слоёв сцены (снизу вверх). Камера и картинки равноправны;
@@ -185,11 +201,34 @@ class CompositorVideoSource : VideoSource() {
                     }
                 }
             }
+            // Idea 17 — захват фото: читаем готовый кадр ДО swap (back buffer содержит отрисованный композит).
+            val cap = pendingCapture
+            if (cap != null) {
+                pendingCapture = null
+                val bmp = runCatching { readPixelsToBitmap(encW, encH) }
+                    .onFailure { KLog.w(TAG, "capturePhoto: glReadPixels failed: ${it.message}") }
+                    .getOrNull()
+                cap(bmp)
+            }
             core.setPresentationTime(es, SystemClock.elapsedRealtimeNanos())
             core.swapBuffers(es)
         } catch (e: Exception) {
             KLog.w(TAG, "drawFrame failed: ${e.message}")
         }
+    }
+
+    // Прочитать текущий кадр из GL (RGBA) в Bitmap. GL-начало координат — снизу-слева, поэтому
+    // переворачиваем по вертикали. Вызывать ТОЛЬКО на GL-потоке с текущим контекстом.
+    private fun readPixelsToBitmap(w: Int, h: Int): Bitmap {
+        val buf = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
+        GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf)
+        buf.rewind()
+        val raw = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        raw.copyPixelsFromBuffer(buf)
+        val flip = Matrix().apply { postScale(1f, -1f, w / 2f, h / 2f) }
+        val out = Bitmap.createBitmap(raw, 0, 0, w, h, flip, false)
+        if (out !== raw) raw.recycle()
+        return out
     }
 
     // Модельная матрица позиции квада в clip-space по нормализованной трансформе слоя (PiP).
