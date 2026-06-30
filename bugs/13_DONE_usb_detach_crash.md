@@ -141,3 +141,9 @@ Storm-краш 19:32 больше не воспроизводится. **Bug 13 
 
 Без камеры: ADB-харнесс разрыва — `adb shell am broadcast -a com.kriniks.kcam.SET_VIRTUAL_CAM
 --es state off -p com.kriniks.kcam.debug`. С камерой — горячий реплаг в эфире (руки Криника).
+
+## ✅ СТАТУС: DONE (2026-06-29)
+Что сделано: узкий перехват в `KrinikCamApp` (поток `USBMonitor` + `SecurityException` + стек
+`com.serenegiant`) — `getSerialNumber()` на отозванном USB-permission больше не роняет процесс.
+Как проверено: живой тест Криника в эфире YouTube (детач/реплаг USB-камеры ×N) — приложение выжило,
+стрим держался на заглушке. Подтверждено 2026-06-29 ~21:34–21:41.
