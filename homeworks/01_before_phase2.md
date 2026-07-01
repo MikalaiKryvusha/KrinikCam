@@ -126,7 +126,7 @@
 **Твои наблюдения:**
 > Да, экран красивый, открылся
 > Есть только разделы STREAMING, DEBUG, ABOUT
-> Да, кнопка поделиться логами сработала. Лог вот /Users/kryvusha/ai_sandbox/KrinikCam/plans/logs/kcam_2026-06-27.log
+> Да, кнопка поделиться логами сработала. Лог вот /Users/kryvusha/ai_sandbox/KrinikCam/homeworks/logs/kcam_2026-06-27.log
 
 ---
 

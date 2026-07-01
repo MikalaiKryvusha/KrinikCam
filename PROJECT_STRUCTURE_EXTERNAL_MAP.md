@@ -1,7 +1,8 @@
-# KrinikCam — Карта проекта
+# KrinikCam — Внешняя карта проекта (структура)
 
-> Всё где находится, зачем нужно и как связано.
-> Обновляется после каждой Phase.
+> **Что это.** Внешняя карта: где что лежит, зачем нужно и как связано — директории, файлы, ссылки.
+> Внутреннее устройство (абстракции, потоки данных) — в `PROJECT_ARCHITECTURE_INTERNAL_MAP.md`.
+> Живой справочник (KAIF) — ведёт агент, обновляется после каждой значимой перестройки. Тегом DONE не помечается.
 
 ---
 
@@ -10,123 +11,54 @@
 ```
 KrinikCam/
 │
-├── 📋 plans/                         ← документация и планы
-│   ├── goal.md                       — исходный vision проекта (read-only)
-│   ├── context.md                    — описание существующего приложения-конкурента
-│   ├── github.md                     — ссылка на GitHub репо
-│   ├── master_plan.md                — генеральный план всего проекта
-│   ├── project_map.md                — этот файл
-│   ├── phase_0_foundation.md         — что было сделано в Phase 0
-│   └── phase_1_mvp.md                — план и статус Phase 1
+│  ── КЛЮЧЕВЫЕ ДОКУМЕНТЫ (KAIF) ──
+├── AGENT_GUIDE.md                        — КАНОН: правила, команды, соглашения (читать перед каждой задачей)
+├── PHILOSOPHY.md                         — как агент мыслит: ПРОСТОТА (KISS + Оккам + набор принципов)
+├── BUG_FIXING_FRAMEWORK.md               — как агент чинит баги (цикл фикс→сборка→тест, правило 3 попыток)
+├── GOAL.md                               — видение Криника (владелец пишет, агент читает)
+├── STATUS.md                             — живое состояние: что сделано, где мы, что дальше
+├── MASTER_PLAN.md                        — генеральный план: фазы от текущего состояния к GOAL
+├── PROJECT_STRUCTURE_EXTERNAL_MAP.md     — этот файл (внешняя карта)
+├── PROJECT_ARCHITECTURE_INTERNAL_MAP.md  — внутренняя карта (абстракции и взаимодействия)
+├── KAIF_FRAMEWORK.md                     — «KAIF, развёрнутый здесь» + запись о развёртывании
+├── CLAUDE.md / AGENTS.md                 — авто-контекст агентских систем → указывают на AGENT_GUIDE.md
+├── README.md / README.pdf                — витрина проекта (EN+RU) и её PDF-рендер
 │
-├── 🎤 interviews/                    ← решения принятые с Криником
-│   ├── interview_001_vision_and_foundation.md   — Phase 0 решения
-│   └── interview_002_phase1_usb_preview_youtube.md — Phase 1 решения
+│  ── ДИРЕКТОРИИ ЗНАНИЙ (KAIF; в каждой README.md с правилами) ──
+├── plans/                                — детальные планы работ (фазы, фичи, worklog'и)
+├── ideas/                                — идеи/фичи (в основном от Криника; агент — через /propose-idea)
+├── bugs/                                 — по документу на дефект (симптом → форензика → фикс)
+├── researches/                           — база знаний: конкуренты, GL-композитор, SEO и т.п.
+├── interviews/                           — решения уровня владельца (Криник отвечает в документе)
+├── homeworks/                            — ДЗ Кринику (то, что агент не может сделать без человека)
+│   └── logs/                             — девайс-логи с ДЗ (gitignored — в git НЕ коммитим)
 │
-├── 🛠 tools/                         ← Node.js инструменты автоматизации
-│   ├── build.mjs      — сборка APK (открывает браузер с прогресс-баром)
-│   ├── build-ui.mjs   — HTTP сервер + SSE UI для build.mjs
-│   ├── commit.mjs     — bump build → git commit → push
-│   ├── release.mjs    — bump minor → release APK → GitHub Release
-│   ├── version.mjs    — read/write/format version.json
-│   ├── setup.mjs      — первичная настройка окружения
-│   ├── readme-pdf.mjs — README.md → README.pdf
-│   └── package.json   — npm скрипты и зависимости
+│  ── ФРЕЙМВОРК И ИНСТРУМЕНТЫ ──
+├── .kaif/kaif.json                       — маркер развёртывания KAIF (версия, sphere, agent, tracking)
+├── .claude/skills/                       — навыки-ритуалы (/resume, /pause, лупы, /kaif-* и др.)
+├── tools/                                — Node.js-инструменты автоматизации:
+│   ├── build.mjs / build-ui.mjs          —   сборка APK (+браузерный прогресс-бар)
+│   ├── commit.mjs                        —   bump build → git commit → push
+│   ├── release.mjs / version.mjs         —   релиз в GitHub Releases / версия version.json
+│   ├── ui.mjs                            —   ⭐ UI-автоматизация на девайсе (cmd/dump/tap/allow/screen…)
+│   ├── adb.mjs                           —   ADB: screen/tap/logcat/install/start/stop
+│   ├── kaif.mjs                          —   ручки жизненного цикла KAIF (npm run kaif:*)
+│   ├── readme-pdf.mjs / setup.mjs        —   README.pdf / первичная настройка окружения
+│   ├── graphics/ (render.mjs, batch.mjs) —   SVG→PNG, SVG→Android mipmap set
+│   ├── UI_AUTOMATION_GUIDE.md            —   полное руководство по UI-автоматизации
+│   └── package.json                      —   npm-скрипты (build/commit/release/kaif:* и др.)
 │
-├── 📱 app/                           ← :app — точка входа приложения
-│   └── src/main/
-│       ├── kotlin/com/kriniks/kcam/
-│       │   ├── KrinikCamApp.kt       — @HiltAndroidApp, Timber.plant
-│       │   ├── MainActivity.kt       — @AndroidEntryPoint, setContent
-│       │   ├── NavGraph.kt           — Compose Navigation routes
-│       │   └── ui/
-│       │       ├── screens/
-│       │       │   ├── MainScreen.kt      — fullscreen viewfinder + overlay layers
-│       │       │   └── SettingsScreen.kt  — настройки + debug share
-│       │       └── overlay/
-│       │           ├── FloatingRadialMenu.kt  — FAB с радиальным меню (Sims 3 style)
-│       │           └── StandbyPlaceholder.kt  — "Please stand by" заглушка
-│       ├── AndroidManifest.xml       — permissions, FileProvider, MainActivity
-│       └── res/
-│           ├── drawable/             — ic_launcher_background/foreground
-│           ├── mipmap-anydpi-v26/    — adaptive icons
-│           ├── values/themes.xml     — Material3 NoActionBar theme
-│           └── xml/file_provider_paths.xml — пути для share log intent
+│  ── КОД ПРИЛОЖЕНИЯ (Android, Kotlin + Compose; детали → внутренняя карта) ──
+├── app/                                  — :app — точка входа, экраны, навигация, dev-меню, мосты фич
+├── core/                                 — :core:common (утилиты/DI), :core:ui (тема), :core:logging (KLog)
+├── data/profiles/                        — :data:profiles — Room DB + DataStore (профили стрима/устройства)
+├── feature/                              — :feature:usb / capture / codec / streaming (см. внутреннюю карту)
 │
-├── 🧩 core/
-│   ├── common/                       ← :core:common
-│   │   └── src/main/kotlin/.../core/common/
-│   │       └── di/DispatchersModule.kt — @IoDispatcher, @MainDispatcher, @DefaultDispatcher
-│   │
-│   ├── ui/                           ← :core:ui — Design System
-│   │   └── src/main/kotlin/.../core/ui/theme/
-│   │       ├── Color.kt              — AcidPink=#FF1A8C, DarkBackground, StreamLive и др.
-│   │       ├── Type.kt               — KrinikCamTypography
-│   │       └── Theme.kt              — KrinikCamTheme(darkTheme, dynamicColor)
-│   │
-│   └── logging/                      ← :core:logging — файловый логгер
-│       └── src/main/kotlin/.../core/logging/
-│           ├── KLog.kt               — единый API: KLog.d/i/w/e(tag, msg)
-│           ├── FileLogger.kt         — пишет в /logs/kcam_YYYY-MM-DD.log, ротация 7 дней
-│           └── di/LoggingModule.kt   — Hilt провайдер FileLogger
-│
-├── ⚡ feature/
-│   ├── usb/                          ← :feature:usb — всё про USB камеры
-│   │   └── src/main/kotlin/.../feature/usb/
-│   │       ├── model/
-│   │       │   ├── UsbEvent.kt       — sealed class событий USB (attach/detach/permission/preview)
-│   │       │   └── UvcDevice.kt      — доменная модель UVC камеры + UvcVideoProfile
-│   │       ├── domain/
-│   │       │   └── UsbDeviceRepository.kt   — интерфейс управления USB
-│   │       ├── data/
-│   │       │   └── UsbDeviceRepositoryImpl.kt — реализация через AndroidUSBCamera
-│   │       ├── ui/
-│   │       │   ├── UvcPreviewView.kt  — Compose AndroidView обёртка TextureView
-│   │       │   └── UsbViewModel.kt    — USB события → DeviceManager + UI state
-│   │       └── di/UsbModule.kt        — Hilt: binds UsbDeviceRepositoryImpl
-│   │
-│   ├── capture/                      ← :feature:capture — DeviceManager (источники)
-│   │   └── src/main/kotlin/.../feature/capture/
-│   │       ├── model/
-│   │       │   ├── VideoSource.kt    — sealed: UvcCamera | PhoneCamera | None
-│   │       │   └── AudioSource.kt    — sealed: PhoneMic | UvcMic | None
-│   │       ├── DeviceManager.kt      — реестр источников, приоритет UVC→задняя→фронт
-│   │       └── di/CaptureModule.kt   — Hilt провайдер DeviceManager
-│   │
-│   ├── codec/                        ← :feature:codec — сканер MediaCodec
-│   │   └── src/main/kotlin/.../feature/codec/
-│   │       ├── model/CodecInfo.kt    — данные одного кодека (mime, HW, maxRes, FPS, bitrate)
-│   │       ├── CodecScanner.kt       — MediaCodecList scan → List<CodecInfo> + DeviceProfile
-│   │       └── di/CodecModule.kt     — Hilt провайдер CodecScanner
-│   │
-│   └── streaming/                    ← :feature:streaming — RTMP + управление платформами
-│       └── src/main/kotlin/.../feature/streaming/
-│           ├── model/
-│           │   └── StreamState.kt    — Idle | Connecting | Live(bitrate) | Error | Stopping
-│           ├── domain/
-│           │   └── StreamingRepository.kt — бизнес-логика между VM и RtmpStreamer
-│           ├── rtmp/
-│           │   └── RtmpStreamer.kt   — RootEncoder RtmpCamera1 обёртка + standby frame
-│           ├── ui/
-│           │   ├── StreamViewModel.kt       — state: streamState, profiles, activeProfile
-│           │   └── StreamPlatformsOverlay.kt — модальный список платформ с add/edit/delete
-│           └── di/StreamingModule.kt
-│
-└── 💾 data/
-    └── profiles/                     ← :data:profiles — Room DB + DataStore
-        └── src/main/kotlin/.../data/profiles/
-            ├── model/
-            │   ├── StreamProfile.kt  — доменная модель платформы + StreamPlatform enum
-            │   └── DeviceProfile.kt  — возможности устройства (HW кодеки, макс. разрешение)
-            ├── db/
-            │   ├── AppDatabase.kt    — Room, version=1, table: stream_profiles
-            │   ├── StreamProfileDao.kt — CRUD + Flow<List> для реактивного UI
-            │   └── StreamProfileEntity.kt — Room entity + toProfile()/toEntity()
-            ├── datastore/
-            │   └── ProfilesDataStore.kt — DataStore для DeviceProfile + active profile ID
-            ├── repository/
-            │   └── ProfilesRepository.kt — фасад над DAO + DataStore
-            └── di/ProfilesModule.kt  — Hilt: Room database + DAO
+│  ── СБОРКА / CI ──
+├── build.gradle.kts, settings.gradle.kts, gradle/, gradlew — Gradle multi-module (JBR из Android Studio!)
+├── version.json                          — версия приложения: major.minor (build)
+├── assets/                               — исходники графики (SVG и т.п.)
+└── .github/workflows/                    — CI: build.yml, release.yml
 ```
 
 ---
@@ -135,80 +67,36 @@ KrinikCam/
 
 | Библиотека | Где используется | Назначение |
 |------------|-----------------|-----------|
-| `jiangdongguo/AndroidUSBCamera` | `:feature:usb` | UVC камера: USBMonitor, CameraUVC, preview |
-| `pedroSG94/RootEncoder` | `:feature:streaming` | RTMP клиент + H.264 кодирование |
-| Hilt | все модули | DI фреймворк |
+| `jiangdongguo/AndroidUSBCamera` 3.2.7 | `:feature:usb` | UVC-камера: USBMonitor, MultiCameraClient.Camera, preview |
+| `pedroSG94/RootEncoder` 2.4.7 | `:feature:streaming` | RTMP-клиент + кодирование (RtmpStream + кастомные VideoSource) |
+| Hilt | все модули | DI-фреймворк |
 | Room | `:data:profiles` | SQLite ORM для StreamProfile |
-| DataStore | `:data:profiles` | key-value: DeviceProfile, active ID |
+| DataStore | `:data:profiles` | key-value: DeviceProfile, active profile ID |
 | Navigation Compose | `:app` | экранная навигация |
-| Timber | `:core:logging` | консольный логгер |
-
----
-
-## Ключевые потоки данных
-
-### USB Camera → Preview → Stream
-
-```
-USB device plugged
-  → UsbDeviceRepositoryImpl (USBMonitor callback)
-  → UsbEvent.DeviceAttached → auto-request permission
-  → UsbEvent.PermissionGranted → openCamera()
-  → UsbEvent.PreviewStarted
-    → UsbViewModel → DeviceManager.notifyUvcConnected()
-      → DeviceManager._activeVideoSource = UvcCamera
-        → MainScreen observes activeSource
-          → renders UvcPreviewView(camera)
-            → TextureView created → onSurfaceReady(tv)
-              → StreamViewModel.attachPreviewSurface(tv)
-                → RtmpStreamer.attachTextureView(tv)
-
-User taps FAB → "Go Live"
-  → StreamViewModel.startStream()
-    → StreamingRepository.startStream(activeProfile)
-      → RtmpStreamer.startStream(profile)
-        → RtmpCamera1.prepareVideo() + prepareAudio()
-        → RtmpCamera1.startStream("rtmp://...")
-          → ConnectChecker.onConnectionSuccessRtmp()
-            → streamState = Live
-```
-
-### Camera disconnects during stream
-
-```
-USB device unplugged
-  → UsbEvent.DeviceDetached
-  → UsbViewModel → DeviceManager.notifyUvcDisconnected()
-    → DeviceManager._activeVideoSource = PhoneCamera or None
-      → MainScreen: if streaming → show StandbyPlaceholder
-        → (Future): RtmpStreamer.sendStandbyFrame(standbyBitmap)
-```
-
-### Log sharing
-
-```
-User: Settings → "Share log file"
-  → FileLogger.shareIntent()
-    → FileProvider: external-files/logs/kcam_YYYY-MM-DD.log
-      → Intent.ACTION_SEND → share sheet
-```
+| Timber | `:core:logging` | консольный логгер (KLog поверх) |
 
 ---
 
 ## Инструменты (команды)
 
 ```bash
-# Сборка
-node tools/build.mjs              # debug + открывает браузер с прогресс-баром
+# Сборка (ВАЖНО: JAVA_HOME = JBR из Android Studio, иначе сборка ломается)
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+node tools/build.mjs              # debug + браузерный прогресс-бар
 node tools/build.mjs --release    # release APK
-node tools/build.mjs --no-ui      # headless (для CI)
+node tools/build.mjs --no-ui      # headless (для скриптов/CI)
 
 # Версионирование и деплой
 node tools/commit.mjs "feat: ..." # bump build → commit → push
 node tools/release.mjs            # bump minor → release APK → GitHub Release
 
-# Документация
+# Тестирование на девайсе (полное руководство: tools/UI_AUTOMATION_GUIDE.md)
+node tools/ui.mjs cmd <action>    # ⭐ толстая debug-команда (состояние приложения, минуя UI)
+node tools/ui.mjs dump|tap|find|swipe|allow|kill|start|screen ...
+
+# Документация и KAIF
 node tools/readme-pdf.mjs         # README.md → README.pdf
+node tools/kaif.mjs version|check # версия / проверка развёрнутого KAIF (или cd tools && npm run kaif:*)
 ```
 
 ---
@@ -219,9 +107,12 @@ node tools/readme-pdf.mjs         # README.md → README.pdf
 |--------------|-------------|
 | Цвета / шрифты | `core/ui/src/.../theme/Color.kt`, `Type.kt` |
 | Новый экран | Добавить в `app/NavGraph.kt`, создать в `app/ui/screens/` |
-| Новая RTMP платформа | `data/profiles/model/StreamProfile.kt` → `StreamPlatform` enum |
-| USB камера перестала работать | `feature/usb/data/UsbDeviceRepositoryImpl.kt` |
+| Новая RTMP-платформа | `data/profiles/model/StreamProfile.kt` → `StreamPlatform` enum |
+| USB-камера перестала работать | `feature/usb/data/UsbDeviceRepositoryImpl.kt` |
 | Стриминг не подключается | `feature/streaming/rtmp/RtmpStreamer.kt` |
+| Слои/композитор (камера как слой) | `feature/streaming/scene/` (Scene, Layer, SceneCompositor) |
+| Dev-меню / debug-тумблеры | `app/dev/DevSettings.kt`, `app/ui/screens/DevMenuScreen.kt` |
 | Логи не пишутся | `core/logging/FileLogger.kt` |
 | Новая версия зависимости | `gradle/libs.versions.toml` |
 | CI pipeline | `.github/workflows/build.yml`, `release.yml` |
+| Толстая debug-команда харнеса | CMD-receiver в `app/MainActivity.kt` + ветка в `tools/ui.mjs cmd` |

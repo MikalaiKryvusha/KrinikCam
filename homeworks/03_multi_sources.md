@@ -3,7 +3,7 @@
 > APK уже стоит на устройстве (свежий debug-билд). Если надо переустановить:
 > `app/build/outputs/apk/debug/app-debug.apk`.
 > Пиши наблюдения ПРЯМО ЗДЕСЬ под каждым пунктом (после `>`).
-> Логи — в `plans/logs/`, скриншоты — в `tools/screenshots/`.
+> Логи — в `homeworks/logs/`, скриншоты — в `tools/screenshots/`.
 > Если что-то крешнётся: лог приложения через Settings → Share logs; файл краша на устройстве —
 > `/storage/emulated/0/Android/data/com.kriniks.kcam.debug/files/crash_*.txt`.
 
@@ -122,7 +122,7 @@
 
 - [ ] Если крешнулось — на каком шаге? (выдёргивание / обратное втыкание / спустя время)
 
-Креша не было. В 21:38 делал ещё одно отключение и снял логи: /Users/kryvusha/ai_sandbox/KrinikCam/plans/logs/kcam_2026-06-29-2.log
+Креша не было. В 21:38 делал ещё одно отключение и снял логи: /Users/kryvusha/ai_sandbox/KrinikCam/homeworks/logs/kcam_2026-06-29-2.log
 
 
 **Сразу после теста сними логи** (через Settings → Share logs ИЛИ ADB) и положи путь сюда.
@@ -157,14 +157,14 @@
 
 
 Финальный лог после всех тестов:
-/Users/kryvusha/ai_sandbox/KrinikCam/plans/logs/kcam_2026-06-29-3.log
+/Users/kryvusha/ai_sandbox/KrinikCam/homeworks/logs/kcam_2026-06-29-3.log
 
 ---
 
 ## Что мне прислать (резюме)
 
 1. Заполненные поля выше.
-2. Лог приложения за тест Шага 3 (детач в эфире) → положи в `plans/logs/` и дай путь.
+2. Лог приложения за тест Шага 3 (детач в эфире) → положи в `homeworks/logs/` и дай путь.
 3. Если был креш — путь к `crash_*.txt` с устройства.
 4. 1–2 скриншота с твоими картинками-оверлеями (как они легли) → `tools/screenshots/`.
 

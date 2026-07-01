@@ -10,7 +10,7 @@
 > (иначе `calculateViewPortEncoder` леттербоксит 1080×607) + поворот в ИСТОЧНИКЕ (custom Surface-источник
 > `RotatableSource` крутит сам, энкодер rotation=0) ЛИБО `setCameraOrientation(deg)` для реальной камеры.
 > Один общий хелпер для startStream и startRecordToFile. БЕЗ `(360-deg)`-инверсии, БЕЗ setStreamRotation.
-> Связано с фичей `plans/ideas/06_video_rotation.md` (Idea 06, поворот видео 16:9 ↔ 9:16).
+> Связано с фичей `ideas/06_video_rotation.md` (Idea 06, поворот видео 16:9 ↔ 9:16).
 > Фиксим по `BUG_FIXING_FRAMEWORK.md`: цикл запуск → воспроизведение → логи → точечный фикс → билд.
 
 

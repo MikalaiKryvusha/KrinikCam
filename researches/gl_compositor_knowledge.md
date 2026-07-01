@@ -67,7 +67,7 @@ grafika (`google/grafika`, gles-пакет) — эталон «камера → 
 - Превью: RootEncoder сам блитит базовый источник в превью → наш композит виден и там.
 - Синхронизация старт/стоп слоёв со сменой источника камеры (Camera2 async open) — close-before-open.
 
-## План реализации — см. `plans/ideas/25_gl_compositor.md` (инкрементально, тест на харнесе+ffprobe).
+## План реализации — см. `ideas/25_gl_compositor.md` (инкрементально, тест на харнесе+ffprobe).
 
 ## Источники
 - grafika: https://github.com/google/grafika (gles: EglCore, WindowSurface, Texture2dProgram, FullFrameRect)

@@ -14,7 +14,14 @@
     "release:dry": "node release.mjs --dry-run",
     "readme-pdf": "node readme-pdf.mjs",
     "draw": "node graphics/render.mjs",
-    "draw:batch": "node graphics/batch.mjs"
+    "draw:batch": "node graphics/batch.mjs",
+    "kaif:version": "node kaif.mjs version",
+    "kaif:check": "node kaif.mjs check",
+    "kaif:update": "node kaif.mjs update",
+    "kaif:fork": "node kaif.mjs fork",
+    "kaif:switch-origin": "node kaif.mjs switch-origin",
+    "kaif:remove": "node kaif.mjs remove",
+    "kaif:remove-all": "node kaif.mjs remove-all"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",

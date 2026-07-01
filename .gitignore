@@ -60,5 +60,6 @@ tools/screenshots/
 
 # Device / app logs — NEVER commit
 plans/logs/
+homeworks/logs/
 *.log
 gl_preview_debug.txt
