@@ -73,12 +73,9 @@ KrinikCam — Android-приложение (Kotlin, Compose) для Mikalai Kryv
 
 ## Текущее состояние
 
-| Фаза | Статус | Что сделано |
-|------|--------|-------------|
-| Phase 0 | ✅ done | Gradle skeleton, CI, build-ui tool |
-| Phase 1 | ✅ done | USB UVC preview, RTMP stream, DeviceManager, Room/DataStore profiles, CodecScanner, logging, UI (MainScreen, radial FAB, Platforms overlay, StandbyPlaceholder) |
-| Phase 2 MVP | ✅ done | RTMP от USB-камеры работает (Go Live → YouTube ✅, подтверждено 2026-06-28). Bug 02 закрыт. |
-| Phase 2 P1+ | 🔲 todo | Standby-кадр в поток (BaseFilterRender), multi-stream, Camera2 fallback, UX-улучшения |
+Единственный источник правды о состоянии — **`STATUS.md`** (живой срез: где мы, что ждёт Криника,
+открытые баги, с чего продолжить). Здесь состояние НЕ дублируем (DRY — копии разъезжаются).
+Дорожная карта фаз — `MASTER_PLAN.md` §7. История сессий — `researches/status_archive.md`.
 
 ---
 
