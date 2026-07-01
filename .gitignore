@@ -57,3 +57,8 @@ README.pdf
 
 # Transient debug screenshots — whole folder is ignored (tools/adb.mjs & ui.mjs screen write here)
 tools/screenshots/
+
+# Device / app logs — NEVER commit
+plans/logs/
+*.log
+gl_preview_debug.txt
