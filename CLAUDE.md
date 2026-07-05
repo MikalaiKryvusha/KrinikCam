@@ -1,6 +1,6 @@
 # KrinikCam — контекст для Claude Code
 
-Проект обвязан фреймворком **KAIF 1.1** (см. `KAIF_FRAMEWORK.md`). Канон здесь НЕ дублируется —
+Проект обвязан фреймворком **KAIF 1.2** (см. `KAIF_FRAMEWORK.md`). Канон здесь НЕ дублируется —
 читай первоисточники:
 
 1. **`AGENT_GUIDE.md`** — КАНОН: правила, имена, команды, соглашения. Читать перед каждой задачей.
@@ -14,5 +14,5 @@
 README с правилами. Закрытое помечается тегом `DONE` в имени файла.
 
 Навыки (`.claude/skills/`): `/resume` `/pause` `/autoloop` `/dayloop` `/nightloop` `/refresh-context`
-`/check-backlog` `/report-bug` `/bug-research` `/propose-idea` `/interview` `/revision` `/help-kaif`
+`/check-backlog` `/report-bug` `/bug-research` `/propose-idea` `/interview` `/revision` `/fix-vision` `/what-next` `/help-kaif`
 `/release` `/kaif-version` `/kaif-update` `/kaif-fork` `/kaif-switch-origin` `/kaif-remove`.

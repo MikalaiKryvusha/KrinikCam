@@ -296,9 +296,9 @@ node tools/build.mjs --no-ui && node tools/adb.mjs install && node tools/adb.mjs
 `interviews/` (решения владельца — Криник отвечает в документе), `homeworks/` (ДЗ Кринику;
 девайс-логи — в `homeworks/logs/`, gitignored).
 
-**Навыки (19):** сессия `/resume` `/pause` · автономия `/autoloop` `/dayloop` `/nightloop` · гигиена
+**Навыки (21):** сессия `/resume` `/pause` · автономия `/autoloop` `/dayloop` `/nightloop` · гигиена
 `/refresh-context` `/check-backlog` · знания `/report-bug` `/bug-research` `/propose-idea` · владелец
-`/interview` · планирование `/revision` · помощь `/help-kaif` · релиз `/release` · жизненный цикл KAIF
+`/interview` · планирование `/revision` `/what-next` · видение `/fix-vision` · помощь `/help-kaif` · релиз `/release` · жизненный цикл KAIF
 `/kaif-version` `/kaif-update` `/kaif-fork` `/kaif-switch-origin` `/kaif-remove`.
 
 ---
