@@ -33,6 +33,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -264,6 +267,18 @@ fun MainScreen(
             val sel = scene.layers.firstOrNull { it.id == selId }
             if (sel != null && sel.visible) {
                 val gestureRotation = videoRotation
+                // plans/03 S6 — состояние снапа (значение уже защёлкнуто в repository.nudgeLayer).
+                val cxCenter = sel.transform.cx == 0.5f
+                val cyCenter = sel.transform.cy == 0.5f
+                val cxEdge = sel.transform.cx == 0f || sel.transform.cx == 1f
+                val cyEdge = sel.transform.cy == 0f || sel.transform.cy == 1f
+                val rotSnapped = sel.transform.rotation % 90 == 0 && sel.transform.rotation != 0
+                // Haptic-тик при НОВОМ защёлкивании любого снапа (лёгкая вибрация, interview_007 Q4).
+                val view = LocalView.current
+                val anySnap = cxCenter || cyCenter || cxEdge || cyEdge || rotSnapped
+                LaunchedEffect(anySnap) {
+                    if (anySnap) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width; val h = size.height
                     val portrait = gestureRotation == 90 || gestureRotation == 270
@@ -306,6 +321,27 @@ fun MainScreen(
                             start = pts[i], end = pts[(i + 1) % pts.size],
                             strokeWidth = 4f,
                         )
+                    }
+
+                    // ── S6: направляющие снапа (голубые) — блогер видит, к чему прилип слой ──
+                    val guide = Color(0xFF00E5FF)
+                    // Центр холста: вертикальная / горизонтальная линия через середину кадра.
+                    if (cxCenter) drawLine(guide, toScreen(0.5f, 0f), toScreen(0.5f, 1f), strokeWidth = 2.5f)
+                    if (cyCenter) drawLine(guide, toScreen(0f, 0.5f), toScreen(1f, 0.5f), strokeWidth = 2.5f)
+                    // Прижатие к краям кадра.
+                    if (sel.transform.cx == 0f) drawLine(guide, toScreen(0f, 0f), toScreen(0f, 1f), strokeWidth = 2.5f)
+                    if (sel.transform.cx == 1f) drawLine(guide, toScreen(1f, 0f), toScreen(1f, 1f), strokeWidth = 2.5f)
+                    if (sel.transform.cy == 0f) drawLine(guide, toScreen(0f, 0f), toScreen(1f, 0f), strokeWidth = 2.5f)
+                    if (sel.transform.cy == 1f) drawLine(guide, toScreen(0f, 1f), toScreen(1f, 1f), strokeWidth = 2.5f)
+                    // Штриховая ось через ЦЕНТР слоя при снапе угла к кратному 90° (interview_007 Q3).
+                    if (rotSnapped) {
+                        val dash = PathEffect.dashPathEffect(floatArrayOf(22f, 16f), 0f)
+                        val midL = Offset((pts[0].x + pts[3].x) / 2f, (pts[0].y + pts[3].y) / 2f)
+                        val midR = Offset((pts[1].x + pts[2].x) / 2f, (pts[1].y + pts[2].y) / 2f)
+                        val midT = Offset((pts[0].x + pts[1].x) / 2f, (pts[0].y + pts[1].y) / 2f)
+                        val midB = Offset((pts[2].x + pts[3].x) / 2f, (pts[2].y + pts[3].y) / 2f)
+                        drawLine(guide, midL, midR, strokeWidth = 2.5f, pathEffect = dash)
+                        drawLine(guide, midT, midB, strokeWidth = 2.5f, pathEffect = dash)
                     }
                 }
             }

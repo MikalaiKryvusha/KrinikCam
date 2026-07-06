@@ -105,9 +105,29 @@ class StreamingRepository @Inject constructor(
             cy = py + ry
         }
         // Плюс трансляция центроида (перетаскивание) — уже в scene-долях (маппинг поворота холста в UI).
-        val newCx = (cx + dCx).coerceIn(-0.1f, 1.1f)
-        val newCy = (cy + dCy).coerceIn(-0.1f, 1.1f)
-        rtmpStreamer.setLayerTransform(id, newScale, newCx, newCy, t.alpha, newRot)
+        var newCx = (cx + dCx).coerceIn(-0.1f, 1.1f)
+        var newCy = (cy + dCy).coerceIn(-0.1f, 1.1f)
+
+        // plans/03 S6 — СНАП для удобной компоновки (Криник): центр холста (0.5) и края (0/1) по обеим
+        // осям; угол — к кратным 90°. Мягко: только когда значение уже БЛИЗКО к цели (порог), иначе
+        // свободно. Так блогер легко ставит слой по центру / прижимает к краю / выпрямляет.
+        newCx = snapTo(newCx, SNAP_POS, 0f, 0.5f, 1f)
+        newCy = snapTo(newCy, SNAP_POS, 0f, 0.5f, 1f)
+        val nearest90 = ((Math.round(newRot / 90f) * 90) % 360 + 360) % 360
+        val snappedRot = if (kotlin.math.abs(newRot - Math.round(newRot / 90f) * 90) <= SNAP_ANGLE) nearest90 else newRot
+
+        rtmpStreamer.setLayerTransform(id, newScale, newCx, newCy, t.alpha, snappedRot)
+    }
+
+    private companion object {
+        const val SNAP_POS = 0.025f   // порог позиционного снапа (доля кадра)
+        const val SNAP_ANGLE = 5      // порог углового снапа к 90° (градусы, interview_007 Q3)
+    }
+
+    /** Мягкий снап: если [v] в пределах [th] от одной из [targets] — возвращает цель, иначе [v]. */
+    private fun snapTo(v: Float, th: Float, vararg targets: Float): Float {
+        for (t in targets) if (kotlin.math.abs(v - t) < th) return t
+        return v
     }
     fun capturePhoto() = rtmpStreamer.capturePhoto()
 
