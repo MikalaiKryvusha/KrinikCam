@@ -169,6 +169,15 @@ class MainActivity : ComponentActivity() {
                         "off" -> deviceManager.selectVideoSource(com.kriniks.kcam.feature.capture.model.VideoSource.None)
                         else -> deviceManager.selectPhoneCamera(isFront = false) // back / default
                     }
+                    // Plan 05 (S5) — явный выбор источника камера-слоя для тестов автоматизацией.
+                    //   front — селфи/фронталка · rear — тыл · uvc — вебка · none — нет источника.
+                    "select-source" -> when (arg) {
+                        "front" -> deviceManager.selectPhoneCamera(isFront = true)
+                        "rear" -> deviceManager.selectPhoneCamera(isFront = false)
+                        "uvc" -> deviceManager.selectUvc()
+                        "none" -> deviceManager.selectVideoSource(com.kriniks.kcam.feature.capture.model.VideoSource.None)
+                        else -> KLog.w("MainActivity", "select-source: front|rear|uvc|none")
+                    }
                     else -> KLog.w("MainActivity", "CMD: unknown action '$action'")
                 }
             }

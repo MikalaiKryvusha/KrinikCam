@@ -124,10 +124,14 @@ class RtmpStreamer @Inject constructor(
      */
     fun setCameraOpener(opener: CameraOpener?) {
         val old = cameraOpener
+        if (old === opener) return
         cameraOpener = opener
         scope.launch {
+            // Plan 05: ВСЕГДА закрываем старый источник перед открытием нового — иначе при смене
+            // источника (напр. UVC→фронталка) старая камера продолжает писать в ту же поверхность слоя
+            // и «побеждает» (виден старый источник). Закрыли старую → открыли выбранную.
+            runCatching { old?.close() }
             if (opener != null) cameraLayerSurface?.let { opener.open(it) }
-            else old?.close()
         }
     }
 

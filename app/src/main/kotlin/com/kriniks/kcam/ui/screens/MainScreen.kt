@@ -112,23 +112,28 @@ fun MainScreen(
     // виртуальная / нет источника). OES-поверхность слоя создаёт сам композитор; открытие камеры
     // происходит, когда поверхность готова (RtmpStreamer.onCameraSurfaceReady → CameraOpener.open).
     // startPreview триггерится ТОЛЬКО из onTextureViewReady (двойной вызов стартовал/гасил GL — RC1).
-    LaunchedEffect(usbState.activeCamera, activeSource) {
-        val camera = usbState.activeCamera
-        when {
-            camera != null -> {
-                val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
-                val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
-                streamViewModel.setCameraOpener(UvcCameraOpener(camera, previewWidth = w, previewHeight = h))
+    // Plan 05 (S3): активный источник (`activeSource` из DeviceManager) — ЕДИНСТВЕННЫЙ источник правды.
+    // Раньше «camera != null → UVC» побеждало всегда → нельзя было выбрать встроенную при воткнутой
+    // вебке. Теперь opener выбирается ПО activeSource: пользователь ЯВНО задаёт источник камера-слоя
+    // (front/rear/UVC/none), без магии приоритета. Для UVC берём AUSBC-объект камеры из usbState.
+    LaunchedEffect(activeSource, usbState.activeCamera) {
+        when (val src = activeSource) {
+            is VideoSource.UvcCamera -> {
+                val camera = usbState.activeCamera
+                if (camera != null) {
+                    val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
+                    val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
+                    streamViewModel.setCameraOpener(UvcCameraOpener(camera, previewWidth = w, previewHeight = h))
+                } else {
+                    streamViewModel.setCameraOpener(null) // UVC выбрана, но объект камеры ещё не готов
+                }
             }
             // Idea 09 — виртуальная дебаг-камера (нет физической): кормим слой тест-паттерном.
-            activeSource is VideoSource.Virtual -> streamViewModel.setCameraOpener(VirtualCameraOpener())
+            is VideoSource.Virtual -> streamViewModel.setCameraOpener(VirtualCameraOpener())
             // Idea 24 — встроенная камера устройства (Camera2) как слой-источник (реальный GL-продюсер).
-            activeSource is VideoSource.PhoneCamera -> {
-                val pc = activeSource as VideoSource.PhoneCamera
-                streamViewModel.setCameraOpener(DeviceCameraOpener(appContext, pc.cameraId))
-            }
-            // Нет источника камеры → снять opener (камера-слой станет пустым → видна чёрная база/нижние слои).
-            else -> streamViewModel.setCameraOpener(null)
+            is VideoSource.PhoneCamera -> streamViewModel.setCameraOpener(DeviceCameraOpener(appContext, src.cameraId))
+            // Нет источника → снять opener (камера-слой пуст → видна чёрная база/нижние слои).
+            is VideoSource.None -> streamViewModel.setCameraOpener(null)
         }
     }
 

@@ -92,6 +92,14 @@ class DeviceManager @Inject constructor() {
         return true
     }
 
+    /** Plan 05 — явно выбрать подключённую UVC-вебку как источник камера-слоя. null если вебок нет. */
+    fun selectUvc(): Boolean {
+        val uvc = _uvcSources.value.firstOrNull() ?: return false
+        KLog.i(TAG, "Select UVC source: ${uvc.displayName}")
+        _activeVideoSource.value = uvc
+        return true
+    }
+
     /** Idea 09 — enable/disable the virtual debug camera (Developer menu). */
     fun setVirtualCamera(enabled: Boolean) {
         if (virtualEnabled == enabled) return
