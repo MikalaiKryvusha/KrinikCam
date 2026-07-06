@@ -61,6 +61,22 @@ class StreamingRepository @Inject constructor(
     // interview_006 Q3: [rotation] — поворот СОДЕРЖИМОГО слоя внутри сцены (0/90/180/270 CW).
     fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f, rotation: Int = 0) =
         rtmpStreamer.setLayerTransform(id, scale, cx, cy, alpha, rotation)
+
+    /**
+     * plans/03 (жесты слоёв) — применить ИНКРЕМЕНТАЛЬНУЮ дельту жеста к слою [id]: [dCx],[dCy] — сдвиг
+     * центра в долях кадра; [zoom] — множитель масштаба; [dRotation] — дельта угла содержимого (°).
+     * Читает текущую трансформу синхронно из `scene.value`, применяет дельту, клампит (§3.4) и пишет
+     * назад. Общий путь для пальцев (StreamViewModel.nudgeSelectedLayer) и харнеса (CMD gesture-*).
+     */
+    fun nudgeLayer(id: String, dCx: Float, dCy: Float, zoom: Float, dRotation: Float) {
+        val layer = scene.value.layers.firstOrNull { it.id == id } ?: return
+        val t = layer.transform
+        val newScale = (t.scale * zoom).coerceIn(0.05f, 4.0f)
+        val newCx = (t.cx + dCx).coerceIn(-0.1f, 1.1f)
+        val newCy = (t.cy + dCy).coerceIn(-0.1f, 1.1f)
+        val newRot = ((((t.rotation + dRotation) % 360f) + 360f) % 360f).toInt()
+        rtmpStreamer.setLayerTransform(id, newScale, newCx, newCy, t.alpha, newRot)
+    }
     fun capturePhoto() = rtmpStreamer.capturePhoto()
 
     // ── Idea 10 — virtual stream platform (record to file instead of RTMP) ──

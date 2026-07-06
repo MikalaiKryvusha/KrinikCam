@@ -153,6 +153,24 @@ class MainActivity : ComponentActivity() {
                     // Трансформа слоя. arg = "<id> <scale> <cx> <cy> [alpha] [rotation]"
                     // (id — напр. camera; scale доля кадра; cx,cy центр в [0,1] (0,0=верх-лево); alpha опц.;
                     // rotation — поворот СОДЕРЖИМОГО слоя 0/90/180/270 CW, interview_006 Q3).
+                    // plans/03 S8 — харнес-автоматизация ЖЕСТОВ (Криник: агент сам тестит имплементацию).
+                    // Эмулируют кадр жеста поверх текущей трансформы слоя (тот же путь, что пальцы →
+                    // repository.nudgeLayer). arg: "<id> <value>". Тестовый прогон: gesture-drag camera 0.2 0.1.
+                    "gesture-drag" -> arg?.split(Regex("[,\\s]+"))?.let { p ->
+                        if (p.size >= 3) streamingRepository.nudgeLayer(p[0],
+                            p[1].toFloatOrNull() ?: 0f, p[2].toFloatOrNull() ?: 0f, 1f, 0f)
+                        else KLog.w("MainActivity", "gesture-drag: '<id> <dCx> <dCy>' (доли кадра)")
+                    }
+                    "gesture-scale" -> arg?.split(Regex("[,\\s]+"))?.let { p ->
+                        if (p.size >= 2) streamingRepository.nudgeLayer(p[0], 0f, 0f,
+                            p[1].toFloatOrNull() ?: 1f, 0f)
+                        else KLog.w("MainActivity", "gesture-scale: '<id> <factor>' (напр. 1.5)")
+                    }
+                    "gesture-rotate" -> arg?.split(Regex("[,\\s]+"))?.let { p ->
+                        if (p.size >= 2) streamingRepository.nudgeLayer(p[0], 0f, 0f, 1f,
+                            p[1].toFloatOrNull() ?: 0f)
+                        else KLog.w("MainActivity", "gesture-rotate: '<id> <deg>' (дельта угла)")
+                    }
                     "set-transform" -> arg?.split(Regex("[,\\s]+"))?.let { p ->
                         if (p.size >= 4) streamingRepository.setLayerTransform(
                             id = p[0],

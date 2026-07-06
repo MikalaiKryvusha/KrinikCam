@@ -26,6 +26,9 @@ package com.kriniks.kcam.ui.screens
 import android.view.TextureView
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -168,6 +171,41 @@ fun MainScreen(
             StandbyPlaceholder(
                 message = "Connect a USB webcam via OTG,\nor check Settings for help",
                 modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        // ── Layer 0.7: Жест-оверлей трансформы выбранного слоя (plans/03 S2/S3) ──
+        // Активен ТОЛЬКО когда выбран слой. Перетаскивание/щипок/два пальца → nudgeSelectedLayer.
+        // Стоит НИЖЕ контролов (кнопка поворота/FAB/меню добавлены позже в Box → они сверху и
+        // остаются кликабельны); жест ловится в остальной площади. Тап по пустому = снять выбор.
+        if (selectedLayerId != null) {
+            val gestureRotation = videoRotation // canvas rotation (S4 учтёт в маппинге)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(selectedLayerId, gestureRotation) {
+                        detectTransformGestures { _, pan, zoom, rotation ->
+                            // contentRect: композит вписан в экран по аспекту (леттербокс). Для
+                            // canvas 0/180 — 16:9, для 90/270 — 9:16 (S4 обобщит повороты pan).
+                            val w = size.width.toFloat()
+                            val h = size.height.toFloat()
+                            val portrait = gestureRotation == 90 || gestureRotation == 270
+                            val aspect = if (portrait) 9f / 16f else 16f / 9f
+                            val contentW = minOf(w, h * aspect)
+                            val contentH = contentW / aspect
+                            // S2: pan в доли кадра. Поворот холста в маппинге pan — задача S4.
+                            streamViewModel.nudgeSelectedLayer(
+                                dCx = pan.x / contentW,
+                                dCy = pan.y / contentH,
+                                zoom = zoom,
+                                dRotation = rotation,
+                            )
+                        }
+                    }
+                    .pointerInput(selectedLayerId) {
+                        // Тап по пустому месту — снять выбор (пока нет хиттеста превью, S5).
+                        detectTapGestures(onTap = { streamViewModel.selectLayer(null) })
+                    },
             )
         }
 

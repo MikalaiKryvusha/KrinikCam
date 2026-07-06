@@ -58,6 +58,20 @@ class StreamViewModel @Inject constructor(
         KLog.d(TAG, "Selected layer: ${_selectedLayerId.value}")
     }
 
+    /**
+     * plans/03 S2/S3 — применить ЖЕСТ к выбранному слою (инкрементально, за кадр жеста):
+     *   [dCx],[dCy] — сдвиг центра слоя в ДОЛЯХ кадра (pan_px / contentRect), уже с учётом поворота
+     *                 холста (маппинг делает UI, S4);
+     *   [zoom]      — множитель масштаба за кадр (щипок), 1 = без изменений;
+     *   [dRotation] — дельта угла поворота СОДЕРЖИМОГО слоя в градусах (два пальца).
+     * Читаем текущую трансформу СИНХРОННО из `scene.value` (repository — единый in-memory источник),
+     * применяем дельту, клампим (§3.4) и пишем назад. Композитор перерисует сразу.
+     */
+    fun nudgeSelectedLayer(dCx: Float, dCy: Float, zoom: Float, dRotation: Float) {
+        val id = _selectedLayerId.value ?: return
+        repository.nudgeLayer(id, dCx, dCy, zoom, dRotation)
+    }
+
     // Монотонный счётчик ТОЛЬКО для уникальных id (id не должны повторяться даже после удалений).
     private var overlayIdCounter = 0
 
