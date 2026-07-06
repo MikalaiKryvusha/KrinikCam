@@ -18,6 +18,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -59,10 +61,19 @@ fun StreamLayersOverlay(
     onRemove: (String) -> Unit,
     onMoveUp: (String) -> Unit,
     onMoveDown: (String) -> Unit,
+    // plans/03 S1 — выбор слоя для жестов: id выбранного (null = ничего) и колбэк тапа по строке.
+    selectedLayerId: String? = null,
+    onSelect: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Слой, ожидающий ПОДТВЕРЖДЕНИЯ удаления (Криник 2026-07-06: удаление только через модалку).
+    // Пара (id, имя) — имя показываем в диалоге; null = модалки нет.
+    var pendingDelete by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // Раскрыто ли меню кнопки «+ Добавить слой».
+    var addMenuOpen by remember { mutableStateOf(false) }
 
     // SAF «open document» для картинок: пользователь выбирает файл, читаем и декодируем off-main,
     // вписываем в кадр (ImageOverlayLoader) и добавляем слой. Имя слоя = имя файла.
@@ -123,8 +134,11 @@ fun StreamLayersOverlay(
                         // index в развёрнутом списке: 0 = самый верхний. «Вверх» по экрану = выше z-order.
                         isTop = index == 0,
                         isBottom = index == topToBottom.lastIndex,
+                        selected = layer.id == selectedLayerId,
+                        onSelect = { onSelect(layer.id) },
                         onToggleVisible = { onToggleVisible(layer.id) },
-                        onRemove = { onRemove(layer.id) },
+                        // Корзина не удаляет сразу — открывает модалку подтверждения.
+                        onRemove = { pendingDelete = layer.id to layer.name },
                         onMoveUp = { onMoveUp(layer.id) },
                         onMoveDown = { onMoveDown(layer.id) },
                     )
@@ -132,20 +146,52 @@ fun StreamLayersOverlay(
             }
 
             Spacer(Modifier.height(16.dp))
-            // Основная кнопка — добавить картинку из файла (SAF, любые image/*).
-            Button(
-                onClick = { imagePicker.launch(arrayOf("image/*")) },
-                colors = ButtonDefaults.buttonColors(containerColor = AcidPink),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.AddPhotoAlternate, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Add image overlay")
+            // Кнопка «+ Добавить слой» (Криник 2026-07-06) → меню выбора, ЧТО добавить. Пока —
+            // картинка из файла (SAF) и тестовый оверлей; будущие типы (устройство захвата видео,
+            // видеофайл, текст) добавятся сюда же (plans/05 Фаза B).
+            Box {
+                Button(
+                    onClick = { addMenuOpen = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = AcidPink),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Добавить слой")
+                }
+                DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Изображение") },
+                        leadingIcon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = null) },
+                        onClick = { addMenuOpen = false; imagePicker.launch(arrayOf("image/*")) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Тестовый оверлей") },
+                        leadingIcon = { Icon(Icons.Default.BugReport, contentDescription = null) },
+                        onClick = { addMenuOpen = false; onAddTestOverlay() },
+                    )
+                }
             }
-            // Вторичная — быстрый тестовый оверлей (без файла), для проверки/отладки.
-            TextButton(onClick = onAddTestOverlay, modifier = Modifier.align(Alignment.End)) {
-                Text("Add test overlay", color = Color(0xFF999999))
-            }
+        }
+
+        // Модалка подтверждения удаления слоя (Криник: удаление только через подтверждение).
+        pendingDelete?.let { (id, name) ->
+            AlertDialog(
+                onDismissRequest = { pendingDelete = null },
+                containerColor = DarkSurface,
+                title = { Text("Удалить слой?", color = Color.White) },
+                text = { Text("«$name» будет удалён из сцены.", color = Color(0xFFCCCCCC)) },
+                confirmButton = {
+                    TextButton(onClick = { onRemove(id); pendingDelete = null }) {
+                        Text("Удалить", color = Color(0xFFCC5555))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingDelete = null }) {
+                        Text("Отмена", color = Color(0xFF999999))
+                    }
+                },
+            )
         }
     }
 }
@@ -156,13 +202,24 @@ private fun LayerRow(
     layer: Layer,
     isTop: Boolean,
     isBottom: Boolean,
+    selected: Boolean,          // plans/03 S1 — выбран ли слой для жестов (подсветка рамкой).
+    onSelect: () -> Unit,       // тап по строке = выбрать/снять этот слой.
     onToggleVisible: () -> Unit,
     onRemove: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
 ) {
     val isCamera = layer is Layer.VideoCapture
-    Surface(color = CardSurface, shape = RoundedCornerShape(12.dp)) {
+    // Выбранный слой — акцентная рамка (тонкая подсветка, interview_007 Q2=B), иначе без рамки.
+    val shape = RoundedCornerShape(12.dp)
+    Surface(
+        color = if (selected) Color(0xFF2E2333) else CardSurface,
+        shape = shape,
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (selected) Modifier.border(1.5.dp, AcidPink, shape) else Modifier)
+            .clickable(onClick = onSelect),   // тап по площади строки → выбор слоя
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier

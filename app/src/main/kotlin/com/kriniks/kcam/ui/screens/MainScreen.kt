@@ -73,6 +73,8 @@ fun MainScreen(
     val videoRotation by streamViewModel.videoRotation.collectAsStateWithLifecycle()
     // Idea 19 — текущая сцена (слои) для панели «Слои».
     val scene by streamViewModel.scene.collectAsStateWithLifecycle()
+    // plans/03 — выбранный для жестов слой (подсветка в панели «Слои», позже — рамка на превью).
+    val selectedLayerId by streamViewModel.selectedLayerId.collectAsStateWithLifecycle()
 
     // Idea 24 — для DeviceCameraOpener (Camera2) нужен Context.
     val appContext = LocalContext.current
@@ -241,6 +243,8 @@ fun MainScreen(
             onRemove = { streamViewModel.removeLayer(it) },
             onMoveUp = { streamViewModel.moveLayerUp(it) },
             onMoveDown = { streamViewModel.moveLayerDown(it) },
+            selectedLayerId = selectedLayerId,
+            onSelect = { streamViewModel.selectLayer(it) },
         )
     }
 }

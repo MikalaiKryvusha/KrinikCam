@@ -46,6 +46,18 @@ class StreamViewModel @Inject constructor(
     /** Текущая сцена (слои) — для панели «Слои». */
     val scene: StateFlow<com.kriniks.kcam.feature.streaming.scene.Scene> = repository.scene
 
+    // plans/03 (жесты слоёв) S1 — какой слой сейчас ВЫБРАН для редактирования жестами (null = ничего).
+    // Один активный слой за раз (interview_007 Q6=A). Выбор: тап по строке панели «Слои» ИЛИ (позже,
+    // S5) тап по слою на превью. Подсветка выбранного — в панели и рамкой на превью.
+    private val _selectedLayerId = MutableStateFlow<String?>(null)
+    val selectedLayerId: StateFlow<String?> = _selectedLayerId.asStateFlow()
+
+    /** Выбрать слой для жестов (null = снять выбор). Тап по уже выбранному — снимает (toggle). */
+    fun selectLayer(id: String?) {
+        _selectedLayerId.value = if (id != null && id == _selectedLayerId.value) null else id
+        KLog.d(TAG, "Selected layer: ${_selectedLayerId.value}")
+    }
+
     // Монотонный счётчик ТОЛЬКО для уникальных id (id не должны повторяться даже после удалений).
     private var overlayIdCounter = 0
 
@@ -73,7 +85,10 @@ class StreamViewModel @Inject constructor(
         KLog.i(TAG, "Added image overlay '$displayName' (id #$overlayIdCounter)")
     }
 
-    fun removeLayer(id: String) = repository.removeLayer(id)
+    fun removeLayer(id: String) {
+        if (_selectedLayerId.value == id) _selectedLayerId.value = null // снять выбор с удаляемого слоя
+        repository.removeLayer(id)
+    }
     fun toggleLayerVisible(id: String) = repository.toggleLayerVisible(id)
     fun moveLayerUp(id: String) = repository.moveLayerUp(id)
     fun moveLayerDown(id: String) = repository.moveLayerDown(id)
