@@ -225,11 +225,22 @@ class RtmpStreamer @Inject constructor(
         }
         val normalized = ((degrees % 360) + 360) % 360
         if (normalized == _videoRotation.value) return false
+        // Меняется ли ОРИЕНТАЦИЯ холста (портрет↔пейзаж)? Только тогда нужен другой размер энкодера
+        // (1920×1080 ↔ 1080×1920) → пересборка GL → рестарт превью (переоткрытие камеры, §7).
+        val wasPortrait = _videoRotation.value == 90 || _videoRotation.value == 270
+        val nowPortrait = normalized == 90 || normalized == 270
         _videoRotation.value = normalized
         compositorSource.setCanvasRotation(normalized)
         KLog.i(TAG, "Canvas rotation set to $normalized°")
-        // Rebuild the GL/encoder canvas at the rotated aspect (startPreview reads _videoRotation).
-        lastPreviewTextureView?.get()?.let { tv -> scope.launch { startPreview(tv) } }
+        if (wasPortrait == nowPortrait) {
+            // 0↔180 или 90↔270: размер холста ТОТ ЖЕ — только матрица поворота композитора, БЕЗ
+            // рестарта и БЕЗ переоткрытия камеры (нет чёрного мигания; §7 частично закрыт для этих
+            // переходов). Композитор нарисует следующий кадр уже повёрнутым; превью его зеркалит.
+            KLog.d(TAG, "rotation $normalized°: размер холста без изменений — matrix-only, камера не трогается")
+        } else {
+            // Портрет↔пейзаж: нужен другой размер энкодера → пересборка GL/превью (камера переоткроется).
+            lastPreviewTextureView?.get()?.let { tv -> scope.launch { startPreview(tv) } }
+        }
         return true
     }
 
