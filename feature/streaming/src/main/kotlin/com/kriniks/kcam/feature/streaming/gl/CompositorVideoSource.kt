@@ -82,6 +82,16 @@ class CompositorVideoSource : VideoSource() {
     private var encH = 1080
 
     private var renderer: GlQuadRenderer? = null
+
+    // ── Двухпроходный рендер через FBO (bug 29.2, отвязка камеры от холста) ──────────────
+    // Проход 1: рисуем сцену (камера в НАТИВНОМ 16:9-буфере + оверлеи) в ФИКСИРОВАННЫЙ 16:9 FBO —
+    // аспект-корректно, БЕЗ поворота холста. Проход 2: блитим FBO-текстуру в выходной кадр (encW×encH)
+    // с поворотом холста (поворот тексов: FBO 1920×1080 повёрнутый 90° = 1080×1920 = портретный выход,
+    // 1:1, без искажения). Камера ВСЕГДА 16:9, не сжимается; поворот — отдельный финальный шаг.
+    private var sceneFbo = 0
+    private var sceneTex = 0
+    private val canvasTexM = FloatArray(16) // матрица поворота тексов для прохода 2 (переиспользуем)
+
     // Упорядоченный список слоёв (z-order СНИЗУ ВВЕРХ) — из Scene. Камера и картинки РАВНОПРАВНЫ
     // и идут в порядке сцены (камера переставляема, как в OBS).
     @Volatile private var requestedLayers: List<CompositorLayer> = emptyList()
@@ -113,10 +123,11 @@ class CompositorVideoSource : VideoSource() {
             if (!running) return@post
             encW = w
             encH = h
-            // Ресайз буферов БЕЗ пересоздания SurfaceTexture (продюсеры адаптируются к новому размеру).
+            // Ресайзим ТОЛЬКО выходной буфер энкодера (проход 2 рисует в encW×encH). Камера-буфер и
+            // FBO-сцена ФИКСИРОВАНЫ 16:9 (проход 1) — их НЕ трогаем: камера не сжимается и не
+            // переоткрывается, поток непрерывен (bug 29.2/29.3).
             runCatching { outputSurfaceTexture?.setDefaultBufferSize(w, h) }
-            runCatching { cameraSurfaceTexture?.setDefaultBufferSize(w, h) }
-            KLog.i(TAG, "resizeCanvasKeepingCamera → ${w}x${h} (камера не переоткрывается)")
+            KLog.i(TAG, "resizeCanvasKeepingCamera → выход ${w}x${h} (камера/FBO 16:9 неизменны)")
         } ?: KLog.w(TAG, "resizeCanvasKeepingCamera: handler null (композитор не запущен)")
     }
 
@@ -190,10 +201,14 @@ class CompositorVideoSource : VideoSource() {
             GLES20.glDisable(GLES20.GL_CULL_FACE)
             val r = GlQuadRenderer()
             renderer = r
+            // FBO логической сцены — фиксированный 16:9 (проход 1 рисует сюда).
+            val (fbo, tex) = r.createFramebuffer(SCENE_W, SCENE_H)
+            sceneFbo = fbo
+            sceneTex = tex
             // OES-текстура + SurfaceTexture для камеры (создаём в нашем GL-контексте).
             cameraOesTex = r.createOesTexture()
             val camSt = SurfaceTexture(cameraOesTex)
-            camSt.setDefaultBufferSize(encW, encH)
+            camSt.setDefaultBufferSize(SCENE_W, SCENE_H)   // НАТИВНЫЙ 16:9-буфер камеры (не зависит от холста)
             camSt.setOnFrameAvailableListener { newCameraFrame = true }
             cameraSurfaceTexture = camSt
             syncTextures() // залить уже запрошенные слои-картинки
@@ -218,41 +233,49 @@ class CompositorVideoSource : VideoSource() {
     private fun drawFrame() {
         val core = eglCore ?: return
         val es = eglSurface ?: return
+        val r = renderer ?: return
         try {
             core.makeCurrent(es)
-            GLES20.glViewport(0, 0, encW, encH)
-            // Пустая база OBS — сплошной чёрный. (Слои рисуются поверх следующими шагами.)
-            // ✅ Шаг 1 ДОКАЗАН: этот GL-кадр реально доходит до энкодера (проверено розовой заливкой).
-            GLES20.glClearColor(0f, 0f, 0f, 1f)
+
+            // Забрать свежий кадр камеры (даже если слой камеры скрыт — чтобы не копить очередь).
+            val camSt = cameraSurfaceTexture
+            if (camSt != null && newCameraFrame) {
+                runCatching { camSt.updateTexImage(); camSt.getTransformMatrix(cameraTexMatrix) }
+                newCameraFrame = false
+            }
+
+            // ── ПРОХОД 1: сцена в 16:9 FBO (аспект-корректно, БЕЗ поворота холста) ──────────
+            // Камера в нативном 16:9-буфере рисуется в 16:9 FBO → не сжимается. Поворот холста здесь
+            // НЕ применяется (canvasM = identity): он отдельным финальным шагом в проходе 2.
+            r.bindFramebuffer(sceneFbo)
+            GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
+            GLES20.glClearColor(0f, 0f, 0f, 1f)               // пустая база OBS — чёрный
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            val r = renderer
-            if (r != null) {
-                // Забрать свежий кадр камеры (даже если слой камеры скрыт — чтобы не копить очередь).
-                val camSt = cameraSurfaceTexture
-                if (camSt != null && newCameraFrame) {
-                    runCatching { camSt.updateTexImage(); camSt.getTransformMatrix(cameraTexMatrix) }
-                    newCameraFrame = false
-                }
-                // Матрица поворота ХОЛСТА (interview_006): весь готовый композит ворочается целиком.
-                // Знак минус: положительный canvasRotation = по часовой (как крутили раньше, Bug 10).
-                // Чистый rotate корректен без аспект-коррекции ИМЕННО потому, что на 90/270 физические
-                // размеры выхода уже свапнуты (16:9-сцена точно ложится в 9:16-кадр без искажения).
-                android.opengl.Matrix.setRotateM(canvasM, 0, -canvasRotation.toFloat(), 0f, 0f, 1f)
-                // Рисуем слои в порядке сцены (снизу вверх). Камера и картинки равноправны.
-                // Каждому слою — матрица: холст × (позиция/масштаб PiP × поворот содержимого).
-                for (layer in requestedLayers) {
-                    layerMatrixOf(layer)
-                    when (layer) {
-                        is CompositorLayer.Camera -> if (cameraOesTex != 0)
-                            r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, posMatrix = finalM, alpha = layer.alpha)
-                        is CompositorLayer.Image -> {
-                            val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
-                            if (texId != null) r.draw(texId, oes = false, posMatrix = finalM, alpha = layer.alpha)
-                        }
+            android.opengl.Matrix.setIdentityM(canvasM, 0)     // в проходе 1 холст НЕ повёрнут
+            for (layer in requestedLayers) {
+                layerMatrixOf(layer)                           // T·S·PhysRot слоя (в координатах сцены)
+                when (layer) {
+                    is CompositorLayer.Camera -> if (cameraOesTex != 0)
+                        r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, posMatrix = finalM, alpha = layer.alpha)
+                    is CompositorLayer.Image -> {
+                        val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
+                        if (texId != null) r.draw(texId, oes = false, posMatrix = finalM, alpha = layer.alpha)
                     }
                 }
             }
-            // Idea 17 — захват фото: читаем готовый кадр ДО swap (back buffer содержит отрисованный композит).
+
+            // ── ПРОХОД 2: блит FBO в выходной кадр (encW×encH) с поворотом ХОЛСТА ────────────
+            // Поворачиваем ТЕКСТУРНЫЕ координаты FBO на canvasRotation вокруг центра. FBO 1920×1080,
+            // повёрнутый на 90°, точно = 1080×1920 = портретный выход → 1:1, без искажения. Квад — во
+            // весь выходной кадр (posMatrix identity), так что аспект-коррекция не нужна.
+            r.bindFramebuffer(0)
+            GLES20.glViewport(0, 0, encW, encH)
+            GLES20.glClearColor(0f, 0f, 0f, 1f)
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            canvasTexMatrix(canvasRotation)
+            r.draw(sceneTex, oes = false, texMatrix = canvasTexM, posMatrix = null, alpha = 1f)
+
+            // Idea 17 — захват фото: читаем готовый ВЫХОДНОЙ кадр ДО swap (то, что видит зритель, с поворотом).
             val cap = pendingCapture
             if (cap != null) {
                 pendingCapture = null
@@ -266,6 +289,16 @@ class CompositorVideoSource : VideoSource() {
         } catch (e: Exception) {
             KLog.w(TAG, "drawFrame failed: ${e.message}")
         }
+    }
+
+    // Матрица поворота ТЕКСТУРНЫХ координат FBO на [deg]° (CW) вокруг центра (0.5,0.5) для прохода 2.
+    // FBO — 2D-текстура (в GlQuadRenderer 2D-путь домножает V-flip внутри), поэтому здесь только поворот.
+    // Знак минус: положительный canvasRotation = по часовой (как розовая кнопка, Bug 10).
+    private fun canvasTexMatrix(deg: Int) {
+        android.opengl.Matrix.setIdentityM(canvasTexM, 0)
+        android.opengl.Matrix.translateM(canvasTexM, 0, 0.5f, 0.5f, 0f)
+        android.opengl.Matrix.rotateM(canvasTexM, 0, -deg.toFloat(), 0f, 0f, 1f)
+        android.opengl.Matrix.translateM(canvasTexM, 0, -0.5f, -0.5f, 0f)
     }
 
     // Прочитать текущий кадр из GL (RGBA) в Bitmap. GL-начало координат — снизу-слева, поэтому
@@ -286,6 +319,10 @@ class CompositorVideoSource : VideoSource() {
     // Нужен для аспект-корректного поворота СОДЕРЖИМОГО слоя в clip-space (units не квадратные).
     private companion object {
         const val SCENE_ASPECT = 16f / 9f
+        // Фиксированный логический холст сцены (проход 1) + нативный буфер камеры — ВСЕГДА 16:9,
+        // НЕ зависит от ориентации выходного кадра. Отсюда камера не сжимается ни в портрете, ни в пейзаже.
+        const val SCENE_W = 1920
+        const val SCENE_H = 1080
     }
 
     /**
@@ -340,6 +377,9 @@ class CompositorVideoSource : VideoSource() {
         handler?.post {
             runCatching { uploaded.forEach { renderer?.deleteTexture(it.second) } }
             uploaded.clear()
+            runCatching { if (sceneFbo != 0) renderer?.deleteFramebuffer(sceneFbo) }
+            runCatching { if (sceneTex != 0) renderer?.deleteTexture(sceneTex) }
+            sceneFbo = 0; sceneTex = 0
             runCatching { cameraSurfaceTexture?.release() }
             cameraSurfaceTexture = null
             runCatching { if (cameraOesTex != 0) renderer?.deleteTexture(cameraOesTex) }
