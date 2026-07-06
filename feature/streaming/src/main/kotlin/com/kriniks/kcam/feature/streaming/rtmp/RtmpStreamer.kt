@@ -237,11 +237,46 @@ class RtmpStreamer @Inject constructor(
             // рестарта и БЕЗ переоткрытия камеры (нет чёрного мигания; §7 частично закрыт для этих
             // переходов). Композитор нарисует следующий кадр уже повёрнутым; превью его зеркалит.
             KLog.d(TAG, "rotation $normalized°: размер холста без изменений — matrix-only, камера не трогается")
-        } else {
-            // Портрет↔пейзаж: нужен другой размер энкодера → пересборка GL/превью (камера переоткроется).
-            lastPreviewTextureView?.get()?.let { tv -> scope.launch { startPreview(tv) } }
+        } else if (rtmpStream?.isOnPreview == true) {
+            // Портрет↔пейзаж: нужен ДРУГОЙ размер холста энкодера. КРИТИЧНО (bug 27): НЕ пересобираем
+            // поверхность превью через stopPreview/startPreview — это гонка с системным HWUI
+            // RenderThread за EGL-контекст поверхности TextureView → SIGABRT EGL_BAD_CONTEXT (Криник
+            // словил на живом экране). Вместо этого меняем размер холста и перезапускаем ТОЛЬКО
+            // композитор (ре-инит GL под новый размер; камера-слой кратко переоткроется, §7), оставляя
+            // поверхность превью ПРИВЯЗАННОЙ (её не трогаем — HWUI спокоен).
+            scope.launch { resizeCanvasInPreview() }
         }
         return true
+    }
+
+    /**
+     * Bug 27 — сменить размер холста энкодера под текущий поворот (портрет↔пейзаж) БЕЗ пересборки
+     * поверхности превью. Ключ: НИКАКИХ `stopPreview`/`startPreview` на TextureView (иначе гонка с
+     * системным HWUI RenderThread → EGL_BAD_CONTEXT-краш). Меняем размер GL-холста и перезапускаем
+     * ТОЛЬКО источник-композитор (он ре-инитит свою GL-поверхность под новый размер), поверхность
+     * превью остаётся привязанной. Только для превью (не во время стрима — там поворот заблокирован).
+     */
+    private fun resizeCanvasInPreview() {
+        val stream = rtmpStream ?: return
+        if (stream.isStreaming || !stream.isOnPreview) return
+        try {
+            val deg = _videoRotation.value
+            val portrait = deg == 90 || deg == 270
+            val (encW, encH) = rotatedDims(basePreviewWidth, basePreviewHeight, deg)
+            val gl = stream.getGlInterface()
+            gl.setEncoderSize(encW, encH)        // портретный/ландшафтный холст под аспект
+            gl.setIsPortrait(portrait)
+            gl.setAspectRatioMode(AspectRatioMode.Adjust)
+            gl.setCameraOrientation(0)           // повороты делает композитор (Bug 02 A)
+            compositorSource.setCanvasRotation(deg)
+            // Перезапустить композитор под новый размер холста — БЕЗ трогания поверхности превью.
+            runCatching { stream.changeVideoSource(compositorSource) }
+                .onFailure { KLog.w(TAG, "resizeCanvasInPreview: source rebind failed", it) }
+            applySceneLayers()
+            KLog.i(TAG, "resizeCanvasInPreview: enc ${encW}x${encH} portrait=$portrait (без пересборки превью)")
+        } catch (e: Exception) {
+            KLog.e(TAG, "resizeCanvasInPreview failed", e)
+        }
     }
 
     /**
