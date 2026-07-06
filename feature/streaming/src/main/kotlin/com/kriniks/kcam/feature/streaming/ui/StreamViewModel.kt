@@ -155,6 +155,39 @@ class StreamViewModel @Inject constructor(
         if (_selectedLayerId.value == id) _selectedLayerId.value = null // снять выбор с удаляемого слоя
         repository.removeLayer(id)
     }
+
+    /**
+     * plans/03 S7 — контекст-меню слоя (долгий тап). «На весь экран»: сброс трансформы слоя в полный
+     * кадр (scale 1, центр, поворот 0). Работает для любого слоя.
+     */
+    fun resetLayerFullscreen(id: String) {
+        val t = scene.value.layers.firstOrNull { it.id == id }?.transform ?: return
+        repository.setLayerTransform(id, 1f, 0.5f, 0.5f, t.alpha, 0)
+    }
+
+    /**
+     * plans/03 S7 — дублировать слой (долгий тап → «Дублировать»). Пока для слоёв-КАРТИНОК: копия с
+     * новым id, чуть смещённая, поверх стека, сразу выбрана. Дублирование камера-слоя = несколько
+     * видеозахватов (Фаза B композитора, несколько OES) — ещё не поддержано, поэтому пропускаем.
+     */
+    fun duplicateLayer(id: String) {
+        val layer = scene.value.layers.firstOrNull { it.id == id } ?: return
+        if (layer is com.kriniks.kcam.feature.streaming.scene.Layer.Image) {
+            overlayIdCounter += 1
+            val newId = "overlay_$overlayIdCounter"
+            repository.addImageOverlay(newId, layer.name + " copy", layer.bitmap)
+            val t = layer.transform
+            repository.setLayerTransform(
+                newId, t.scale,
+                (t.cx + 0.04f).coerceIn(0f, 1f), (t.cy + 0.04f).coerceIn(0f, 1f),
+                t.alpha, t.rotation,
+            )
+            _selectedLayerId.value = newId
+            KLog.i(TAG, "Duplicated image layer $id → $newId")
+        } else {
+            KLog.w(TAG, "Duplicate of non-image layer $id skipped (Phase B multi-capture)")
+        }
+    }
     fun toggleLayerVisible(id: String) = repository.toggleLayerVisible(id)
     fun moveLayerUp(id: String) = repository.moveLayerUp(id)
     fun moveLayerDown(id: String) = repository.moveLayerDown(id)

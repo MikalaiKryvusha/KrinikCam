@@ -35,6 +35,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,6 +52,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.feature.capture.model.VideoSource
+import com.kriniks.kcam.feature.streaming.scene.Layer
 import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.model.isLive
@@ -67,6 +70,31 @@ import com.kriniks.kcam.ui.overlay.RotationMenu
 import com.kriniks.kcam.ui.overlay.StandbyPlaceholder
 
 private val LiveRed = Color(0xFFFF1A1A)
+
+/**
+ * plans/03 S5/S7 — хиттест слоя под экранной точкой ([px],[py] в пикселях вью [w]×[h]). Переводит
+ * точку экран→сцена (леттербокс + разворот на −canvasRotation вокруг центра) и ищет ВЕРХНИЙ видимый
+ * слой, чей axis-aligned габарит (scale) содержит точку. null — вне контента или нет слоя.
+ */
+private fun hitTestLayer(px: Float, py: Float, w: Float, h: Float, rotation: Int, layers: List<Layer>): String? {
+    val portrait = rotation == 90 || rotation == 270
+    val aspect = if (portrait) 9f / 16f else 16f / 9f
+    val cW = minOf(w, h * aspect); val cH = cW / aspect
+    val left = (w - cW) / 2f; val top = (h - cH) / 2f
+    val fx = (px - left) / cW; val fy = (py - top) / cH
+    if (fx !in 0f..1f || fy !in 0f..1f) return null
+    val (sx, sy) = when (rotation) {
+        90 -> (1f - fy) to fx
+        180 -> (1f - fx) to (1f - fy)
+        270 -> fy to (1f - fx)
+        else -> fx to fy
+    }
+    return layers.asReversed().firstOrNull { l ->
+        l.visible &&
+            kotlin.math.abs(sx - l.transform.cx) <= l.transform.scale / 2f &&
+            kotlin.math.abs(sy - l.transform.cy) <= l.transform.scale / 2f
+    }?.id
+}
 
 @Composable
 fun MainScreen(
@@ -91,6 +119,11 @@ fun MainScreen(
 
     var showPlatformsOverlay by remember { mutableStateOf(false) }
     var showLayersOverlay by remember { mutableStateOf(false) }
+    // plans/03 S7 — контекст-меню слоя (долгий тап на превью): id целевого слоя и точка вызова.
+    var contextMenuLayerId by remember { mutableStateOf<String?>(null) }
+    var contextMenuOffset by remember { mutableStateOf(Offset.Zero) }
+    // Слой, ожидающий подтверждения удаления из контекст-меню (модалка).
+    var contextDeleteLayer by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     // TextureView from UvcPreviewView — held so we can re-start preview when camera connects
     var previewTextureView by remember { mutableStateOf<TextureView?>(null) }
@@ -225,39 +258,27 @@ fun MainScreen(
                         }
                     }
                     .pointerInput(gestureRotation, scene) {
-                        // S5 — тап по превью: хиттест верхнего видимого слоя под точкой.
+                        // S5 — тап по превью: хиттест верхнего видимого слоя; S7 — долгий тап → меню.
                         detectTapGestures(
                             // S6 tear-off — на КАЖДОМ нажатии сбрасываем сырое состояние жеста, чтобы
                             // оно переинициализировалось от текущей трансформы (иначе снап залипает).
                             onPress = { streamViewModel.beginLayerGesture() },
                             onTap = { pos ->
-                            val w = size.width.toFloat(); val h = size.height.toFloat()
-                            val portrait = gestureRotation == 90 || gestureRotation == 270
-                            val aspect = if (portrait) 9f / 16f else 16f / 9f
-                            val cW = minOf(w, h * aspect); val cH = cW / aspect
-                            val left = (w - cW) / 2f; val top = (h - cH) / 2f
-                            val fx = (pos.x - left) / cW; val fy = (pos.y - top) / cH
-                            if (fx !in 0f..1f || fy !in 0f..1f) {
-                                streamViewModel.selectLayer(null) // тап по чёрному полю — снять выбор
-                                return@detectTapGestures
-                            }
-                            // Экран(доля контента)→сцена: разворот точки вокруг центра на −canvasRotation.
-                            val (sx, sy) = when (gestureRotation) {
-                                90 -> (1f - fy) to fx
-                                180 -> (1f - fx) to (1f - fy)
-                                270 -> fy to (1f - fx)
-                                else -> fx to fy
-                            }
-                            // Верхний видимый слой, чей axis-aligned габарит (scale — доля кадра) содержит
-                            // точку. scene.layers снизу-вверх → reversed = сверху вниз (§7: OBB позже).
-                            val hit = scene.layers.asReversed().firstOrNull { l ->
-                                val t = l.transform
-                                l.visible &&
-                                    kotlin.math.abs(sx - t.cx) <= t.scale / 2f &&
-                                    kotlin.math.abs(sy - t.cy) <= t.scale / 2f
-                            }
-                            streamViewModel.selectLayer(hit?.id)
-                        })
+                                val hit = hitTestLayer(pos.x, pos.y, size.width.toFloat(), size.height.toFloat(),
+                                    gestureRotation, scene.layers)
+                                streamViewModel.selectLayer(hit) // null = снять выбор (тап по полю)
+                            },
+                            onLongPress = { pos ->
+                                // S7 — контекст-меню слоя под точкой (удалить/дублировать/на весь экран).
+                                val hit = hitTestLayer(pos.x, pos.y, size.width.toFloat(), size.height.toFloat(),
+                                    gestureRotation, scene.layers)
+                                if (hit != null) {
+                                    if (selectedLayerId != hit) streamViewModel.selectLayer(hit) // без toggle-off
+                                    contextMenuLayerId = hit
+                                    contextMenuOffset = pos
+                                }
+                            },
+                        )
                     },
             )
         }
@@ -349,6 +370,51 @@ fun MainScreen(
                     }
                 }
             }
+        }
+
+        // ── Layer 0.9: Контекст-меню слоя (plans/03 S7, долгий тап) ──
+        contextMenuLayerId?.let { ctxId ->
+            val ctxLayer = scene.layers.firstOrNull { it.id == ctxId }
+            Box(modifier = Modifier.offset {
+                IntOffset(contextMenuOffset.x.roundToInt(), contextMenuOffset.y.roundToInt())
+            }) {
+                DropdownMenu(expanded = true, onDismissRequest = { contextMenuLayerId = null }) {
+                    DropdownMenuItem(
+                        text = { Text("На весь экран") },
+                        onClick = { streamViewModel.resetLayerFullscreen(ctxId); contextMenuLayerId = null },
+                    )
+                    // Дублирование — пока только для картинок (камера = Фаза B мультизахвата).
+                    if (ctxLayer is Layer.Image) {
+                        DropdownMenuItem(
+                            text = { Text("Дублировать") },
+                            onClick = { streamViewModel.duplicateLayer(ctxId); contextMenuLayerId = null },
+                        )
+                    }
+                    // Удаление — не для камеры-базы; через модалку подтверждения.
+                    if (ctxLayer != null && ctxLayer !is Layer.VideoCapture) {
+                        DropdownMenuItem(
+                            text = { Text("Удалить", color = Color(0xFFCC5555)) },
+                            onClick = { contextDeleteLayer = ctxId to ctxLayer.name; contextMenuLayerId = null },
+                        )
+                    }
+                }
+            }
+        }
+        // Модалка подтверждения удаления из контекст-меню.
+        contextDeleteLayer?.let { (id, name) ->
+            AlertDialog(
+                onDismissRequest = { contextDeleteLayer = null },
+                title = { Text("Удалить слой?", color = Color.White) },
+                text = { Text("«$name» будет удалён из сцены.", color = Color(0xFFCCCCCC)) },
+                confirmButton = {
+                    TextButton(onClick = { streamViewModel.removeLayer(id); contextDeleteLayer = null }) {
+                        Text("Удалить", color = Color(0xFFCC5555))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { contextDeleteLayer = null }) { Text("Отмена", color = Color(0xFF999999)) }
+                },
+            )
         }
 
         // ── Layer 1: Rotation menu (top-right) — ВСЕГДА виден (bug 21) ──────
