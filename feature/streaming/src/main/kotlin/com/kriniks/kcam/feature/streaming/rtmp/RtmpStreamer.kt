@@ -269,11 +269,11 @@ class RtmpStreamer @Inject constructor(
             gl.setAspectRatioMode(AspectRatioMode.Adjust)
             gl.setCameraOrientation(0)           // повороты делает композитор (Bug 02 A)
             compositorSource.setCanvasRotation(deg)
-            // Перезапустить композитор под новый размер холста — БЕЗ трогания поверхности превью.
-            runCatching { stream.changeVideoSource(compositorSource) }
-                .onFailure { KLog.w(TAG, "resizeCanvasInPreview: source rebind failed", it) }
+            // Bug 29.3: НЕ рестартим композитор (changeVideoSource переоткрывал бы камеру → freeze).
+            // Ресайзим холст композитора вживую, камера-продюсер продолжает писать в ту же поверхность.
+            compositorSource.resizeCanvasKeepingCamera(encW, encH)
             applySceneLayers()
-            KLog.i(TAG, "resizeCanvasInPreview: enc ${encW}x${encH} portrait=$portrait (без пересборки превью)")
+            KLog.i(TAG, "resizeCanvasInPreview: enc ${encW}x${encH} portrait=$portrait (камера не трогается)")
         } catch (e: Exception) {
             KLog.e(TAG, "resizeCanvasInPreview failed", e)
         }

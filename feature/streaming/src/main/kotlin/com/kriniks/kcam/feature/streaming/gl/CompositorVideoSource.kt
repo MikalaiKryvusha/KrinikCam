@@ -70,6 +70,9 @@ sealed interface CompositorLayer {
 class CompositorVideoSource : VideoSource() {
 
     private var surface: Surface? = null
+    // Bug 29.3: держим ССЫЛКУ на выходную SurfaceTexture энкодера, чтобы РЕСАЙЗИТЬ её буфер на смене
+    // поворота БЕЗ пересоздания (и без рестарта композитора → камера не переоткрывается).
+    private var outputSurfaceTexture: SurfaceTexture? = null
     private var eglCore: EglCore? = null
     private var eglSurface: EGLSurface? = null
     private var thread: HandlerThread? = null
@@ -94,6 +97,27 @@ class CompositorVideoSource : VideoSource() {
     fun setCanvasRotation(degrees: Int) {
         canvasRotation = ((degrees % 360) + 360) % 360
         KLog.i(TAG, "canvasRotation = $canvasRotation°")
+    }
+
+    /**
+     * Bug 29.3 — сменить РАЗМЕР холста (портрет↔пейзаж) БЕЗ рестарта композитора и БЕЗ переоткрытия
+     * камеры. Криник: «камера ВООБЩЕ не должна знать, что канвас ворочают — поток непрерывный».
+     * На GL-потоке: ресайзим буфер ВЫХОДНОЙ поверхности и буфер камеры (тот же аспект, что и раньше —
+     * камера-буфер = размеру холста, это load-bearing для аспект-корректности, см. drawFrame), обновляем
+     * encW/encH (viewport). SurfaceTexture НЕ пересоздаём → камера-продюсер продолжает писать, НЕ
+     * закрывается. Никакого onCameraSurfaceReady. Вызывается вместо changeVideoSource на смене поворота.
+     */
+    fun resizeCanvasKeepingCamera(w: Int, h: Int) {
+        if (w <= 0 || h <= 0) return
+        handler?.post {
+            if (!running) return@post
+            encW = w
+            encH = h
+            // Ресайз буферов БЕЗ пересоздания SurfaceTexture (продюсеры адаптируются к новому размеру).
+            runCatching { outputSurfaceTexture?.setDefaultBufferSize(w, h) }
+            runCatching { cameraSurfaceTexture?.setDefaultBufferSize(w, h) }
+            KLog.i(TAG, "resizeCanvasKeepingCamera → ${w}x${h} (камера не переоткрывается)")
+        } ?: KLog.w(TAG, "resizeCanvasKeepingCamera: handler null (композитор не запущен)")
     }
 
     // Переиспользуемые матрицы кадра (аллоцируем один раз — рисуем 30 раз в секунду).
@@ -141,6 +165,7 @@ class CompositorVideoSource : VideoSource() {
         encW = if (width > 0) width else 1920
         encH = if (height > 0) height else 1080
         surfaceTexture.setDefaultBufferSize(encW, encH)
+        outputSurfaceTexture = surfaceTexture   // держим для live-ресайза (bug 29.3)
         val s = Surface(surfaceTexture)
         surface = s
         val t = HandlerThread("CompositorGL").also { it.start() }
@@ -330,6 +355,7 @@ class CompositorVideoSource : VideoSource() {
         handler = null
         runCatching { surface?.release() }
         surface = null
+        outputSurfaceTexture = null
         KLog.d(TAG, "Compositor stopped")
     }
 
