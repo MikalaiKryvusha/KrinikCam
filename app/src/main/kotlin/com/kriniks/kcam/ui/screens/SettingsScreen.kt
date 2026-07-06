@@ -64,6 +64,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     fileLogger: FileLogger,
     onOpenDeveloper: () -> Unit = {},   // long-press on "KrinikCam" → hidden Developer menu (Idea 07)
+    onOpenManual: () -> Unit = {},      // plans/06 — встроенное руководство пользователя
     streamViewModel: StreamViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -139,6 +140,16 @@ fun SettingsScreen(
                         val intent = fileLogger.shareIntent()
                         context.startActivity(Intent.createChooser(intent, shareChooserTitle))
                     },
+                )
+            }
+
+            // ── Руководство (plans/06 / Idea 32) ──────────────────────
+            SettingsSection(title = "Справка") {
+                SettingsRow(
+                    icon = Icons.Default.MenuBook,
+                    title = "Руководство пользователя",
+                    subtitle = "Как пользоваться KrinikCam и как оно устроено",
+                    onClick = onOpenManual,
                 )
             }
 

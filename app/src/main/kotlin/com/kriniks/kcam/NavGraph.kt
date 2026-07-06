@@ -24,11 +24,13 @@ import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.ui.screens.DevMenuScreen
 import com.kriniks.kcam.ui.screens.MainScreen
 import com.kriniks.kcam.ui.screens.SettingsScreen
+import com.kriniks.kcam.ui.screens.UserManualScreen
 
 object Routes {
     const val MAIN = "main"
     const val SETTINGS = "settings"
     const val DEVELOPER = "developer"
+    const val USER_MANUAL = "user_manual"   // Idea 32 / plans/06 — встроенное руководство
 }
 
 @Composable
@@ -56,7 +58,13 @@ fun KrinikCamNavGraph(
                 fileLogger = fileLogger,
                 // Long-press on the "KrinikCam" About row opens the hidden Developer menu.
                 onOpenDeveloper = { navController.navigate(Routes.DEVELOPER) },
+                // plans/06 — встроенное руководство пользователя.
+                onOpenManual = { navController.navigate(Routes.USER_MANUAL) },
             )
+        }
+
+        composable(Routes.USER_MANUAL) {
+            UserManualScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.DEVELOPER) {
