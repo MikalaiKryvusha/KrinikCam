@@ -174,50 +174,65 @@ fun MainScreen(
             )
         }
 
-        // ── Layer 0.7: Жест-оверлей трансформы выбранного слоя (plans/03 S2/S3) ──
-        // Активен ТОЛЬКО когда выбран слой. Перетаскивание/щипок/два пальца → nudgeSelectedLayer.
-        // Стоит НИЖЕ контролов (кнопка поворота/FAB/меню добавлены позже в Box → они сверху и
-        // остаются кликабельны); жест ловится в остальной площади. Тап по пустому = снять выбор.
-        if (selectedLayerId != null) {
-            val gestureRotation = videoRotation // canvas rotation (S4 учтёт в маппинге)
+        // ── Layer 0.7: Жест-оверлей слоёв (plans/03 S2/S3/S4/S5) ──
+        // ВСЕГДА активен. Тап (S5) — хиттест: выбрать верхний видимый слой под точкой (или снять).
+        // Когда слой ВЫБРАН — перетаскивание/щипок/два пальца двигают его (nudgeSelectedLayer).
+        // Стоит НИЖЕ контролов (кнопка поворота/FAB/меню добавлены позже → они сверху и кликабельны).
+        run {
+            val gestureRotation = videoRotation
+            // Перевод точки/дельты ЭКРАН→СЦЕНА и обратно (учёт леттербокса и поворота холста).
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(selectedLayerId, gestureRotation) {
                         detectTransformGestures { _, pan, zoom, rotation ->
-                            // contentRect: композит вписан в экран по аспекту (леттербокс). Для
-                            // canvas 0/180 — 16:9, для 90/270 — 9:16 (портретный выход).
-                            val w = size.width.toFloat()
-                            val h = size.height.toFloat()
+                            if (selectedLayerId == null) return@detectTransformGestures
+                            val w = size.width.toFloat(); val h = size.height.toFloat()
                             val portrait = gestureRotation == 90 || gestureRotation == 270
                             val aspect = if (portrait) 9f / 16f else 16f / 9f
-                            val contentW = minOf(w, h * aspect)
-                            val contentH = contentW / aspect
-                            // Доли ЭКРАННОГО контента.
-                            val fx = pan.x / contentW
-                            val fy = pan.y / contentH
-                            // S4 — маппинг экранного pan в координаты НЕПОВЁРНУТОЙ сцены (cx,cy живут в
-                            // landscape-FBO прохода 1; проход 2 крутит холст текстурно). Разворачиваем
-                            // экранный вектор в систему сцены. ЗНАКИ подтверждены live-свайпами: превью
-                            // относительно scene-координат повёрнуто ПРОТИВОположно (Y-флип текстур в
-                            // проходе 2), поэтому 90 и 270 против «наивного» вывода.
+                            val contentW = minOf(w, h * aspect); val contentH = contentW / aspect
+                            val fx = pan.x / contentW; val fy = pan.y / contentH
+                            // S4 — экранный pan → координаты НЕПОВЁРНУТОЙ сцены (двухпроходный FBO;
+                            // знаки подтверждены live-свайпом, учтён Y-флип текстур прохода 2).
                             val (dCx, dCy) = when (gestureRotation) {
                                 90 -> -fy to fx
                                 180 -> -fx to -fy
                                 270 -> fy to -fx
-                                else -> fx to fy   // 0
+                                else -> fx to fy
                             }
-                            streamViewModel.nudgeSelectedLayer(
-                                dCx = dCx,
-                                dCy = dCy,
-                                zoom = zoom,
-                                dRotation = rotation,
-                            )
+                            streamViewModel.nudgeSelectedLayer(dCx, dCy, zoom, rotation)
                         }
                     }
-                    .pointerInput(selectedLayerId) {
-                        // Тап по пустому месту — снять выбор (пока нет хиттеста превью, S5).
-                        detectTapGestures(onTap = { streamViewModel.selectLayer(null) })
+                    .pointerInput(gestureRotation, scene) {
+                        // S5 — тап по превью: хиттест верхнего видимого слоя под точкой.
+                        detectTapGestures(onTap = { pos ->
+                            val w = size.width.toFloat(); val h = size.height.toFloat()
+                            val portrait = gestureRotation == 90 || gestureRotation == 270
+                            val aspect = if (portrait) 9f / 16f else 16f / 9f
+                            val cW = minOf(w, h * aspect); val cH = cW / aspect
+                            val left = (w - cW) / 2f; val top = (h - cH) / 2f
+                            val fx = (pos.x - left) / cW; val fy = (pos.y - top) / cH
+                            if (fx !in 0f..1f || fy !in 0f..1f) {
+                                streamViewModel.selectLayer(null) // тап по чёрному полю — снять выбор
+                                return@detectTapGestures
+                            }
+                            // Экран(доля контента)→сцена: разворот точки вокруг центра на −canvasRotation.
+                            val (sx, sy) = when (gestureRotation) {
+                                90 -> (1f - fy) to fx
+                                180 -> (1f - fx) to (1f - fy)
+                                270 -> fy to (1f - fx)
+                                else -> fx to fy
+                            }
+                            // Верхний видимый слой, чей axis-aligned габарит (scale — доля кадра) содержит
+                            // точку. scene.layers снизу-вверх → reversed = сверху вниз (§7: OBB позже).
+                            val hit = scene.layers.asReversed().firstOrNull { l ->
+                                val t = l.transform
+                                l.visible &&
+                                    kotlin.math.abs(sx - t.cx) <= t.scale / 2f &&
+                                    kotlin.math.abs(sy - t.cy) <= t.scale / 2f
+                            }
+                            streamViewModel.selectLayer(hit?.id)
+                        })
                     },
             )
         }
