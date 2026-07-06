@@ -30,6 +30,7 @@ import android.os.SystemClock
 import android.view.Surface
 import com.jiangdg.ausbc.MultiCameraClient
 import com.jiangdg.ausbc.camera.bean.CameraRequest
+import com.jiangdg.ausbc.camera.bean.PreviewSize
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer
 import com.kriniks.kcam.feature.streaming.rtmp.VirtualFrameRenderer
@@ -53,23 +54,60 @@ class UvcCameraOpener(
     private val previewHeight: Int = 1080,
 ) : RtmpStreamer.CameraOpener {
 
+    // Bug 25 — переоткрывали ли уже на выбранном из списка размере (чтобы не зациклиться).
+    private var reopenedAtBest = false
+
+    private fun openAt(surfaceTexture: SurfaceTexture, w: Int, h: Int) {
+        camera.openCamera(
+            surfaceTexture,
+            CameraRequest.Builder()
+                .setPreviewWidth(w)
+                .setPreviewHeight(h)
+                .setFrontCamera(false)
+                .create(),
+        )
+        KLog.d(TAG, "UVC camera opened into layer SurfaceTexture (запрошено ${w}x${h})")
+    }
+
     override fun open(surfaceTexture: SurfaceTexture) {
         try {
-            camera.openCamera(
-                surfaceTexture,
-                CameraRequest.Builder()
-                    .setPreviewWidth(previewWidth)
-                    .setPreviewHeight(previewHeight)
-                    .setFrontCamera(false)
-                    .create(),
-            )
-            KLog.d(TAG, "UVC camera opened into layer SurfaceTexture (${previewWidth}x${previewHeight})")
+            // Фаза 1: первый open (дескрипторы UVC читаются только ПОСЛЕ открытия → getAllPreviewSizes
+            // до open пуст). Просим желаемый размер; AUSBC негоциирует что сможет.
+            openAt(surfaceTexture, previewWidth, previewHeight)
+
+            // Фаза 2 (bug 25, указание Криника «ставить размер ИЗ поддерживаемых камерой, не от балды»):
+            // после негоциации опрашиваем реальный список размеров и, если камера негоциировала мелкий
+            // (напр. 640×360), а поддерживает больше — ПЕРЕОТКРЫВАЕМ на лучшем 16:9 ИЗ СПИСКА. Один раз.
+            Thread {
+                runCatching { Thread.sleep(1500) }
+                if (reopenedAtBest) return@Thread
+                val sizes: List<PreviewSize> = runCatching { camera.getAllPreviewSizes(null) }.getOrNull().orEmpty()
+                KLog.i(TAG, "UVC поддерживаемые размеры: " + sizes.joinToString { "${it.width}x${it.height}" })
+                // Лучший поддерживаемый 16:9, не крупнее желаемого (напр. 1920×1080); иначе самый большой 16:9.
+                val wantArea = previewWidth.toLong() * previewHeight
+                fun is169(s: PreviewSize) = kotlin.math.abs(s.width.toFloat() / s.height - 16f / 9f) < 0.02f
+                fun area(s: PreviewSize) = s.width.toLong() * s.height
+                val best = sizes.filter { is169(it) && area(it) <= wantArea }.maxByOrNull { area(it) }
+                    ?: sizes.filter { is169(it) }.maxByOrNull { area(it) }
+                // Переоткрываем ТОЛЬКО если лучший поддерживаемый ОТЛИЧАЕТСЯ от уже запрошенного —
+                // помогает камерам, чей максимум < запрошенного (напр. max 1280×720), выбрать их
+                // реальный потолок. Если best == запрошенному (или список пуст) — не трогаем (без
+                // лишнего churn/риска нативного close-краша bug 28). Для 2K-лимона best=1920×1080=
+                // запрошенному → no-op (её практический потолок 640×360 = bandwidth/FPS-лимит AUSBC API).
+                if (best != null && (best.width != previewWidth || best.height != previewHeight)) {
+                    reopenedAtBest = true
+                    KLog.i(TAG, "UVC: переоткрываю на выбранном из списка ${best.width}x${best.height} (запрошено было ${previewWidth}x${previewHeight})")
+                    runCatching { openAt(surfaceTexture, best.width, best.height) }
+                        .onFailure { KLog.e(TAG, "UVC reopen failed", it) }
+                }
+            }.start()
         } catch (e: Exception) {
             KLog.e(TAG, "UvcCameraOpener.open failed", e)
         }
     }
 
     override fun close() {
+        reopenedAtBest = false
         try {
             camera.closeCamera()
             KLog.d(TAG, "UVC camera closed (layer)")

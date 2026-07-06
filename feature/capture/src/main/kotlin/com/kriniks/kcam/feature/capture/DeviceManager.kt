@@ -115,12 +115,15 @@ class DeviceManager @Inject constructor() {
         val current = _activeVideoSource.value
         // Don't override an explicit user selection if it's still available
         if (current is VideoSource.UvcCamera && current in _uvcSources.value) return
+        // Явно выбранную встроенную камеру (selectPhoneCamera) тоже не перебиваем, если она ещё есть.
+        if (current is VideoSource.PhoneCamera && current in _phoneCameras.value) return
 
+        // Приоритет авто-выбора (жалоба Криника 2026-07-06): USB-вебка → виртуалка (дебаг) → НЕТ.
+        // ВСТРОЕННУЮ камеру устройства по умолчанию НЕ выбираем — иначе при запуске (пока USB-вебка
+        // ещё не определилась) на превью лезет встроенная камера вместо вебки. Встроенная доступна
+        // ТОЛЬКО по явному выбору (selectPhoneCamera / cmd device-camera / будущий UI выбора источника).
         val best: VideoSource = _uvcSources.value.firstOrNull()
             ?: (if (virtualEnabled) VideoSource.Virtual else null)  // debug virtual cam (Idea 09)
-            ?: _phoneCameras.value.firstOrNull { !it.isFront }   // rear
-            ?: _phoneCameras.value.firstOrNull { it.isFront }    // front
-            ?: _phoneCameras.value.firstOrNull()                  // any
             ?: VideoSource.None
 
         _activeVideoSource.value = best
