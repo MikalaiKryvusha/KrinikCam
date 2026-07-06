@@ -145,8 +145,11 @@ class MainActivity : ComponentActivity() {
                     // Idea 17 — снять фото (кадр композита) в галерею DCIM/KrinikCam.
                     "photo" -> streamingRepository.capturePhoto()
                     "set-rotation" -> arg?.toIntOrNull()?.let { streamingRepository.setVideoRotation(it) }
+                    // add-overlay [id] — тестовый оверлей. Опц. id: предсказуемый для харнес-тестов
+                    // жестов (напр. `add-overlay ov1` → потом `gesture-drag ov1 ...`). Без id — timestamp.
                     "add-overlay" -> streamingRepository.addTestOverlay(
-                        id = "overlay_cmd_${System.currentTimeMillis()}", name = "Overlay",
+                        id = arg?.trim()?.takeIf { it.isNotEmpty() } ?: "overlay_cmd_${System.currentTimeMillis()}",
+                        name = "Overlay",
                     )
                     "rotation-mode" -> setAdbRotationEnabled(arg == "on")
                     // Phase 3: команда `compositor` удалена — композитор ВСЕГДА единственный пайплайн.
