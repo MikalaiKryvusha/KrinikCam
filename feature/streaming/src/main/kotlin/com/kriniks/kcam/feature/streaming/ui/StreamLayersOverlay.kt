@@ -49,6 +49,13 @@ private val AcidPink = Color(0xFFFF1A8C)
 private val DarkSurface = Color(0xFF1A1A1A)
 private val CardSurface = Color(0xFF232323)
 
+/**
+ * plans/05 S4 — вариант источника для слоя «Устройство захвата видео» в UI выбора. Лёгкий DTO (id +
+ * человекочитаемое имя), чтобы :feature:streaming не зависел от VideoSource (:feature:capture).
+ * :app строит список из DeviceManager.availableSources и маппит выбор обратно.
+ */
+data class SourceOption(val id: String, val label: String)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StreamLayersOverlay(
@@ -64,6 +71,10 @@ fun StreamLayersOverlay(
     // plans/03 S1 — выбор слоя для жестов: id выбранного (null = ничего) и колбэк тапа по строке.
     selectedLayerId: String? = null,
     onSelect: (String) -> Unit = {},
+    // plans/05 S4 — выбор источника камера-слоя: доступные источники, текущий id, колбэк выбора.
+    sourceOptions: List<SourceOption> = emptyList(),
+    currentSourceId: String? = null,
+    onSelectSource: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -141,6 +152,9 @@ fun StreamLayersOverlay(
                         onRemove = { pendingDelete = layer.id to layer.name },
                         onMoveUp = { onMoveUp(layer.id) },
                         onMoveDown = { onMoveDown(layer.id) },
+                        sourceOptions = sourceOptions,
+                        currentSourceId = currentSourceId,
+                        onSelectSource = onSelectSource,
                     )
                 }
             }
@@ -208,6 +222,10 @@ private fun LayerRow(
     onRemove: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
+    // plans/05 S4 — выбор источника (только для камера-слоя).
+    sourceOptions: List<SourceOption> = emptyList(),
+    currentSourceId: String? = null,
+    onSelectSource: (String) -> Unit = {},
 ) {
     val isCamera = layer is Layer.VideoCapture
     // Выбранный слой — акцентная рамка (тонкая подсветка, interview_007 Q2=B), иначе без рамки.
@@ -220,6 +238,7 @@ private fun LayerRow(
             .then(if (selected) Modifier.border(1.5.dp, AcidPink, shape) else Modifier)
             .clickable(onClick = onSelect),   // тап по площади строки → выбор слоя
     ) {
+      Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -277,5 +296,34 @@ private fun LayerRow(
                 }
             }
         }
+
+        // plans/05 S4 — пикер источника для слоя «Устройство захвата видео»: строка «Источник: <тек.>»
+        // с выпадающим списком доступных (встроенные камеры / UVC / виртуалка / нет).
+        if (isCamera && sourceOptions.isNotEmpty()) {
+            var srcMenuOpen by remember { mutableStateOf(false) }
+            val currentLabel = sourceOptions.firstOrNull { it.id == currentSourceId }?.label ?: "Нет источника"
+            Box {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { srcMenuOpen = true }
+                        .padding(start = 48.dp, end = 12.dp, bottom = 8.dp),
+                ) {
+                    Text("Источник: ", color = Color(0xFF999999), fontSize = 13.sp)
+                    Text(currentLabel, color = AcidPink, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF999999))
+                }
+                DropdownMenu(expanded = srcMenuOpen, onDismissRequest = { srcMenuOpen = false }) {
+                    sourceOptions.forEach { opt ->
+                        DropdownMenuItem(
+                            text = { Text(opt.label) },
+                            onClick = { onSelectSource(opt.id); srcMenuOpen = false },
+                        )
+                    }
+                }
+            }
+        }
+      }
     }
 }

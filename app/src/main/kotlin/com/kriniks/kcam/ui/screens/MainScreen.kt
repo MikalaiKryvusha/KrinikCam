@@ -59,6 +59,7 @@ import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.model.isLive
 import com.kriniks.kcam.feature.streaming.ui.StreamLayersOverlay
+import com.kriniks.kcam.feature.streaming.ui.SourceOption
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import androidx.compose.ui.platform.LocalContext
 import com.kriniks.kcam.streaming.DeviceCameraOpener
@@ -115,6 +116,8 @@ fun MainScreen(
     val scene by streamViewModel.scene.collectAsStateWithLifecycle()
     // plans/03 — выбранный для жестов слой (подсветка в панели «Слои», позже — рамка на превью).
     val selectedLayerId by streamViewModel.selectedLayerId.collectAsStateWithLifecycle()
+    // plans/05 S4 — доступные источники для пикера в панели «Слои» (все встроенные + UVC + виртуалка).
+    val availableSources by deviceManager.availableSources.collectAsStateWithLifecycle()
 
     // Idea 24 — для DeviceCameraOpener (Camera2) нужен Context.
     val appContext = LocalContext.current
@@ -504,6 +507,15 @@ fun MainScreen(
             onMoveDown = { streamViewModel.moveLayerDown(it) },
             selectedLayerId = selectedLayerId,
             onSelect = { streamViewModel.selectLayer(it) },
+            // plans/05 S4 — источники: все доступные + «Нет источника»; текущий = activeSource.
+            sourceOptions = availableSources.map { SourceOption(it.id, it.displayName) } +
+                SourceOption("none", "Нет источника"),
+            currentSourceId = activeSource.id,
+            onSelectSource = { id ->
+                val src = availableSources.firstOrNull { it.id == id }
+                    ?: com.kriniks.kcam.feature.capture.model.VideoSource.None
+                deviceManager.selectVideoSource(src)
+            },
         )
     }
 }
