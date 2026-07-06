@@ -23,6 +23,12 @@ import com.kriniks.kcam.feature.capture.model.VideoSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -46,6 +52,22 @@ class DeviceManager @Inject constructor() {
     // Idea 09 — virtual debug camera toggle (Developer menu). When ON and no real UVC camera is
     // connected, the active source becomes VideoSource.Virtual (synthetic test pattern).
     private var virtualEnabled = false
+
+    /**
+     * plans/05 S2 — единый список ДОСТУПНЫХ источников для UI выбора в свойствах слоя «Устройство
+     * захвата видео»: все подключённые UVC-вебки + все встроенные камеры ОС + виртуалка (дебаг).
+     * Порядок = как показываем в меню (UVC сверху — обычно основной рабочий источник Криника).
+     * `None` в список НЕ кладём: «нет источника» — это отдельная явная опция в UI, не устройство.
+     */
+    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val availableSources: StateFlow<List<VideoSource>> =
+        combine(_uvcSources, _phoneCameras) { uvc, phone ->
+            buildList<VideoSource> {
+                addAll(uvc)
+                addAll(phone)
+                add(VideoSource.Virtual)
+            }
+        }.stateIn(managerScope, SharingStarted.Eagerly, listOf(VideoSource.Virtual))
 
     // ── Audio sources ────────────────────────────────────────────────────
 

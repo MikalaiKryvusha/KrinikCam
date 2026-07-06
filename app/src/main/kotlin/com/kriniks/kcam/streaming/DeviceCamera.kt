@@ -30,21 +30,51 @@ import com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer
 
 private const val TAG = "DeviceCamera"
 
-/** Перечисление встроенных камер устройства через Camera2. */
+/**
+ * Перечисление ВСТРОЕННЫХ камер устройства через Camera2 (plans/05 S2). Берём ВЕСЬ список, который ОС
+ * отдаёт приложениям (`cameraIdList`) — не только front/rear: сюда попадают все родные камеры, что
+ * система показывает (селфи / тыловые ширик-основная-телефото / макро и т.п.). Пользователь выбирает
+ * конкретную в свойствах слоя «Устройство захвата видео» (единый тип камеры, plans/05 §0).
+ *
+ * Имена делаем человекочитаемыми: фронт → «Селфи-камера», тыловые различаем по фокусному расстоянию
+ * (самое короткое = сверхширик, длинное = телефото), остальное — по facing + id для однозначности.
+ */
 object DeviceCameraEnumerator {
     fun enumerate(context: Context): List<VideoSource.PhoneCamera> {
         val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return emptyList()
         return try {
-            cm.cameraIdList.mapNotNull { id ->
+            // Собираем сырые характеристики, чтобы различать тыловые линзы по фокусному расстоянию.
+            data class Raw(val id: String, val facing: Int?, val focal: Float?)
+            val raws = cm.cameraIdList.mapNotNull { id ->
                 val ch = runCatching { cm.getCameraCharacteristics(id) }.getOrNull() ?: return@mapNotNull null
-                val facing = ch.get(CameraCharacteristics.LENS_FACING)
-                val isFront = facing == CameraCharacteristics.LENS_FACING_FRONT
-                val name = when (facing) {
-                    CameraCharacteristics.LENS_FACING_FRONT -> "Front camera"
-                    CameraCharacteristics.LENS_FACING_BACK -> "Rear camera"
-                    else -> "Camera $id"
+                val focal = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull()
+                Raw(id, ch.get(CameraCharacteristics.LENS_FACING), focal)
+            }
+            // Ранжируем тыловые по фокусному (короче = шире угол) — для ярлыков ширик/основная/телефото.
+            val backSorted = raws.filter { it.facing == CameraCharacteristics.LENS_FACING_BACK }
+                .sortedBy { it.focal ?: Float.MAX_VALUE }
+            val backCount = backSorted.size
+
+            raws.map { r ->
+                val isFront = r.facing == CameraCharacteristics.LENS_FACING_FRONT
+                val name = when (r.facing) {
+                    CameraCharacteristics.LENS_FACING_FRONT -> "Селфи-камера"
+                    CameraCharacteristics.LENS_FACING_BACK -> when {
+                        backCount <= 1 -> "Основная камера"
+                        // Несколько тыловых: самая широкоугольная = сверхширик, самая длинная = телефото.
+                        r.id == backSorted.first().id -> "Сверхширокоугольная"
+                        r.id == backSorted.last().id -> "Телефото"
+                        else -> "Основная камера"
+                    }
+                    CameraCharacteristics.LENS_FACING_EXTERNAL -> "Внешняя камера"
+                    else -> "Камера"
                 }
-                VideoSource.PhoneCamera(id = "phone_$id", displayName = "$name (id $id)", cameraId = id, isFront = isFront)
+                VideoSource.PhoneCamera(
+                    id = "phone_${r.id}",
+                    displayName = "$name (id ${r.id})",
+                    cameraId = r.id,
+                    isFront = isFront,
+                )
             }.also { KLog.i(TAG, "Enumerated ${it.size} device camera(s): ${it.map { c -> c.displayName }}") }
         } catch (e: Exception) {
             KLog.e(TAG, "enumerate failed", e)
