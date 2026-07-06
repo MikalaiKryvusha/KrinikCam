@@ -218,15 +218,19 @@ fun MainScreen(
                                 270 -> gfy to (1f - gfx)
                                 else -> gfx to gfy
                             }
-                            // −rotation: у Compose detectTransformGestures знак поворота обратный нашему
-                            // CW-соглашению (проверено инъекцией: twist по часовой давал контент против
-                            // часовой). Негация синхронно разворачивает и спин контента, и орбиту пивота.
-                            streamViewModel.nudgeSelectedLayer(dCx, dCy, zoom, -rotation, pvx, pvy)
+                            // rotation как есть: проверено инъекцией на tear-off сборке — пальцы по
+                            // часовой → контент по часовой (совпадает). Спин контента и орбита пивота
+                            // используют один знак → согласованы (жёсткий поворот вокруг центроида).
+                            streamViewModel.nudgeSelectedLayer(dCx, dCy, zoom, rotation, pvx, pvy)
                         }
                     }
                     .pointerInput(gestureRotation, scene) {
                         // S5 — тап по превью: хиттест верхнего видимого слоя под точкой.
-                        detectTapGestures(onTap = { pos ->
+                        detectTapGestures(
+                            // S6 tear-off — на КАЖДОМ нажатии сбрасываем сырое состояние жеста, чтобы
+                            // оно переинициализировалось от текущей трансформы (иначе снап залипает).
+                            onPress = { streamViewModel.beginLayerGesture() },
+                            onTap = { pos ->
                             val w = size.width.toFloat(); val h = size.height.toFloat()
                             val portrait = gestureRotation == 90 || gestureRotation == 270
                             val aspect = if (portrait) 9f / 16f else 16f / 9f

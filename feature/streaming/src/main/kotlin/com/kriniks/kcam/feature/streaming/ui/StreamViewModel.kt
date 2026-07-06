@@ -67,12 +67,61 @@ class StreamViewModel @Inject constructor(
      * Читаем текущую трансформу СИНХРОННО из `scene.value` (repository — единый in-memory источник),
      * применяем дельту, клампим (§3.4) и пишем назад. Композитор перерисует сразу.
      */
+    // plans/03 S6 tear-off — СЫРАЯ (незаснапленная) трансформа текущего жеста. Снап применяется ТОЛЬКО
+    // к отображаемому значению, а сырое накапливает истинные дельты → слой можно «оторвать» от снапа
+    // (interview_007 Q3), а не залипнуть навсегда. Сбрасывается в начале каждого жеста (beginLayerGesture).
+    private var rawCx = 0f
+    private var rawCy = 0f
+    private var rawScale = 1f
+    private var rawRot = 0f
+    private var rawActive = false
+    private var rawLayerId: String? = null
+
+    /** Начало жеста (нажатие) — сбросить сырое состояние, чтобы оно переинициализировалось от слоя. */
+    fun beginLayerGesture() { rawActive = false }
+
     fun nudgeSelectedLayer(
         dCx: Float, dCy: Float, zoom: Float, dRotation: Float,
         pivotX: Float = Float.NaN, pivotY: Float = Float.NaN,
     ) {
         val id = _selectedLayerId.value ?: return
-        repository.nudgeLayer(id, dCx, dCy, zoom, dRotation, pivotX, pivotY)
+        val layer = scene.value.layers.firstOrNull { it.id == id } ?: return
+        val t = layer.transform
+        // Переинициализация сырого состояния от текущей (заснапленной) трансформы на старте жеста.
+        if (!rawActive || rawLayerId != id) {
+            rawCx = t.cx; rawCy = t.cy; rawScale = t.scale; rawRot = t.rotation.toFloat()
+            rawActive = true; rawLayerId = id
+        }
+        // Масштаб/поворот — накапливаем в сыром.
+        rawScale = (rawScale * zoom).coerceIn(0.05f, 4.0f)
+        rawRot += dRotation
+        // Пивот-якорь (масштаб/поворот вокруг центроида пальцев) на СЫРЫХ координатах.
+        if (!pivotX.isNaN() && !pivotY.isNaN() && (zoom != 1f || dRotation != 0f)) {
+            val a = 16f / 9f
+            val px = pivotX * a; val py = pivotY
+            val vx = rawCx * a - px; val vy = rawCy - py
+            val rad = Math.toRadians(dRotation.toDouble())
+            val cos = kotlin.math.cos(rad).toFloat(); val sin = kotlin.math.sin(rad).toFloat()
+            val sx = vx * zoom; val sy = vy * zoom
+            rawCx = (px + (sx * cos - sy * sin)) / a
+            rawCy = py + (sx * sin + sy * cos)
+        }
+        rawCx = (rawCx + dCx).coerceIn(-0.1f, 1.1f)
+        rawCy = (rawCy + dCy).coerceIn(-0.1f, 1.1f)
+        // СНАП только для отображения (сырое не трогаем → tear-off возможен).
+        val snapCx = snapTo(rawCx, 0f, 0.5f, 1f)
+        val snapCy = snapTo(rawCy, 0f, 0.5f, 1f)
+        val n90 = Math.round(rawRot / 90f) * 90
+        val snapRot = if (kotlin.math.abs(rawRot - n90) <= 5f) ((n90 % 360) + 360) % 360
+                      else ((rawRot.toInt() % 360) + 360) % 360
+        repository.setLayerTransform(id, rawScale, snapCx, snapCy, t.alpha, snapRot)
+    }
+
+    // Мягкий ЛЁГКИЙ снап значения к ближайшей цели в пределах порога (доля кадра). Порог маленький
+    // (Криник: «снап должен быть лёгкий»); tear-off (сырое накопление) даёт свободно сорвать слой.
+    private fun snapTo(v: Float, vararg targets: Float): Float {
+        for (tg in targets) if (kotlin.math.abs(v - tg) < 0.015f) return tg
+        return v
     }
 
     // Монотонный счётчик ТОЛЬКО для уникальных id (id не должны повторяться даже после удалений).
