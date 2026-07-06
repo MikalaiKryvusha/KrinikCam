@@ -41,6 +41,8 @@ import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -457,10 +459,21 @@ fun MainScreen(
             onStartStream = { streamViewModel.startStream() },
             onStopStream = { streamViewModel.stopStream() },
             onOpenPlatforms = { showPlatformsOverlay = true },
-            onOpenLayers = { showLayersOverlay = true },
             onOpenSettings = onNavigateToSettings,
             modifier = Modifier.fillMaxSize(),
         )
+
+        // ── Layer 4.5: Отдельный маленький FAB «Слои» внизу-слева (Криник 2026-07-06, plans/05 S6) ──
+        SmallFloatingActionButton(
+            onClick = { showLayersOverlay = true },
+            containerColor = Color(0xFF232323),
+            contentColor = Color(0xFFFF1A8C),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(16.dp),
+        ) {
+            Icon(Icons.Default.Layers, contentDescription = "Слои")
+        }
     }
 
     // ── Layer 5: Platforms modal overlay ────────────────────────────
