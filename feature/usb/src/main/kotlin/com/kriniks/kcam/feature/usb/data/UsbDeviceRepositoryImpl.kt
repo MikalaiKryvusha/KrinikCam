@@ -109,7 +109,20 @@ class UsbDeviceRepositoryImpl @Inject constructor(
         multiCameraClient = null
     }
 
+    // Bug 29.1 — дебаунс повторных запросов разрешения. `DeviceAttached` от AUSBC/hot-plug может
+    // прилетать НЕСКОЛЬКО раз подряд для одного устройства → стопка системных USB-диалогов. Гасим
+    // дубликаты в коротком окне (не меняя семантику: первый запрос проходит, повторы за 3с — нет).
+    private var lastPermDeviceId = -1
+    private var lastPermTime = 0L
+
     override fun requestPermission(device: UsbDevice) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (device.deviceId == lastPermDeviceId && now - lastPermTime < 3000L) {
+            KLog.d(TAG, "requestPermission: дубликат для device ${device.deviceId} — дебаунс (bug 29.1)")
+            return
+        }
+        lastPermDeviceId = device.deviceId
+        lastPermTime = now
         multiCameraClient?.requestPermission(device)
     }
 
