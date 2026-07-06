@@ -103,6 +103,16 @@ class CompositorVideoSource : VideoSource() {
     // стримером через prepareVideo). Сцена о повороте «не знает» — слои крутятся вместе с холстом.
     @Volatile private var canvasRotation = 0
 
+    // bug 32 / указание Криника — АСПЕКТ камеры-источника (ширина/высота). Камеру рисуем в её РОДНОМ
+    // аспекте, без искажения: если он ≠ аспекту сцены (16:9), вписываем камеру-квад с полосами
+    // (пилларбокс/леттербокс). UVC 16:9 → 16/9 → без изменений. Ставит опенер через setCameraAspect.
+    @Volatile private var cameraAspect = SCENE_ASPECT
+
+    /** bug 32 — сообщить аспект текущего источника камеры (ширина/высота). Опенер зовёт при open(). */
+    fun setCameraAspect(aspect: Float) {
+        if (aspect > 0f) cameraAspect = aspect
+    }
+
     /** Задать глобальный поворот холста (0/90/180/270, CW). Применяется со следующего кадра. */
     fun setCanvasRotation(degrees: Int) {
         canvasRotation = ((degrees % 360) + 360) % 360
@@ -348,6 +358,14 @@ class CompositorVideoSource : VideoSource() {
             android.opengl.Matrix.scaleM(layerM, 0, 1f / SCENE_ASPECT, 1f, 1f)
             android.opengl.Matrix.rotateM(layerM, 0, -layer.rotation.toFloat(), 0f, 0f, 1f)
             android.opengl.Matrix.scaleM(layerM, 0, SCENE_ASPECT, 1f, 1f)
+        }
+        // bug 32 — вписываем КАМЕРУ в её квад с сохранением РОДНОГО аспекта (без растяга). Если аспект
+        // источника ≠ 16:9 сцены — ужимаем квад по одной оси (полосы), а не тянем. Innermost (к вершине
+        // первым): сырой квад → аспект-фит → [поворот] → масштаб → сдвиг. UVC 16:9 → фактор 1, no-op.
+        if (layer is CompositorLayer.Camera && kotlin.math.abs(cameraAspect - SCENE_ASPECT) > 0.01f) {
+            val a = cameraAspect / SCENE_ASPECT
+            if (a < 1f) android.opengl.Matrix.scaleM(layerM, 0, a, 1f, 1f)      // уже 16:9 → полосы по бокам
+            else android.opengl.Matrix.scaleM(layerM, 0, 1f, 1f / a, 1f)        // шире 16:9 → полосы сверху/снизу
         }
         android.opengl.Matrix.multiplyMM(finalM, 0, canvasM, 0, layerM, 0)
     }

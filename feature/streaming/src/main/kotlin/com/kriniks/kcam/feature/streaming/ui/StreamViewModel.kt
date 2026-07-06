@@ -245,6 +245,9 @@ class StreamViewModel @Inject constructor(
 
     fun stopPreview() = repository.stopPreview()
 
+    /** bug 32 — аспект текущего источника камеры (ширина/высота); зовёт опенер, чтобы не растягивать. */
+    fun setCameraAspect(aspect: Float) = repository.setCameraAspect(aspect)
+
     fun startStream() {
         val profile = _activeProfile.value
         // Idea 10 — virtual stream platform: record encoder output to a file instead of RTMP.

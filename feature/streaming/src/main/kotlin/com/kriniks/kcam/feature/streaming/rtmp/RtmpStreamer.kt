@@ -117,6 +117,9 @@ class RtmpStreamer @Inject constructor(
     @Volatile private var cameraOpener: CameraOpener? = null
     private var cameraLayerSurface: SurfaceTexture? = null
 
+    /** bug 32 — опенер сообщает аспект источника (ширина/высота); композитор рисует камеру без растяга. */
+    fun setCameraAspect(aspect: Float) = compositorSource.setCameraAspect(aspect)
+
     /**
      * :app сообщает текущий источник камеры (или null при отключении). Если слой-камеры уже отдал
      * свою SurfaceTexture — сразу открываем туда камеру; при null — закрываем предыдущую.

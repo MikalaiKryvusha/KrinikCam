@@ -52,6 +52,8 @@ class UvcCameraOpener(
     private val camera: MultiCameraClient.Camera,
     private val previewWidth: Int = 1920,
     private val previewHeight: Int = 1080,
+    // bug 32 — аспект источника композитору. UVC негоциирует 16:9 → сообщаем 16:9 (рендер без полос).
+    private val onAspect: (Float) -> Unit = {},
 ) : RtmpStreamer.CameraOpener {
 
     // Bug 25 — переоткрывали ли уже на выбранном из списка размере (чтобы не зациклиться).
@@ -71,6 +73,7 @@ class UvcCameraOpener(
 
     override fun open(surfaceTexture: SurfaceTexture) {
         try {
+            runCatching { onAspect(previewWidth.toFloat() / previewHeight.toFloat()) } // bug 32: UVC 16:9
             // Фаза 1: первый open (дескрипторы UVC читаются только ПОСЛЕ открытия → getAllPreviewSizes
             // до open пуст). Просим желаемый размер; AUSBC негоциирует что сможет.
             openAt(surfaceTexture, previewWidth, previewHeight)
@@ -128,7 +131,10 @@ class UvcCameraOpener(
  * Урок bug 18: SurfaceTexture слоя — GL-consumer, софтверный lockCanvas отдаёт null/чёрный кадр.
  * Рисуем через lockHardwareCanvas (GPU), с фолбэком на software для прочих поверхностей.
  */
-class VirtualCameraOpener : RtmpStreamer.CameraOpener {
+class VirtualCameraOpener(
+    // bug 32 — виртуалка всегда 16:9; сообщаем композитору (рендер без полос).
+    private val onAspect: (Float) -> Unit = {},
+) : RtmpStreamer.CameraOpener {
 
     private companion object {
         const val SENSOR_W = 1920
@@ -157,6 +163,7 @@ class VirtualCameraOpener : RtmpStreamer.CameraOpener {
     override fun open(surfaceTexture: SurfaceTexture) {
         close() // close-before-open: слой мог отдать НОВУЮ SurfaceTexture при реините GL
         try {
+            runCatching { onAspect(SENSOR_W.toFloat() / SENSOR_H.toFloat()) } // bug 32: виртуалка 16:9
             staticFrame = VirtualFrameRenderer.renderStatic(SENSOR_W, SENSOR_H)
             surfaceTexture.setDefaultBufferSize(SENSOR_W, SENSOR_H)
             val s = Surface(surfaceTexture)

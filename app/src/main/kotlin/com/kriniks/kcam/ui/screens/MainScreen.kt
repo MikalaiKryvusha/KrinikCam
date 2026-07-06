@@ -173,15 +173,19 @@ fun MainScreen(
                 if (camera != null) {
                     val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
                     val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
-                    streamViewModel.setCameraOpener(UvcCameraOpener(camera, previewWidth = w, previewHeight = h))
+                    streamViewModel.setCameraOpener(UvcCameraOpener(camera, previewWidth = w, previewHeight = h,
+                        onAspect = { streamViewModel.setCameraAspect(it) }))
                 } else {
                     streamViewModel.setCameraOpener(null) // UVC выбрана, но объект камеры ещё не готов
                 }
             }
             // Idea 09 — виртуальная дебаг-камера (нет физической): кормим слой тест-паттерном.
-            is VideoSource.Virtual -> streamViewModel.setCameraOpener(VirtualCameraOpener())
+            is VideoSource.Virtual -> streamViewModel.setCameraOpener(
+                VirtualCameraOpener(onAspect = { streamViewModel.setCameraAspect(it) }))
             // Idea 24 — встроенная камера устройства (Camera2) как слой-источник (реальный GL-продюсер).
-            is VideoSource.PhoneCamera -> streamViewModel.setCameraOpener(DeviceCameraOpener(appContext, src.cameraId))
+            // bug 32 — сообщаем нативный аспект, чтобы рисовать без растяга.
+            is VideoSource.PhoneCamera -> streamViewModel.setCameraOpener(
+                DeviceCameraOpener(appContext, src.cameraId, onAspect = { streamViewModel.setCameraAspect(it) }))
             // Нет источника → снять opener (камера-слой пуст → видна чёрная база/нижние слои).
             is VideoSource.None -> streamViewModel.setCameraOpener(null)
         }

@@ -92,6 +92,8 @@ class DeviceCameraOpener(
     private val cameraId: String,
     private val width: Int = 1920,
     private val height: Int = 1080,
+    // bug 32 — сообщить композитору аспект (w/h) выбранного НАТИВНОГО размера, чтобы рисовать без растяга.
+    private val onAspect: (Float) -> Unit = {},
 ) : RtmpStreamer.CameraOpener {
 
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -111,6 +113,8 @@ class DeviceCameraOpener(
             // тянет сенсор в чужой аспект → искажение). Интервью_006: физкамера отдаёт СЫРОЙ поток,
             // ориентацию НЕ компенсируем — выпрямляет пользователь трансформой слоя.
             val (nw, nh) = pickNativeSize()
+            // bug 32 (Криник): рисуем в РОДНОМ аспекте камеры, без растяга — сообщаем аспект композитору.
+            runCatching { onAspect(nw.toFloat() / nh.toFloat()) }
             surfaceTexture.setDefaultBufferSize(nw, nh)
             val s = Surface(surfaceTexture)
             surface = s
@@ -151,28 +155,37 @@ class DeviceCameraOpener(
     // Bug 19/29.2 — выбрать поддерживаемый камерой размер вывода, максимально близкий к 16:9
     // [width]×[height], чтобы Camera2 НЕ растягивал сенсор в чужой аспект. Логируем ориентацию сенсора
     // и все 16:9-размеры (диагностика искажения). Пусто/ошибка → отдаём желаемый (как было).
+    /**
+     * bug 32 (указание Криника): выбираем КРУПНЕЙШИЙ НАТИВНЫЙ поддерживаемый размер (не форсим 16:9!) —
+     * камеру рисуем в её родном аспекте без искажения (композитор вписывает по аспекту). Раньше при
+     * отсутствии 16:9 форсили 1920×1080 → Camera2 растягивал 4:3-сенсор в 16:9-буфер (растяг).
+     * Ограничиваем сверху ~площадью 1920×1080, чтобы не тянуть гигантские буферы.
+     */
     private fun pickNativeSize(): Pair<Int, Int> {
         return try {
             val ch = cameraManager.getCameraCharacteristics(cameraId)
             val sensorOrient = ch.get(CameraCharacteristics.SENSOR_ORIENTATION)
             val map = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val sizes = map?.getOutputSizes(SurfaceTexture::class.java)?.toList().orEmpty()
-            // Кандидаты именно 16:9 (как холст сцены), не крупнее желаемого — берём самый большой.
+            // bug 32: НАТИВНЫЙ аспект = аспект СЕНСОРА (active array). Дешёвые фронталки объявляют
+            // 1920×1080, но это ГОРИЗОНТАЛЬНЫЙ РАСТЯГ 4:3-сенсора. Поэтому выбираем размер, чей аспект
+            // совпадает с сенсором → без растяга; композитор впишет его (полосы, если ≠ 16:9).
+            val active = ch.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+            val sensorAspect = if (active != null && active.height() > 0)
+                active.width().toFloat() / active.height().toFloat() else 16f / 9f
             val wantArea = width.toLong() * height
-            val best = sizes
-                .filter { kotlin.math.abs(it.width.toFloat() / it.height - 16f / 9f) < 0.02f }
-                .filter { it.width.toLong() * it.height <= wantArea }
+            fun matchesSensor(s: android.util.Size) =
+                kotlin.math.abs(s.width.toFloat() / s.height - sensorAspect) < 0.06f
+            // Пул: размеры аспекта сенсора; если таких нет — все.
+            val pool = sizes.filter { matchesSensor(it) }.ifEmpty { sizes }
+            val best = pool.filter { it.width.toLong() * it.height <= wantArea }
                 .maxByOrNull { it.width.toLong() * it.height }
-                ?: sizes.filter { kotlin.math.abs(it.width.toFloat() / it.height - 16f / 9f) < 0.02f }
-                    .minByOrNull { it.width.toLong() * it.height }
-            KLog.i(
-                TAG,
-                "Device cam $cameraId: SENSOR_ORIENTATION=$sensorOrient; 16:9-размеры=" +
-                    sizes.filter { kotlin.math.abs(it.width.toFloat() / it.height - 16f / 9f) < 0.02f }
-                        .joinToString { "${it.width}x${it.height}" } +
-                    " → выбрано ${best?.width ?: width}x${best?.height ?: height}",
-            )
-            (best?.width ?: width) to (best?.height ?: height)
+                ?: pool.minByOrNull { it.width.toLong() * it.height }
+            val w = best?.width ?: width
+            val h = best?.height ?: height
+            KLog.i(TAG, "Device cam $cameraId: SENSOR_ORIENTATION=$sensorOrient; сенсор-аспект " +
+                "${"%.3f".format(sensorAspect)}; выбран нативный ${w}x${h} (аспект ${"%.3f".format(w.toFloat() / h)})")
+            w to h
         } catch (e: Exception) {
             KLog.w(TAG, "pickNativeSize failed: ${e.message}")
             width to height

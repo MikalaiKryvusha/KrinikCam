@@ -131,6 +131,9 @@ class StreamingRepository @Inject constructor(
     }
     fun capturePhoto() = rtmpStreamer.capturePhoto()
 
+    /** bug 32 — аспект источника камеры (ширина/высота) для рендера без растяга. */
+    fun setCameraAspect(aspect: Float) = rtmpStreamer.setCameraAspect(aspect)
+
     // ── Idea 10 — virtual stream platform (record to file instead of RTMP) ──
     // Dev toggle: when ON, "Go Live" records the encoder output to a file instead of pushing RTMP.
     @Volatile var virtualStreamToFile: Boolean = false
