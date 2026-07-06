@@ -16,6 +16,38 @@ package com.kriniks.kcam.feature.streaming.scene
 import android.graphics.Bitmap
 
 /**
+ * CaptureSource — КАКОЙ физический источник кадров питает слой «Устройство захвата видео»
+ * ([Layer.VideoCapture]). Архитектурное решение (plans/05 §0): камеры — ОДИН тип слоя, а конкретное
+ * устройство (виртуалка / UVC / любая встроенная камера ОС) — вот это полиморфное свойство. Тип слоя
+ * определяет РЕНДЕР (для композитора все камеры = OES-текстура + квад, одинаково), а CaptureSource —
+ * лишь СПОСОБ ДОБЫЧИ кадров.
+ *
+ * Это ЛЁГКИЙ доменный дескриптор без backend (модуль :feature:streaming не зависит от :feature:capture
+ * / :feature:usb). Маппинг `CaptureSource → CameraOpener` (Uvc/Device/Virtual) делает :app, который
+ * бриджит все модули (см. CameraLayerOpeners).
+ */
+sealed interface CaptureSource {
+    /** Человекочитаемое имя устройства для UI выбора («Селфи-камера», «2K USB Camera», …). */
+    val displayName: String
+
+    /** Встроенная камера устройства (Camera2) — ЛЮБАЯ из родных камер ОС: селфи/тыл/ширик/макро/микроскоп. */
+    data class Builtin(val cameraId: String, override val displayName: String) : CaptureSource
+
+    /** USB UVC-вебка (AUSBC) — конкретное подключённое устройство из списка. */
+    data class Uvc(val deviceId: String, override val displayName: String) : CaptureSource
+
+    /** Виртуальная дебаг-камера (тест-паттерн, Idea 09) — работа/тесты без реальной камеры. */
+    object Virtual : CaptureSource {
+        override val displayName = "Виртуальная камера"
+    }
+
+    /** Источник не выбран — слой рисует чёрную базу (позже — фейд-заглушку KrinikCam, plans/05 S7). */
+    object None : CaptureSource {
+        override val displayName = "Нет источника"
+    }
+}
+
+/**
  * Трансформа слоя в кадре (PiP «лицо в углу», Idea 25 шаг 4): куда и какого размера рисуется слой.
  *
  * Координаты НОРМАЛИЗОВАНЫ к кадру (не зависят от разрешения): [scale] — доля кадра, занимаемая слоем
@@ -55,15 +87,18 @@ sealed interface Layer {
     val transform: LayerTransform
 
     /**
-     * Базовый слой — сама камера (USB UVC). Это НЕ фильтр-оверлей, а нижний слой = VideoSource
-     * энкодера; компоновщик его не трогает (камера и так рисуется пайплайном). В списке слоёв
-     * присутствует, чтобы стример видел всю сцену целиком. Тоггл/удаление камеры — будущая фаза.
+     * Слой «Устройство захвата видео» (Video Capture Device) — камера как слой композитора.
+     * ЕДИНСТВЕННЫЙ тип для ВСЕХ камер (виртуалка / UVC / любая встроенная ОС-камера); конкретное
+     * устройство — в поле [source] (см. [CaptureSource] и plans/05 §0). В сцене таких слоёв может
+     * быть НЕСКОЛЬКО экземпляров одновременно (напр. UVC + фронталка PiP, потолок ~10 — Фаза B).
+     * Композитор рисует поток слоя OES-текстурой + квадом с [transform] — одинаково для любого source.
      */
-    data class Camera(
+    data class VideoCapture(
         override val id: String = "camera",
-        override val name: String = "Camera",
+        override val name: String = "Устройство захвата видео",
         override val visible: Boolean = true,
         override val transform: LayerTransform = LayerTransform.FULL,
+        val source: CaptureSource = CaptureSource.None,
     ) : Layer
 
     /**

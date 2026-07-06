@@ -34,6 +34,13 @@ data class Scene(
         layers = layers.map { if (it.id == layerId) it.withTransform(transform) else it },
     )
 
+    /** Сменить источник кадров слою «Устройство захвата видео» по id (plans/05: выбор источника). */
+    fun setSource(layerId: String, source: CaptureSource): Scene = copy(
+        layers = layers.map {
+            if (it.id == layerId && it is Layer.VideoCapture) it.copy(source = source) else it
+        },
+    )
+
     /** Сдвинуть слой по id на одну позицию выше в z-order (ближе к зрителю). */
     fun moveUp(layerId: String): Scene = swap(layerId, +1)
 
@@ -52,19 +59,19 @@ data class Scene(
     }
 
     companion object {
-        /** Сцена по умолчанию — только камера (минимальный срез). Оверлеи стример добавляет сам. */
-        fun default(): Scene = Scene(listOf(Layer.Camera()))
+        /** Сцена по умолчанию — один слой видеозахвата (минимальный срез). Оверлеи стример добавляет сам. */
+        fun default(): Scene = Scene(listOf(Layer.VideoCapture()))
     }
 }
 
 // Иммутабельное копирование слоя со сменой флага видимости (sealed-тип → when по подтипам).
 private fun Layer.withVisible(value: Boolean): Layer = when (this) {
-    is Layer.Camera -> copy(visible = value)
+    is Layer.VideoCapture -> copy(visible = value)
     is Layer.Image -> copy(visible = value)
 }
 
 // Иммутабельное копирование слоя со сменой трансформы.
 private fun Layer.withTransform(value: LayerTransform): Layer = when (this) {
-    is Layer.Camera -> copy(transform = value)
+    is Layer.VideoCapture -> copy(transform = value)
     is Layer.Image -> copy(transform = value)
 }

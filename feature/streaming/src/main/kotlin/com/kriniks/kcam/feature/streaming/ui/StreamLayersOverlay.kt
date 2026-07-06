@@ -161,7 +161,7 @@ private fun LayerRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
 ) {
-    val isCamera = layer is Layer.Camera
+    val isCamera = layer is Layer.VideoCapture
     Surface(color = CardSurface, shape = RoundedCornerShape(12.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

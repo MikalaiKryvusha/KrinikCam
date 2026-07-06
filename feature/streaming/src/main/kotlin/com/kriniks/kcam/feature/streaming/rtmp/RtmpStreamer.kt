@@ -693,7 +693,7 @@ class RtmpStreamer @Inject constructor(
         val layers = _scene.value.layers.filter { it.visible }.map { layer ->
             val t = layer.transform
             when (layer) {
-                is Layer.Camera -> CompositorLayer.Camera(
+                is Layer.VideoCapture -> CompositorLayer.Camera(
                     scale = t.scale, cx = t.cx, cy = t.cy, alpha = t.alpha, rotation = t.rotation,
                 )
                 is Layer.Image -> CompositorLayer.Image(
