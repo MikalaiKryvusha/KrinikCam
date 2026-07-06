@@ -77,7 +77,11 @@ class DeviceCameraOpener(
         // «abandoned»). Закрываем предыдущие device/session/thread и открываемся на свежей поверхности.
         close()
         try {
-            surfaceTexture.setDefaultBufferSize(width, height)
+            // Bug 19/29.2: диагностика ориентации сенсора + выбор НАТИВНОГО 16:9-размера (иначе Camera2
+            // тянет сенсор в чужой аспект → искажение). Интервью_006: физкамера отдаёт СЫРОЙ поток,
+            // ориентацию НЕ компенсируем — выпрямляет пользователь трансформой слоя.
+            val (nw, nh) = pickNativeSize()
+            surfaceTexture.setDefaultBufferSize(nw, nh)
             val s = Surface(surfaceTexture)
             surface = s
             val t = HandlerThread("DeviceCam").also { it.start() }
@@ -111,6 +115,37 @@ class DeviceCameraOpener(
             }, h)
         } catch (e: Exception) {
             KLog.e(TAG, "DeviceCameraOpener.open failed", e)
+        }
+    }
+
+    // Bug 19/29.2 — выбрать поддерживаемый камерой размер вывода, максимально близкий к 16:9
+    // [width]×[height], чтобы Camera2 НЕ растягивал сенсор в чужой аспект. Логируем ориентацию сенсора
+    // и все 16:9-размеры (диагностика искажения). Пусто/ошибка → отдаём желаемый (как было).
+    private fun pickNativeSize(): Pair<Int, Int> {
+        return try {
+            val ch = cameraManager.getCameraCharacteristics(cameraId)
+            val sensorOrient = ch.get(CameraCharacteristics.SENSOR_ORIENTATION)
+            val map = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val sizes = map?.getOutputSizes(SurfaceTexture::class.java)?.toList().orEmpty()
+            // Кандидаты именно 16:9 (как холст сцены), не крупнее желаемого — берём самый большой.
+            val wantArea = width.toLong() * height
+            val best = sizes
+                .filter { kotlin.math.abs(it.width.toFloat() / it.height - 16f / 9f) < 0.02f }
+                .filter { it.width.toLong() * it.height <= wantArea }
+                .maxByOrNull { it.width.toLong() * it.height }
+                ?: sizes.filter { kotlin.math.abs(it.width.toFloat() / it.height - 16f / 9f) < 0.02f }
+                    .minByOrNull { it.width.toLong() * it.height }
+            KLog.i(
+                TAG,
+                "Device cam $cameraId: SENSOR_ORIENTATION=$sensorOrient; 16:9-размеры=" +
+                    sizes.filter { kotlin.math.abs(it.width.toFloat() / it.height - 16f / 9f) < 0.02f }
+                        .joinToString { "${it.width}x${it.height}" } +
+                    " → выбрано ${best?.width ?: width}x${best?.height ?: height}",
+            )
+            (best?.width ?: width) to (best?.height ?: height)
+        } catch (e: Exception) {
+            KLog.w(TAG, "pickNativeSize failed: ${e.message}")
+            width to height
         }
     }
 
