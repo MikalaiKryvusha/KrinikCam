@@ -36,7 +36,17 @@ import com.kriniks.kcam.feature.streaming.rtmp.VirtualFrameRenderer
 
 private const val TAG = "CameraLayerOpeners"
 
-/** Открывает реальную USB-камеру [camera] в SurfaceTexture слоя камеры. */
+/**
+ * Открывает реальную USB-камеру [camera] в SurfaceTexture слоя камеры.
+ *
+ * Просим 1920×1080. Если камера этот размер в YUV не тянет (noname «2K USB Camera»: 2K только в
+ * MJPEG, YUV-превью максимум 640×360), AUSBC логирует `err=-99 unsupported preview size`, затем САМ
+ * падает на ближайший поддерживаемый YUV-размер и стартует превью (наблюдали фолбэк на 640×360).
+ * Разрешение камеры-СЛОЯ не критично для качества выхода: композитор рендерит холст 1920×1080 и
+ * масштабирует текстуру камеры в GL. Полноценный best-size/MJPEG-выбор — задача bug 25 (нужен
+ * пост-open reopen; отложено из-за риска нативного краша AUSBC на close). `getAllPreviewSizes` ДО
+ * открытия пуст (дескрипторы ещё не прочитаны) — пред-запрос смысла не имеет.
+ */
 class UvcCameraOpener(
     private val camera: MultiCameraClient.Camera,
     private val previewWidth: Int = 1920,
