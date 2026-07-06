@@ -114,8 +114,20 @@ class MainActivity : ComponentActivity() {
                 val arg = intent.getStringExtra("arg")
                 KLog.i("MainActivity", "CMD: action=$action arg=$arg")
                 when (action) {
-                    "virtual-camera" -> deviceManager.setVirtualCamera(arg == "on")
-                    "stream-to-file" -> streamingRepository.setVirtualStreamToFile(arg == "on")
+                    "virtual-camera" -> {
+                        // ПЕРСИСТ (гипотеза Криника): CMD-переключение виртуалки должно ПЕРЕЖИВАТЬ
+                        // рестарт, иначе на следующем старте DevSettings снова поднимет её и она
+                        // вмешается в кейс с реальной камерой (лишний virtual→UVC close-churn →
+                        // провоцирует нативный краш AUSBC на закрытии 2K-камеры, bug 28).
+                        val on = arg == "on"
+                        deviceManager.setVirtualCamera(on)
+                        DevSettings.setVirtualCamera(this@MainActivity, on)
+                    }
+                    "stream-to-file" -> {
+                        val on = arg == "on"
+                        streamingRepository.setVirtualStreamToFile(on)
+                        DevSettings.setVirtualStream(this@MainActivity, on)
+                    }
                     "go-live" -> {
                         // arg = высота кадра (опц.); строим профиль с 16:9-шириной, иначе дефолт.
                         val h = arg?.toIntOrNull()
