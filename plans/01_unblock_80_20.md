@@ -45,10 +45,11 @@
 
 ### 🛠 B. Агент — смоук-тест одной кнопкой (полдня, автономно)
 
-- [ ] **B1. `tools/smoke.mjs`** — один прогон: build (опц. `--skip-build`) → install → запуск →
-      `compositor on` → виртуалка → add-overlay → set-transform (PiP) → запись N сек → `adb pull` →
-      **ffprobe-ассерты** (разрешение, длительность, ≥K кадров, валидный муксинг) → PASS/FAIL-отчёт
-      одним экраном. Режимы: `--portrait` (set-rotation 90), `--device-camera`, `--photo`.
+- [x] **B1. `tools/smoke.mjs`** ✅ (2026-07-06) — один прогон: build (опц. `--skip-build`) → install →
+      запуск → harness (виртуалка + запись в файл + add-overlay + `--pip` трансформа) → set-rotation →
+      запись N сек → `adb pull` → **ffprobe-ассерты** (валидный MP4 + размер кадра под поворот + кадры)
+      → PASS/FAIL, exit 0/1. Режимы: `--portrait`/`--rotation N`, `--pip`, `--duration N`, `--keep`.
+      (Адаптирован под Phase 3: команды `compositor` больше нет — композитор всегда.)
 - [ ] **B2. Вписать в канон**: AGENT_GUIDE («перед коммитом фичи пайплайна — `node tools/smoke.mjs`»),
       упоминание в day/night/autoloop (прогонять смоук после значимых правок вместо ручной цепочки).
       → Каждое изменение пайплайна верифицируется за ~2 минуты без размышлений. Окупается немедленно.

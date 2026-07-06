@@ -210,6 +210,7 @@ git push origin main # дальше пушит без интерактива, т
 |---------|------------|
 | `node tools/build.mjs` | сборка с браузерным UI для того, чтобы Криник видел процесс сборки |
 | `node tools/build.mjs --no-ui` | headless сборка |
+| `node tools/smoke.mjs [--skip-build] [--portrait\|--rotation N] [--pip] [--duration N]` | **смоук-тест пайплайна одной кнопкой**: build→install→harness→запись→ffprobe-ассерты (валидный MP4 + размер кадра под поворот + кадры) → PASS/FAIL (exit 0/1). Прогонять после правок видеопайплайна вместо ручной цепочки |
 | `node tools/graphics/render.mjs --input x.svg --output x.png --width N --height N` | SVG→PNG |
 | `node tools/graphics/batch.mjs --input x.svg --android` | SVG→Android mipmap set |
 | `node tools/ui.mjs cmd <action> [arg]` | **⭐ ТОЛСТАЯ debug-команда (Idea 22), минует UI** — `virtual-camera on\|off`, `stream-to-file on\|off`, `go-live [1080\|2160]`, `stop`, `photo`, `set-rotation 0\|90\|180\|270` (глобальный поворот ХОЛСТА над сценой, interview_006), `add-overlay`, `set-transform <id> <scale> <cx> <cy> [alpha] [rotation]` (трансформа слоя + поворот содержимого), `device-camera front\|back\|off` (Idea 24), `rotation-mode on\|off`. Phase 3: `compositor on\|off` УДАЛЕНА — композитор всегда единственный пайплайн. Надёжно загнать приложение в нужное состояние на харнесе |
