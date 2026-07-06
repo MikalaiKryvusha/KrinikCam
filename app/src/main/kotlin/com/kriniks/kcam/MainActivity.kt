@@ -169,14 +169,21 @@ class MainActivity : ComponentActivity() {
                         "off" -> deviceManager.selectVideoSource(com.kriniks.kcam.feature.capture.model.VideoSource.None)
                         else -> deviceManager.selectPhoneCamera(isFront = false) // back / default
                     }
-                    // Plan 05 (S5) — явный выбор источника камера-слоя для тестов автоматизацией.
-                    //   front — селфи/фронталка · rear — тыл · uvc — вебка · none — нет источника.
-                    "select-source" -> when (arg) {
-                        "front" -> deviceManager.selectPhoneCamera(isFront = true)
-                        "rear" -> deviceManager.selectPhoneCamera(isFront = false)
-                        "uvc" -> deviceManager.selectUvc()
-                        "none" -> deviceManager.selectVideoSource(com.kriniks.kcam.feature.capture.model.VideoSource.None)
-                        else -> KLog.w("MainActivity", "select-source: front|rear|uvc|none")
+                    // Plan 05 (S5) — явный выбор источника слоя «Устройство захвата видео» для тестов
+                    // автоматизацией. front — селфи · rear — тыл · uvc — вебка · virtual — дебаг-паттерн ·
+                    // none — нет источника · builtin <cameraId> — конкретная встроенная камера ОС по id.
+                    "select-source" -> {
+                        val parts = arg?.trim()?.split(Regex("\\s+")) ?: emptyList()
+                        when (parts.firstOrNull()) {
+                            "front" -> deviceManager.selectPhoneCamera(isFront = true)
+                            "rear" -> deviceManager.selectPhoneCamera(isFront = false)
+                            "uvc" -> deviceManager.selectUvc()
+                            "virtual" -> deviceManager.selectVirtual()
+                            "none" -> deviceManager.selectVideoSource(com.kriniks.kcam.feature.capture.model.VideoSource.None)
+                            "builtin" -> parts.getOrNull(1)?.let { deviceManager.selectPhoneCameraById(it) }
+                                ?: KLog.w("MainActivity", "select-source builtin <cameraId>")
+                            else -> KLog.w("MainActivity", "select-source: front|rear|uvc|virtual|none|builtin <id>")
+                        }
                     }
                     else -> KLog.w("MainActivity", "CMD: unknown action '$action'")
                 }

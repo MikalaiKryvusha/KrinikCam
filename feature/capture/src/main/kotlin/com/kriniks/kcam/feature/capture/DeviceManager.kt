@@ -114,6 +114,25 @@ class DeviceManager @Inject constructor() {
         return true
     }
 
+    /**
+     * plans/05 S5 — выбрать КОНКРЕТНУЮ встроенную камеру по Camera2-id (напр. «0», «1», «2»…).
+     * Для теста автоматизацией любой родной камеры ОС (ширик/телефото/макро), не только front/rear.
+     * false, если камеры с таким id в реестре нет.
+     */
+    fun selectPhoneCameraById(cameraId: String): Boolean {
+        val cam = _phoneCameras.value.firstOrNull { it.cameraId == cameraId } ?: return false
+        KLog.i(TAG, "Select device camera by id=$cameraId: ${cam.displayName}")
+        _activeVideoSource.value = cam
+        return true
+    }
+
+    /** plans/05 S5 — выбрать виртуальную дебаг-камеру источником (включает её и делает активной). */
+    fun selectVirtual() {
+        setVirtualCamera(true)
+        KLog.i(TAG, "Select virtual source")
+        _activeVideoSource.value = VideoSource.Virtual
+    }
+
     /** Plan 05 — явно выбрать подключённую UVC-вебку как источник камера-слоя. null если вебок нет. */
     fun selectUvc(): Boolean {
         val uvc = _uvcSources.value.firstOrNull() ?: return false
