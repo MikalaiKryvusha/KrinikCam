@@ -44,6 +44,8 @@ sealed interface CompositorLayer {
     val cx: Float
     val cy: Float
     val alpha: Float
+    /** Поворот СОДЕРЖИМОГО слоя внутри сцены, градусы CW (interview_006 Q3: «слои как в Photoshop»). */
+    val rotation: Int
 
     /** Слой камеры (OES external texture, кадры от камеры-продюсера). */
     data class Camera(
@@ -51,6 +53,7 @@ sealed interface CompositorLayer {
         override val cx: Float = 0.5f,
         override val cy: Float = 0.5f,
         override val alpha: Float = 1f,
+        override val rotation: Int = 0,
     ) : CompositorLayer
 
     /** Слой-картинка (2D-текстура из bitmap). */
@@ -60,6 +63,7 @@ sealed interface CompositorLayer {
         override val cx: Float = 0.5f,
         override val cy: Float = 0.5f,
         override val alpha: Float = 1f,
+        override val rotation: Int = 0,
     ) : CompositorLayer
 }
 
@@ -79,6 +83,23 @@ class CompositorVideoSource : VideoSource() {
     // и идут в порядке сцены (камера переставляема, как в OBS).
     @Volatile private var requestedLayers: List<CompositorLayer> = emptyList()
     private val uploaded = ArrayList<Pair<Bitmap, Int>>() // (bitmap, texId) для картинок-слоёв
+
+    // ── Поворот ХОЛСТА (interview_006, Phase 3) ─────────────────────────────
+    // Глобальный поворот НАД сценой: сцена всегда компонуется в логическом 16:9, а весь готовый
+    // композит ворочается на 0/90/180/270 (90/270 → выходной кадр 9:16, encW/encH уже свапнуты
+    // стримером через prepareVideo). Сцена о повороте «не знает» — слои крутятся вместе с холстом.
+    @Volatile private var canvasRotation = 0
+
+    /** Задать глобальный поворот холста (0/90/180/270, CW). Применяется со следующего кадра. */
+    fun setCanvasRotation(degrees: Int) {
+        canvasRotation = ((degrees % 360) + 360) % 360
+        KLog.i(TAG, "canvasRotation = $canvasRotation°")
+    }
+
+    // Переиспользуемые матрицы кадра (аллоцируем один раз — рисуем 30 раз в секунду).
+    private val canvasM = FloatArray(16)
+    private val layerM = FloatArray(16)
+    private val finalM = FloatArray(16)
 
     // ── Слой-камера (OES) ────────────────────────────────────────────────────
     // Компоновщик САМ создаёт OES-текстуру + SurfaceTexture; в неё пишет камера-продюсер (Camera2/USB/
@@ -187,16 +208,21 @@ class CompositorVideoSource : VideoSource() {
                     runCatching { camSt.updateTexImage(); camSt.getTransformMatrix(cameraTexMatrix) }
                     newCameraFrame = false
                 }
+                // Матрица поворота ХОЛСТА (interview_006): весь готовый композит ворочается целиком.
+                // Знак минус: положительный canvasRotation = по часовой (как крутили раньше, Bug 10).
+                // Чистый rotate корректен без аспект-коррекции ИМЕННО потому, что на 90/270 физические
+                // размеры выхода уже свапнуты (16:9-сцена точно ложится в 9:16-кадр без искажения).
+                android.opengl.Matrix.setRotateM(canvasM, 0, -canvasRotation.toFloat(), 0f, 0f, 1f)
                 // Рисуем слои в порядке сцены (снизу вверх). Камера и картинки равноправны.
-                // Каждому слою — своя модельная матрица позиции (PiP-трансформа) и альфа.
+                // Каждому слою — матрица: холст × (позиция/масштаб PiP × поворот содержимого).
                 for (layer in requestedLayers) {
-                    val pos = posMatrixOf(layer.scale, layer.cx, layer.cy)
+                    layerMatrixOf(layer)
                     when (layer) {
                         is CompositorLayer.Camera -> if (cameraOesTex != 0)
-                            r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, posMatrix = pos, alpha = layer.alpha)
+                            r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, posMatrix = finalM, alpha = layer.alpha)
                         is CompositorLayer.Image -> {
                             val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
-                            if (texId != null) r.draw(texId, oes = false, posMatrix = pos, alpha = layer.alpha)
+                            if (texId != null) r.draw(texId, oes = false, posMatrix = finalM, alpha = layer.alpha)
                         }
                     }
                 }
@@ -231,18 +257,37 @@ class CompositorVideoSource : VideoSource() {
         return out
     }
 
-    // Модельная матрица позиции квада в clip-space по нормализованной трансформе слоя (PiP).
-    // Полноэкранный квад [-1..1] масштабируем на [scale] и сдвигаем в центр (cx,cy)∈[0,1]
-    // (Y экранный сверху-вниз → clip-Y флипается: cy=0 (верх) → ty=+1). Column-major float[16].
-    private fun posMatrixOf(scale: Float, cx: Float, cy: Float): FloatArray {
-        val tx = 2f * cx - 1f
-        val ty = 1f - 2f * cy
-        return floatArrayOf(
-            scale, 0f, 0f, 0f,
-            0f, scale, 0f, 0f,
-            0f, 0f, 1f, 0f,
-            tx, ty, 0f, 1f,
-        )
+    // Сцена компонуется в логическом 16:9 (interview_006 Q2: «сцена = слои в холсте 16 на 9»).
+    // Нужен для аспект-корректного поворота СОДЕРЖИМОГО слоя в clip-space (units не квадратные).
+    private companion object {
+        const val SCENE_ASPECT = 16f / 9f
+    }
+
+    /**
+     * Собрать в [finalM] полную матрицу слоя: R_canvas × T(cx,cy) × S(scale) × PhysRot(rotation).
+     *
+     * • T/S — PiP-трансформа: полноэкранный квад [-1..1] масштабируется на scale и сдвигается в
+     *   центр (cx,cy)∈[0,1]; экранный Y (сверху-вниз) → clip-Y флипается (cy=0 → ty=+1).
+     * • PhysRot — поворот СОДЕРЖИМОГО слоя (interview_006 Q3, «как в Photoshop»): в clip-space
+     *   единицы не квадратные, поэтому поворот заворачивается в аспект-коррекцию
+     *   S(1/a,1)·R(−deg)·S(a,1), a = 16/9 — иначе повёрнутый слой сплющится. Повёрнутый на 90°
+     *   полнокадровый слой ВЫХОДИТ за холст по вертикали (честная Photoshop-семантика) — блогер
+     *   ужимает его scale'ом.
+     * • R_canvas — поворот холста (уже в [canvasM], считается раз на кадр).
+     * android.opengl.Matrix пост-умножает: цепочка I→translate→scale→rotate даёт T·S·R (R первым к вершине).
+     */
+    private fun layerMatrixOf(layer: CompositorLayer) {
+        val tx = 2f * layer.cx - 1f
+        val ty = 1f - 2f * layer.cy
+        android.opengl.Matrix.setIdentityM(layerM, 0)
+        android.opengl.Matrix.translateM(layerM, 0, tx, ty, 0f)
+        android.opengl.Matrix.scaleM(layerM, 0, layer.scale, layer.scale, 1f)
+        if (layer.rotation != 0) {
+            android.opengl.Matrix.scaleM(layerM, 0, 1f / SCENE_ASPECT, 1f, 1f)
+            android.opengl.Matrix.rotateM(layerM, 0, -layer.rotation.toFloat(), 0f, 0f, 1f)
+            android.opengl.Matrix.scaleM(layerM, 0, SCENE_ASPECT, 1f, 1f)
+        }
+        android.opengl.Matrix.multiplyMM(finalM, 0, canvasM, 0, layerM, 0)
     }
 
     // GL-поток: привести залитые текстуры к requestedBitmaps (удалить ушедшие, залить новые, порядок=z).

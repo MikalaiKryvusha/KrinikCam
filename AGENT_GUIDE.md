@@ -125,7 +125,8 @@ export JAVA_HOME="..." && node tools/build.mjs --no-ui 2>&1 | grep "^e:"
 - `libuvc` нужен как `compileOnly` — в POM он `runtime`, но его тип торчит в публичном интерфейсе
 
 ### RootEncoder 2.4.7 (`com.github.pedroSG94.RootEncoder:library`)
-- Мы используем `RtmpStream` (`com.pedro.library.rtmp.RtmpStream`) + кастомный `UvcVideoSource`,
+- Мы используем `RtmpStream` (`com.pedro.library.rtmp.RtmpStream`) + наш `CompositorVideoSource`
+  (единственный базовый источник, Phase 3 — камера идёт СЛОЕМ композитора),
   а НЕ `RtmpCamera1` (RtmpCamera1 открывает Camera1/Camera2 API → конфликт с USB UVC → краш)
 - Интерфейс: `com.pedro.common.ConnectChecker`
 - Коллбэки без суффикса: `onConnectionSuccess()`, `onConnectionFailed(reason)`, etc.
@@ -133,10 +134,10 @@ export JAVA_HOME="..." && node tools/build.mjs --no-ui 2>&1 | grep "^e:"
   — BITRATE 3-й параметр, FPS 4-й! НЕ путать со старым `RtmpCamera1.prepareVideo(w,h,fps,bitrate,rotation)`.
   Перепутанный порядок (fps↔bitrate) = энкодер с битрейтом ~30 бит/с = пустой видеотрек =
   YouTube получает только звук = Broken Pipe через 15с. **(Баг 02, исправлен 2026-06-28.)**
-- ⚠️ **Ориентация для USB-камеры:** `prepareVideo(rotation=0)` внутри зовёт
-  `glInterface.setCameraOrientation(270)` (поворот входа камеры на 90° CCW — для телефонных
-  сенсоров). USB-вебка уже выдаёт ровный landscape → после `prepareVideo` обязательно
-  `stream.getGlInterface().setCameraOrientation(0)`, иначе стрим повёрнут и растянут. **(Баг 02 A.)**
+- ⚠️ **Ориентация (Phase 3):** `prepareVideo(rotation=0)` внутри зовёт
+  `glInterface.setCameraOrientation(270)` (поворот входа для телефонных сенсоров). У нас ВСЕ
+  повороты делает СВОЙ композитор (глобальный поворот холста + поворот слоя, interview_006) →
+  после `prepareVideo` ВСЕГДА `setCameraOrientation(0)`, библиотека ничего не крутит. **(Баг 02 A.)**
 - `setCustomImageToStream()` удалён → используй `glInterface.setFilter(BaseFilterRender)` для статик-кадра
 - GL-поток рисует в encoder через `streamOrientation` (`setStreamRotation`), в preview — через
   `previewOrientation` (`setPreviewRotation`); `setCameraOrientation` крутит общий вход камеры (оба)
@@ -211,7 +212,7 @@ git push origin main # дальше пушит без интерактива, т
 | `node tools/build.mjs --no-ui` | headless сборка |
 | `node tools/graphics/render.mjs --input x.svg --output x.png --width N --height N` | SVG→PNG |
 | `node tools/graphics/batch.mjs --input x.svg --android` | SVG→Android mipmap set |
-| `node tools/ui.mjs cmd <action> [arg]` | **⭐ ТОЛСТАЯ debug-команда (Idea 22), минует UI** — `virtual-camera on\|off`, `stream-to-file on\|off`, `go-live [1080\|2160]`, `stop`, `set-rotation 0\|90\|180\|270`, `add-overlay`, `device-camera front\|back\|off` (Idea 24, камера устройства), `rotation-mode on\|off`. Надёжно загнать приложение в нужное состояние на харнесе |
+| `node tools/ui.mjs cmd <action> [arg]` | **⭐ ТОЛСТАЯ debug-команда (Idea 22), минует UI** — `virtual-camera on\|off`, `stream-to-file on\|off`, `go-live [1080\|2160]`, `stop`, `photo`, `set-rotation 0\|90\|180\|270` (глобальный поворот ХОЛСТА над сценой, interview_006), `add-overlay`, `set-transform <id> <scale> <cx> <cy> [alpha] [rotation]` (трансформа слоя + поворот содержимого), `device-camera front\|back\|off` (Idea 24), `rotation-mode on\|off`. Phase 3: `compositor on\|off` УДАЛЕНА — композитор всегда единственный пайплайн. Надёжно загнать приложение в нужное состояние на харнесе |
 | `node tools/ui.mjs dump` | dump DOM-иерархии с точными координатами (тонкий слой — для проверки самого UI) |
 | `node tools/ui.mjs tap <query>` | найти элемент по тексту и тапнуть (без скриншота!) |
 | `node tools/ui.mjs find <query>` | найти все элементы, совпадающие с query |

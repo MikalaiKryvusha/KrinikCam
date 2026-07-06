@@ -8,7 +8,7 @@
  *
  * Вьюфайндер под панелью показывает результат компоновки вживую (превью = тот же GL, что и энкодер).
  *
- * Related: StreamViewModel, Scene/Layer (scene package), SceneCompositor
+ * Related: StreamViewModel, Scene/Layer (scene package), CompositorVideoSource (gl)
  */
 
 package com.kriniks.kcam.feature.streaming.ui

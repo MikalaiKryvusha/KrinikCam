@@ -8,12 +8,11 @@
  *   - a uniform GRID: bends/uneven spacing reveal scaling issues;
  *   - corner L-markers + a "TOP" label: reveal rotation / crop / mirroring;
  *   - "16:9" + wordmark for context.
- * The MOVING bits (sweep bar + live clock/frame counter) are drawn per-frame by VirtualVideoSource.
+ * The MOVING bits (sweep bar + live clock/frame counter) are drawn per-frame by VirtualCameraOpener (:app).
  *
- * Mirrors StandbyFrameRenderer's approach (software Canvas → bitmap). Lives in :feature:streaming
- * (no :app deps), like StandbyVideoSource.
+ * Software Canvas → bitmap. Lives in :feature:streaming (no :app deps).
  *
- * Related: VirtualVideoSource (draws this + moving overlay), StandbyFrameRenderer
+ * Related: VirtualCameraOpener (:app — draws this + moving overlay into the camera layer)
  */
 
 package com.kriniks.kcam.feature.streaming.rtmp
@@ -92,7 +91,7 @@ object VirtualFrameRenderer {
             color = WHITE_DIM; textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL); textSize = height * 0.04f
         }
-        // Поднято ближе к кругу (Bug 11): низ кадра занимает движущийся счётчик из VirtualVideoSource,
+        // Поднято ближе к кругу (Bug 11): низ кадра занимает движущийся счётчик из VirtualCameraOpener,
         // поэтому статичную подпись держим выше, чтобы не накладывались.
         c.drawText("KrinikCam · VIRTUAL CAM · 16:9", cx, cy + r + height * 0.06f, labelPaint)
 

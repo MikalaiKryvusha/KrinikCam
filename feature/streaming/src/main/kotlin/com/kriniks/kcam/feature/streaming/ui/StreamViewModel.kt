@@ -7,11 +7,11 @@
  *   activeProfile — the profile selected for the next / current stream
  *
  * Actions (called from :app — MainScreen):
- *   setVideoSource(source)      — set the USB camera VideoSource (UvcVideoSource)
+ *   setCameraOpener(opener)     — чем открывать камеру-слой композитора (USB/встроенная/виртуалка)
  *   startPreviewOnView(tv)      — start GL preview on a TextureView
  *   startStream() / stopStream()
  *
- * Related: StreamingRepository, RtmpStreamer, UvcVideoSource (:app), StreamPlatformsOverlay (UI)
+ * Related: StreamingRepository, RtmpStreamer, CameraLayerOpeners (:app), StreamPlatformsOverlay (UI)
  */
 
 package com.kriniks.kcam.feature.streaming.ui
@@ -19,7 +19,6 @@ package com.kriniks.kcam.feature.streaming.ui
 import android.view.TextureView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.pedro.library.util.sources.video.VideoSource
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.data.profiles.model.ProfilesBackupCodec
 import com.kriniks.kcam.data.profiles.model.StreamProfile
@@ -78,8 +77,9 @@ class StreamViewModel @Inject constructor(
     fun toggleLayerVisible(id: String) = repository.toggleLayerVisible(id)
     fun moveLayerUp(id: String) = repository.moveLayerUp(id)
     fun moveLayerDown(id: String) = repository.moveLayerDown(id)
-    fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f) =
-        repository.setLayerTransform(id, scale, cx, cy, alpha)
+    // interview_006 Q3: [rotation] — поворот содержимого слоя внутри сцены (0/90/180/270 CW).
+    fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f, rotation: Int = 0) =
+        repository.setLayerTransform(id, scale, cx, cy, alpha, rotation)
 
     /**
      * Set the manual video rotation. Blocked while streaming (changing resolution mid-RTMP breaks
@@ -115,50 +115,18 @@ class StreamViewModel @Inject constructor(
     }
 
     /**
-     * Set the video source for the GL encoder pipeline.
-     * Must be called before startPreviewOnView() when the USB camera connects,
-     * or after it (changeVideoSource handles live-swap).
-     */
-    fun setVideoSource(source: VideoSource) {
-        repository.setVideoSource(source)
-        KLog.d(TAG, "VideoSource set: ${source::class.simpleName}")
-    }
-
-    /**
-     * Start GL preview output on [textureView]. Also starts the VideoSource
-     * (i.e. opens the USB camera if UvcVideoSource is active).
+     * Start GL preview output on [textureView] — наш композитор рисует сцену; камера-слой
+     * откроется сам через CameraOpener, когда его поверхность готова (Phase 3).
      */
     fun startPreviewOnView(textureView: TextureView) {
         repository.startPreview(textureView)
         KLog.d(TAG, "Preview started on TextureView")
     }
 
-    fun clearVideoSource() {
-        repository.clearVideoSource()
-        KLog.d(TAG, "VideoSource cleared")
-    }
-
-    /** Idea 21 — задать/снять источник камеры-слоя (реальная/виртуальная камера); null = отключена. */
+    /** Phase 3 — задать/снять источник камеры-слоя (USB/встроенная/виртуальная); null = отключена. */
     fun setCameraOpener(opener: com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer.CameraOpener?) {
         repository.setCameraOpener(opener)
         KLog.d(TAG, "CameraOpener set: ${opener != null}")
-    }
-
-    /**
-     * USB camera disconnected while streaming → inject the "Please stand by" placeholder into
-     * the live stream so the RTMP session survives the dropout (no Broken Pipe).
-     */
-    fun enterStandby() {
-        repository.enterStandby()
-        KLog.i(TAG, "Entering standby (camera lost during stream)")
-    }
-
-    /**
-     * USB camera reconnected while streaming → swap the standby frame back to the live camera.
-     */
-    fun exitStandby(source: VideoSource) {
-        repository.exitStandby(source)
-        KLog.i(TAG, "Exiting standby (camera restored): ${source::class.simpleName}")
     }
 
     fun stopPreview() = repository.stopPreview()

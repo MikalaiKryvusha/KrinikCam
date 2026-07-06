@@ -1,25 +1,24 @@
 /**
- * MainScreen — fullscreen camera viewfinder with floating overlay controls.
+ * MainScreen — fullscreen scene viewfinder with floating overlay controls (Phase 3: единый композитор).
  *
  * Layout:
- *   Layer 0: fullscreen viewfinder (UVC preview via GL pipeline or black screen)
- *   Layer 1: StandbyPlaceholder (when no source available)
+ *   Layer 0: fullscreen viewfinder — ВСЕГДА живой TextureView, зеркалит композит (сцена = слои)
+ *   Layer 0.5: StandbyPlaceholder — оверлей-подсказка ПОВЕРХ превью, когда нет ни одного источника
+ *   Layer 1: Rotation hot button (top-right, всегда) — глобальный поворот холста (interview_006)
  *   Layer 2: Live status indicator (top-left when streaming)
- *   Layer 3: Rotation hot button (top-right, when camera active)
  *   Layer 4: FloatingRadialMenu (bottom-right FAB + radial actions)
- *   Layer 5: StreamPlatformsOverlay (modal, shown on demand)
+ *   Layer 5/6: StreamPlatformsOverlay / StreamLayersOverlay (modals, shown on demand)
  *
- * Camera → RTMP bridge (Phase 2 architecture):
- *   1. USB camera connects → UsbViewModel.activeCamera is set
- *   2. MainScreen creates UvcVideoSource(camera) and calls streamViewModel.setVideoSource()
- *   3. TextureView becomes available → streamViewModel.startPreviewOnView(tv)
- *   4. GL pipeline starts: UvcVideoSource.start(glSurfaceTexture) opens USB camera
- *      Camera frames → GL input → GL preview on TextureView + encoder when streaming
+ * Camera → compositor bridge (Phase 3):
+ *   1. Источник появился (USB/встроенная/виртуалка) → LaunchedEffect отдаёт стримеру CameraOpener
+ *   2. TextureView готов → streamViewModel.startPreviewOnView(tv) → композитор+GL стартуют
+ *   3. Композитор создаёт OES-поверхность слоя-камеры → CameraOpener открывает в неё камеру
+ *   4. Кадры камеры → слой сцены → композит → превью TextureView + энкодер при стриме
  *   5. User presses Go Live → streamViewModel.startStream()
  *
  * Both orderings handled (camera before TextureView, and TextureView before camera).
  *
- * Related: UsbViewModel, StreamViewModel, UvcVideoSource, DeviceManager, FloatingRadialMenu
+ * Related: UsbViewModel, StreamViewModel, CameraLayerOpeners, DeviceManager, FloatingRadialMenu
  */
 
 package com.kriniks.kcam.ui.screens
@@ -108,18 +107,11 @@ fun MainScreen(
         }
     }
 
-    // Wire USB camera → RtmpStream GL pipeline.
-    // Only calls setVideoSource — startPreview is triggered solely from onTextureViewReady.
-    // Having two startPreview callers caused stopPreview() to cancel GL init (RC1 double-trigger bug).
-    //
-    // streamState.isActive is a second key so that when streaming stops (isActive: true→false),
-    // this effect re-runs and re-calls setVideoSource() even if the camera object didn't change.
-    // Without this, AUSBC may reconnect the SAME camera object during streaming (so activeCamera
-    // ref doesn't change), setVideoSource() is blocked by the guard, and preview stays black
-    // after streaming ends because nothing triggers a re-bind.
-    // Idea 21 — камера = обычный СЛОЙ над чёрной базой. Здесь мы лишь сообщаем стримеру, ЧЕМ открывать
-    // слой-камеру (реальная UVC / виртуальная / нет источника). Сам слой-фильтр и его SurfaceTexture
-    // создаёт SceneCompositor; открытие камеры происходит, когда у слоя готова поверхность.
+    // Wire источник камеры → слой композитора (Phase 3).
+    // Здесь мы лишь сообщаем стримеру, ЧЕМ открывать слой-камеру (реальная UVC / встроенная /
+    // виртуальная / нет источника). OES-поверхность слоя создаёт сам композитор; открытие камеры
+    // происходит, когда поверхность готова (RtmpStreamer.onCameraSurfaceReady → CameraOpener.open).
+    // startPreview триггерится ТОЛЬКО из onTextureViewReady (двойной вызов стартовал/гасил GL — RC1).
     LaunchedEffect(usbState.activeCamera, activeSource) {
         val camera = usbState.activeCamera
         when {
@@ -142,95 +134,47 @@ fun MainScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
-        // ── Layer 0: Viewfinder ──────────────────────────────────────
-        when (activeSource) {
-            is VideoSource.UvcCamera -> {
-                // Показываем GL-превью, когда физическая камера есть, ЛИБО пока идёт стрим. Во время
-                // стрима GL-пайплайн продолжает рисовать КОМПОЗИТ (заглушка вместо камеры + оверлеи),
-                // и превью обязано его ЗЕРКАЛИТЬ — иначе при пропаже камеры Compose-StandbyPlaceholder
-                // на весь экран рушит TextureView и прячет все слои (хотя в стрим композит идёт верно).
-                if (usbState.activeCamera != null || streamState.isActive) {
-                    // rememberUpdatedState so the lambdas below always read the latest camera
-                    // state even though the TextureView listener captures them by reference.
-                    val currentCamera by rememberUpdatedState(usbState.activeCamera)
-                    // GL pipeline renders its output (camera frames) into this TextureView
-                    UvcPreviewView(
-                        onTextureViewReady = { tv ->
-                            previewTextureView = tv
-                            // (Пере)подцепить превью: при наличии камеры — обычный старт; во время
-                            // стрима с пропавшей камерой startPreview просто переподцепляет surface к
-                            // уже работающему GL энкодера → показывает композит заглушка+оверлеи.
-                            if (currentCamera != null || streamState.isActive) {
-                                streamViewModel.startPreviewOnView(tv)
-                            }
-                        },
-                        // Restart GL preview on rotation so the render surface gets new dimensions.
-                        onSurfaceTextureSizeChanged = { tv, _, _ ->
-                            if (currentCamera != null || streamState.isActive) {
-                                streamViewModel.startPreviewOnView(tv)
-                            }
-                        },
-                        // Stop GL preview when surface is destroyed (navigation to Settings,
-                        // backgrounding). Prevents GL_OUT_OF_MEMORY crash from drawing to a dead
-                        // surface. Safe during streaming: stopPreview() is a no-op when isOnPreview=false.
-                        onSurfaceDestroyed = { streamViewModel.stopPreview() },
-                        // Display-only preview rotation (Idea 06) — letterboxed via TextureView matrix.
-                        // While streaming the GL scene itself is rotated (for the portrait encoder),
-                        // so the matrix must be identity (0) to avoid double-rotating the preview.
-                        rotationDegrees = if (streamState.isActive) 0 else videoRotation,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    StandbyPlaceholder(modifier = Modifier.fillMaxSize())
-                }
-            }
-            is VideoSource.Virtual -> {
-                // Idea 09 — virtual debug camera: same GL preview path as UVC (synthetic frames).
-                UvcPreviewView(
-                    onTextureViewReady = { tv ->
-                        previewTextureView = tv
-                        streamViewModel.startPreviewOnView(tv)
-                    },
-                    onSurfaceTextureSizeChanged = { tv, _, _ -> streamViewModel.startPreviewOnView(tv) },
-                    onSurfaceDestroyed = { streamViewModel.stopPreview() },
-                    rotationDegrees = if (streamState.isActive) 0 else videoRotation,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            is VideoSource.PhoneCamera -> {
-                // Idea 24 — встроенная камера устройства: тот же GL-превью путь, что UVC/Virtual
-                // (кадры Camera2 идут в слой-камеру через DeviceCameraOpener).
-                UvcPreviewView(
-                    onTextureViewReady = { tv ->
-                        previewTextureView = tv
-                        streamViewModel.startPreviewOnView(tv)
-                    },
-                    onSurfaceTextureSizeChanged = { tv, _, _ -> streamViewModel.startPreviewOnView(tv) },
-                    onSurfaceDestroyed = { streamViewModel.stopPreview() },
-                    rotationDegrees = if (streamState.isActive) 0 else videoRotation,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            VideoSource.None -> {
-                StandbyPlaceholder(
-                    message = "Connect a USB webcam via OTG,\nor check Settings for help",
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
+        // ── Layer 0: Viewfinder — ВСЕГДА живой (Phase 3) ─────────────────────
+        // Композитор рисует сцену всегда (чёрная база + слои), с камерой или без — превью-TextureView
+        // живёт постоянно и зеркалит композит. Это убирает ветвление when(activeSource), которое
+        // пересоздавало/рушило TextureView при смене источника — корень крашей bug 20/23 (EGL_BAD_ALLOC
+        // на системном RenderThread) и исчезновения превью (bug 22). Превью повёрнутого холста
+        // (портрет 9:16) леттербоксится самим GL (AspectRatioMode.Adjust) — матрицы TextureView нет.
+        UvcPreviewView(
+            onTextureViewReady = { tv ->
+                previewTextureView = tv
+                streamViewModel.startPreviewOnView(tv)
+            },
+            // Restart GL preview on device rotation so the render surface gets new dimensions.
+            onSurfaceTextureSizeChanged = { tv, _, _ -> streamViewModel.startPreviewOnView(tv) },
+            // Stop GL preview when surface is destroyed (navigation to Settings, backgrounding).
+            // Prevents GL_OUT_OF_MEMORY crash from drawing to a dead surface (bug 02). Safe during
+            // streaming: stopPreview() is a no-op when isOnPreview=false.
+            onSurfaceDestroyed = { streamViewModel.stopPreview() },
+            modifier = Modifier.fillMaxSize(),
+        )
 
-        // ── Layer 1: Rotation menu (top-right, camera active only) ──────────
-        // Tap → pick angle (0/90/180/270). 90/270 = portrait 9:16 stream (Idea 06). Locked while
-        // streaming (changing resolution mid-RTMP breaks YouTube) — tap then shows a hint.
-        if (usbState.activeCamera != null || activeSource is VideoSource.Virtual) {
-            RotationMenu(
-                currentRotation = videoRotation,
-                enabled = !streamState.isActive,
-                onSelectRotation = { streamViewModel.setVideoRotation(it) },
-                onLockedTap = { streamViewModel.rotationLockedHint() },
+        // ── Layer 0.5: подсказка «нет источника» ПОВЕРХ живого превью ────────
+        // Раньше StandbyPlaceholder ЗАМЕНЯЛ превью (рушил TextureView — bug 20/23); теперь это
+        // просто оверлей поверх живого чёрного холста, пока нет ни одного источника камеры.
+        if (activeSource is VideoSource.None && !streamState.isActive) {
+            StandbyPlaceholder(
+                message = "Connect a USB webcam via OTG,\nor check Settings for help",
                 modifier = Modifier.fillMaxSize(),
             )
         }
+
+        // ── Layer 1: Rotation menu (top-right) — ВСЕГДА виден (bug 21) ──────
+        // Розовая кнопка глобального поворота ХОЛСТА над сценой (interview_006): 0/90/180/270,
+        // 90/270 = портретный 9:16 выход. Композитор живёт всегда → кнопка тоже всегда на месте.
+        // Locked while streaming (changing resolution mid-RTMP breaks YouTube) — tap shows a hint.
+        RotationMenu(
+            currentRotation = videoRotation,
+            enabled = !streamState.isActive,
+            onSelectRotation = { streamViewModel.setVideoRotation(it) },
+            onLockedTap = { streamViewModel.rotationLockedHint() },
+            modifier = Modifier.fillMaxSize(),
+        )
 
         // ── Layer 2: Live indicator (top-left) ───────────────────────
         AnimatedVisibility(

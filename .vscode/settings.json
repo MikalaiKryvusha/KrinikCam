@@ -11,5 +11,11 @@
     "java.import.gradle.java.home": "/Applications/Android Studio.app/Contents/jbr/Contents/Home",
 
     // JDK для самого языкового сервера (анализ кода). JBR 17 подходит.
-    "java.jdt.ls.java.home": "/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+    "java.jdt.ls.java.home": "/Applications/Android Studio.app/Contents/jbr/Contents/Home",
+    // --- Фикс Bug 26 (наследник Bug 06): «The supplied phased action failed with an exception. 25.0.3» ---
+    // Новый Gradle Build Server из Java-расширения VS Code игнорирует java.import.gradle.java.home и
+    // запускает Gradle-синк на системной Temurin 25 → Android-проект не конфигурируется (Warning в
+    // «Проблемах»). Build Server Android-проекты всё равно не поддерживает — выключаем его для проекта;
+    // расширение откатывается на классический импорт через JBR (пин выше), как и было при фиксе Bug 06.
+    "java.gradle.buildServer.enabled": "off"
 }

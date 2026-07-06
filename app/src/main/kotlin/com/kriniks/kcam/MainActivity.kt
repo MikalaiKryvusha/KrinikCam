@@ -39,9 +39,10 @@ class MainActivity : ComponentActivity() {
     // only while the "ADB rotation" dev toggle is ON (Idea 07) — available in ANY build, not just debug.
     private var adbOrientationReceiver: BroadcastReceiver? = null
 
-    // Receiver that lets the AI harness simulate the virtual camera connecting/disconnecting over ADB
-    // (Interview #004 testing): SET_VIRTUAL_CAM state=off → source drop → standby/freeze; state=on →
-    // source back → exitStandby. Lets us test the dropout flow WITHOUT a physical USB camera.
+    // Receiver that lets the AI harness simulate the virtual camera connecting/disconnecting over ADB:
+    // SET_VIRTUAL_CAM state=off → camera layer's producer drops (composited scene keeps rendering);
+    // state=on → producer back. Lets us test the dropout flow WITHOUT a physical USB camera (Phase 3:
+    // no source swap happens — the compositor survives the dropout by design).
     private var virtualCamReceiver: BroadcastReceiver? = null
 
     // Idea 22 — ЕДИНЫЙ debug-command-receiver автоматизатора (`com.kriniks.kcam.CMD`). Принимает
@@ -98,9 +99,12 @@ class MainActivity : ComponentActivity() {
      *   stream-to-file  arg=on|off     — режим записи в файл вместо RTMP (harness)
      *   go-live         [arg=<height>] — старт (в harness — запись в MP4); arg = высота кадра (1080/2160)
      *   stop                           — остановить запись/стрим
-     *   set-rotation    arg=0|90|180|270 — поворот видео (портрет/ландшафт)
+     *   set-rotation    arg=0|90|180|270 — глобальный поворот ХОЛСТА над сценой (interview_006):
+     *                    90/270 → выход 9:16 портрет; вся композиция ворочается целиком
      *   add-overlay                    — добавить тестовый PNG-оверлей
+     *   set-transform   arg="<id> <scale> <cx> <cy> [alpha] [rotation]" — трансформа слоя
      *   rotation-mode   arg=on|off     — режим «вращение по ADB» (для SET_ORIENTATION)
+     * (Phase 3: команда `compositor` УДАЛЕНА — композитор всегда включён, второго пайплайна нет.)
      */
     private fun registerCmdControl() {
         if (cmdReceiver != null) return
@@ -128,14 +132,15 @@ class MainActivity : ComponentActivity() {
                         id = "overlay_cmd_${System.currentTimeMillis()}", name = "Overlay",
                     )
                     "rotation-mode" -> setAdbRotationEnabled(arg == "on")
-                    // Idea 25 — переключить базу энкодера на наш GL-композитор (мобильный OBS).
-                    "compositor" -> streamingRepository.setUseCompositor(arg != "off")
+                    // Phase 3: команда `compositor` удалена — композитор ВСЕГДА единственный пайплайн.
+                    "compositor" -> KLog.w("MainActivity", "CMD compositor: DEPRECATED — композитор всегда включён (Phase 3), команда игнорируется")
                     // Тонкая команда: переключить видимость слоя по id (напр. camera) — для тестов OBS-поведения.
                     "toggle-layer" -> arg?.let { streamingRepository.toggleLayerVisible(it) }
                     "layer-up" -> arg?.let { streamingRepository.moveLayerUp(it) }
                     "layer-down" -> arg?.let { streamingRepository.moveLayerDown(it) }
-                    // Idea 25 шаг 4 — PiP-трансформа слоя. arg = "<id> <scale> <cx> <cy> [alpha]"
-                    // (id — напр. camera; scale доля кадра; cx,cy центр в [0,1] (0,0=верх-лево); alpha опц.).
+                    // Трансформа слоя. arg = "<id> <scale> <cx> <cy> [alpha] [rotation]"
+                    // (id — напр. camera; scale доля кадра; cx,cy центр в [0,1] (0,0=верх-лево); alpha опц.;
+                    // rotation — поворот СОДЕРЖИМОГО слоя 0/90/180/270 CW, interview_006 Q3).
                     "set-transform" -> arg?.split(Regex("[,\\s]+"))?.let { p ->
                         if (p.size >= 4) streamingRepository.setLayerTransform(
                             id = p[0],
@@ -143,7 +148,8 @@ class MainActivity : ComponentActivity() {
                             cx = p[2].toFloatOrNull() ?: 0.5f,
                             cy = p[3].toFloatOrNull() ?: 0.5f,
                             alpha = p.getOrNull(4)?.toFloatOrNull() ?: 1f,
-                        ) else KLog.w("MainActivity", "set-transform: need '<id> <scale> <cx> <cy> [alpha]'")
+                            rotation = p.getOrNull(5)?.toIntOrNull() ?: 0,
+                        ) else KLog.w("MainActivity", "set-transform: need '<id> <scale> <cx> <cy> [alpha] [rotation]'")
                     }
                     // Idea 24 — выбрать встроенную камеру устройства как источник (front|back|off).
                     "device-camera" -> when (arg) {
@@ -168,8 +174,8 @@ class MainActivity : ComponentActivity() {
      * disconnect/reconnect without a physical USB camera.
      *   adb shell am broadcast -a com.kriniks.kcam.SET_VIRTUAL_CAM --es state off -p <pkg>   # drop
      *   adb shell am broadcast -a com.kriniks.kcam.SET_VIRTUAL_CAM --es state on  -p <pkg>   # restore
-     * state=off → activeSource None → RtmpStreamer.enterStandby (freeze→timeout→standby);
-     * state=on  → virtual source back → exitStandby (live).
+     * state=off → activeSource None → CameraOpener снимается, слой-камера пустеет (сцена живёт);
+     * state=on  → виртуальный продюсер снова кормит слой (Phase 3: без подмен источника).
      */
     private fun registerVirtualCamControl() {
         if (virtualCamReceiver != null) return

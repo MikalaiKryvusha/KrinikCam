@@ -110,7 +110,7 @@ node tools/kaif.mjs version|check # версия / проверка развёр
 | Новая RTMP-платформа | `data/profiles/model/StreamProfile.kt` → `StreamPlatform` enum |
 | USB-камера перестала работать | `feature/usb/data/UsbDeviceRepositoryImpl.kt` |
 | Стриминг не подключается | `feature/streaming/rtmp/RtmpStreamer.kt` |
-| Слои/композитор (камера как слой) | `feature/streaming/scene/` (Scene, Layer, SceneCompositor) |
+| Слои/композитор (камера как слой) | `feature/streaming/scene/` (Scene, Layer) + `feature/streaming/gl/` (CompositorVideoSource, GlQuadRenderer, Egl) |
 | Dev-меню / debug-тумблеры | `app/dev/DevSettings.kt`, `app/ui/screens/DevMenuScreen.kt` |
 | Логи не пишутся | `core/logging/FileLogger.kt` |
 | Новая версия зависимости | `gradle/libs.versions.toml` |

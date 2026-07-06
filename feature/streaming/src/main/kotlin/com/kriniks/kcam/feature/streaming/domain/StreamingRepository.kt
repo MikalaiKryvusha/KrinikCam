@@ -10,7 +10,6 @@
 package com.kriniks.kcam.feature.streaming.domain
 
 import android.view.TextureView
-import com.pedro.library.util.sources.video.VideoSource
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.data.profiles.repository.ProfilesRepository
@@ -59,8 +58,9 @@ class StreamingRepository @Inject constructor(
     fun toggleLayerVisible(id: String) = rtmpStreamer.toggleLayerVisible(id)
     fun moveLayerUp(id: String) = rtmpStreamer.moveLayerUp(id)
     fun moveLayerDown(id: String) = rtmpStreamer.moveLayerDown(id)
-    fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f) =
-        rtmpStreamer.setLayerTransform(id, scale, cx, cy, alpha)
+    // interview_006 Q3: [rotation] — поворот СОДЕРЖИМОГО слоя внутри сцены (0/90/180/270 CW).
+    fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f, rotation: Int = 0) =
+        rtmpStreamer.setLayerTransform(id, scale, cx, cy, alpha, rotation)
     fun capturePhoto() = rtmpStreamer.capturePhoto()
 
     // ── Idea 10 — virtual stream platform (record to file instead of RTMP) ──
@@ -82,9 +82,6 @@ class StreamingRepository @Inject constructor(
         else { rtmpStreamer.startStream(profile); null }
 
     /** Остановить активный вывод (запись или стрим). */
-    /** Idea 25 — переключить базу на наш GL-композитор (мобильный OBS). */
-    fun setUseCompositor(enabled: Boolean) = rtmpStreamer.setUseCompositor(enabled)
-
     fun stopAll() {
         if (rtmpStreamer.isRecording) rtmpStreamer.stopRecordToFile() else rtmpStreamer.stopStream()
     }
@@ -92,38 +89,19 @@ class StreamingRepository @Inject constructor(
     fun stopRecordToFile() = rtmpStreamer.stopRecordToFile()
 
     /**
-     * Set the video source (e.g. UvcVideoSource wrapping the USB camera).
-     * Called from :app whenever the active USB camera changes.
-     */
-    fun setVideoSource(source: VideoSource) {
-        rtmpStreamer.setVideoSource(source)
-    }
-
-    /**
-     * Start the GL preview pipeline and display it on [textureView].
-     * Also starts the video source (opens USB camera if UvcVideoSource is set).
+     * Start the GL preview pipeline (наш композитор) and display it on [textureView].
+     * Композитор сам откроет камеру-слой через CameraOpener, когда его поверхность готова.
      */
     fun startPreview(textureView: TextureView) {
         rtmpStreamer.startPreview(textureView)
     }
 
-    fun clearVideoSource() {
-        rtmpStreamer.clearVideoSource()
-    }
-
-    /** Idea 21 — задать/снять источник камеры-слоя (реальная/виртуальная); null = камера отключена. */
+    /**
+     * Phase 3 — задать/снять источник камеры-слоя (USB/встроенная/виртуальная); null = камеры нет.
+     * Отрыв камеры ничего не подменяет: композитор продолжает рисовать сцену (стрим/запись живут).
+     */
     fun setCameraOpener(opener: RtmpStreamer.CameraOpener?) {
         rtmpStreamer.setCameraOpener(opener)
-    }
-
-    /** Camera lost while streaming → inject the "Please stand by" frame to keep RTMP alive. */
-    fun enterStandby() {
-        rtmpStreamer.enterStandby()
-    }
-
-    /** Camera reconnected while streaming → restore the live camera [source] into the stream. */
-    fun exitStandby(source: VideoSource) {
-        rtmpStreamer.exitStandby(source)
     }
 
     fun stopPreview() {

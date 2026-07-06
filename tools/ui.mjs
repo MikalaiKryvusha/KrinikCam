@@ -591,16 +591,16 @@ switch (cmd) {
     //   node tools/ui.mjs cmd stream-to-file on|off    — запись в файл вместо RTMP (harness)
     //   node tools/ui.mjs cmd go-live [1080|2160|...]  — старт (в harness — запись MP4); arg = высота кадра
     //   node tools/ui.mjs cmd stop                     — остановить запись/стрим
-    //   node tools/ui.mjs cmd set-rotation 0|90|180|270 — поворот видео
+    //   node tools/ui.mjs cmd set-rotation 0|90|180|270 — глобальный поворот ХОЛСТА над сценой (interview_006)
     //   node tools/ui.mjs cmd add-overlay              — добавить тестовый PNG-оверлей
     //   node tools/ui.mjs cmd rotation-mode on|off     — режим «вращение по ADB» (для orient)
-    //   node tools/ui.mjs cmd set-transform <id> <scale> <cx> <cy> [alpha] — PiP-трансформа слоя (композитор)
+    //   node tools/ui.mjs cmd set-transform <id> <scale> <cx> <cy> [alpha] [rotation] — трансформа слоя (+поворот содержимого)
     const action = rest[0];
     // Хвост аргументов склеиваем в один токен ЧЕРЕЗ ЗАПЯТУЮ (без пробелов: иначе `am broadcast --es arg`
     // на устройстве расщепит значение по пробелам). Приёмник в MainActivity парсит по [,\s]+.
     const arg = rest.length > 1 ? rest.slice(1).join(',') : undefined;
     if (!action) {
-      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|stop|set-rotation|add-overlay|rotation-mode|compositor|device-camera|toggle-layer|layer-up|layer-down|set-transform)');
+      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|stop|photo|set-rotation|add-overlay|rotation-mode|device-camera|toggle-layer|layer-up|layer-down|set-transform)');
       process.exit(1);
     }
     const pkg = PKG_DEBUG; // CMD-receiver только в debug
@@ -633,13 +633,14 @@ Usage:
   node tools/ui.mjs orient <auto|portrait|landscape|reverseportrait|reverselandscape>  — force app orientation over ADB (debug receiver)
   node tools/ui.mjs cmd <action> [arg]  — ⭐ ТОЛСТАЯ debug-команда (минует UI). Действия:
        virtual-camera on|off · stream-to-file on|off · go-live [1080|2160] · stop · photo · set-rotation 0|90|180|270
-       · add-overlay · rotation-mode on|off · compositor on|off · device-camera front|back|off
-       · toggle-layer <id> · layer-up <id> · layer-down <id> · set-transform <id> <scale> <cx> <cy> [alpha]
+       · add-overlay · rotation-mode on|off · device-camera front|back|off
+       · toggle-layer <id> · layer-up <id> · layer-down <id> · set-transform <id> <scale> <cx> <cy> [alpha] [rotation]
 
 Examples:
   node tools/ui.mjs cmd virtual-camera on   # включить виртуалку (надёжно, без навигации)
-  node tools/ui.mjs cmd compositor on       # база энкодера = наш GL-композитор (мобильный OBS, Idea 25)
   node tools/ui.mjs cmd set-transform camera 0.35 0.8 0.8   # камера-PiP в правый-нижний угол (scale, cx, cy в [0,1])
+  node tools/ui.mjs cmd set-transform camera 1 0.5 0.5 1 90 # выпрямить «лежащую» камеру: поворот содержимого слоя на 90°
+  # (Phase 3: команда "compositor on|off" УДАЛЕНА — наш GL-композитор всегда единственный пайплайн)
   node tools/ui.mjs cmd stream-to-file on   # режим записи в файл
   node tools/ui.mjs cmd go-live 1080        # старт записи 1080p
   node tools/ui.mjs dump

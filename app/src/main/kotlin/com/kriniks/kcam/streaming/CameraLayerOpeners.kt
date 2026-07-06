@@ -1,26 +1,38 @@
 /**
- * CameraLayerOpeners — мост «слой-камера ↔ реальный источник кадров» для модели Idea 21.
+ * CameraLayerOpeners — мост «слой-камера ↔ реальный источник кадров» (Phase 3: единый композитор).
  *
- * В новой модели камера — это слой-`SurfaceFilterRender`, а не базовый VideoSource. Компоновщик
- * (в :feature:streaming) создаёт фильтр и отдаёт его `SurfaceTexture`, но НЕ умеет открывать камеру
- * (AUSBC живёт в :app). Поэтому :app передаёт в `RtmpStreamer` реализацию `CameraOpener`, которая
- * открывает конкретный источник в эту SurfaceTexture.
+ * Камера — обычный СЛОЙ нашего GL-композитора. Композитор (в :feature:streaming) создаёт
+ * OES-текстуру + SurfaceTexture слоя, но НЕ умеет открывать камеры (AUSBC/Camera2 живут в :app).
+ * Поэтому :app передаёт в `RtmpStreamer` реализацию `CameraOpener`, которая открывает конкретный
+ * источник в эту SurfaceTexture.
  *
  *   • [UvcCameraOpener] — реальная USB-камера (AUSBC) рендерит прямо в SurfaceTexture слоя.
  *   • [VirtualCameraOpener] — виртуальная дебаг-камера (тест-паттерн) рисует в SurfaceTexture слоя
- *     (для разработки/тестов поворотов без реальной камеры).
+ *     сама (Canvas-петля) — для разработки/тестов без реальной камеры.
+ *   • [DeviceCameraOpener] (DeviceCamera.kt) — встроенная камера устройства через Camera2.
+ *
+ * ВАЖНО (interview_006): все openers отдают СЫРОЙ 16:9-поток «как с сенсора» — никаких поворотов
+ * от ориентации устройства. Поворотами занимается KrinikCam: глобальный поворот холста + поворот
+ * содержимого слоя (LayerTransform.rotation).
  *
  * Живут в :app, т.к. бриджат AUSBC (:feature:usb) и RootEncoder/Streaming (:feature:streaming).
  */
 
 package com.kriniks.kcam.streaming
 
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.SurfaceTexture
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.SystemClock
+import android.view.Surface
 import com.jiangdg.ausbc.MultiCameraClient
 import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer
-import com.kriniks.kcam.feature.streaming.rtmp.VirtualVideoSource
+import com.kriniks.kcam.feature.streaming.rtmp.VirtualFrameRenderer
 
 private const val TAG = "CameraLayerOpeners"
 
@@ -57,24 +69,111 @@ class UvcCameraOpener(
     }
 }
 
-/** Открывает виртуальную дебаг-камеру (тест-паттерн) в SurfaceTexture слоя камеры. */
+/**
+ * Открывает виртуальную дебаг-камеру (тест-паттерн, Idea 09) в SurfaceTexture слоя камеры.
+ *
+ * Самостоятельный «сенсор»: HandlerThread рисует в Surface слоя 30fps-петлёй — статический паттерн
+ * VirtualFrameRenderer (круг/сетка — для проверки искажений) + живой оверлей (бегущая штанга и
+ * счётчик кадров/секунд — доказывает, что поток живой, Bug 11). Всегда ЛАНДШАФТ 16:9 «как с
+ * сенсора» (interview_006) — все повороты делает композитор, не источник.
+ *
+ * Урок bug 18: SurfaceTexture слоя — GL-consumer, софтверный lockCanvas отдаёт null/чёрный кадр.
+ * Рисуем через lockHardwareCanvas (GPU), с фолбэком на software для прочих поверхностей.
+ */
 class VirtualCameraOpener : RtmpStreamer.CameraOpener {
-    private var source: VirtualVideoSource? = null
+
+    private companion object {
+        const val SENSOR_W = 1920
+        const val SENSOR_H = 1080
+        const val FPS = 30L
+        const val FRAME_INTERVAL_MS = 1000L / FPS
+        const val ACID_PINK = 0xFFFF1A8C.toInt()
+    }
+
+    private var surface: Surface? = null
+    private var thread: HandlerThread? = null
+    private var handler: Handler? = null
+    @Volatile private var running = false
+
+    private var staticFrame: Bitmap? = null
+    private var frameCount = 0L
+    private var startMs = 0L
+
+    private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ACID_PINK; alpha = 180 }
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        textSize = SENSOR_H * 0.045f
+    }
 
     override fun open(surfaceTexture: SurfaceTexture) {
+        close() // close-before-open: слой мог отдать НОВУЮ SurfaceTexture при реините GL
         try {
-            val s = VirtualVideoSource()
-            source = s
-            s.start(surfaceTexture) // рисует тест-паттерн прямо в SurfaceTexture слоя
-            KLog.d(TAG, "Virtual camera opened into layer SurfaceTexture")
+            staticFrame = VirtualFrameRenderer.renderStatic(SENSOR_W, SENSOR_H)
+            surfaceTexture.setDefaultBufferSize(SENSOR_W, SENSOR_H)
+            val s = Surface(surfaceTexture)
+            surface = s
+            running = true
+            startMs = SystemClock.elapsedRealtime()
+            val t = HandlerThread("VirtualCamDraw").also { it.start() }
+            thread = t
+            val h = Handler(t.looper)
+            handler = h
+            val loop = object : Runnable {
+                override fun run() {
+                    if (!running) return
+                    drawOnce()
+                    if (running) h.postDelayed(this, FRAME_INTERVAL_MS)
+                }
+            }
+            h.post(loop)
+            KLog.d(TAG, "Virtual camera opened into layer — ${SENSOR_W}x${SENSOR_H} @ ${FPS}fps (raw landscape)")
         } catch (e: Exception) {
             KLog.e(TAG, "VirtualCameraOpener.open failed", e)
+            running = false
+        }
+    }
+
+    // Нарисовать один кадр «сенсора»: статический паттерн + живая штанга + счётчик (Bug 11).
+    private fun drawOnce() {
+        val s = surface ?: return
+        val bmp = staticFrame ?: return
+        try {
+            // bug 18: hardware canvas для GL-consumer поверхности; software — фолбэк.
+            val canvas = (runCatching { s.lockHardwareCanvas() }.getOrNull() ?: s.lockCanvas(null)) ?: return
+            canvas.drawBitmap(bmp, 0f, 0f, null)
+
+            // Бегущая вертикальная штанга (слева направо, с циклом) — доказывает живой поток.
+            val barW = SENSOR_W * 0.012f
+            val period = 3000f // мс на полный проход
+            val elapsed = (SystemClock.elapsedRealtime() - startMs).toFloat()
+            val bx = ((elapsed % period) / period) * SENSOR_W
+            canvas.drawRect(bx, 0f, bx + barW, SENSOR_H.toFloat(), barPaint)
+
+            // Живой счётчик: целевой FPS + номер кадра + секунды (Bug 11).
+            val secs = elapsed / 1000f
+            canvas.drawText(
+                "%d FPS · frame %d · %.1fs".format(FPS, frameCount, secs),
+                SENSOR_W / 2f, SENSOR_H * 0.96f, textPaint,
+            )
+
+            s.unlockCanvasAndPost(canvas)
+            frameCount++
+        } catch (e: Exception) {
+            KLog.w(TAG, "Virtual frame draw failed: ${e.message}")
         }
     }
 
     override fun close() {
-        source?.stop()
-        source = null
+        running = false
+        handler?.removeCallbacksAndMessages(null)
+        thread?.quitSafely()
+        thread = null
+        handler = null
+        surface?.release()
+        surface = null
+        staticFrame?.recycle()
+        staticFrame = null
         KLog.d(TAG, "Virtual camera closed (layer)")
     }
 }
