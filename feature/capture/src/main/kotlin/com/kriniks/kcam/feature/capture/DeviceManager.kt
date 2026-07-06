@@ -53,6 +53,12 @@ class DeviceManager @Inject constructor() {
     // connected, the active source becomes VideoSource.Virtual (synthetic test pattern).
     private var virtualEnabled = false
 
+    // plans/05 S3 — сделал ли пользователь ЯВНЫЙ выбор источника. Пока false — updateActiveSource
+    // авто-подхватывает UVC (удобный дефолт на старте). После явного выбора (в т.ч. Virtual/None)
+    // авто-приоритет НЕ перебивает его: иначе кривая негоциация 2K-вебки (bug 25) спамит connect-
+    // события и откатывает выбор на UVC (наблюдали: select-source none/virtual не срабатывал).
+    private var userSelected = false
+
     /**
      * plans/05 S2 — единый список ДОСТУПНЫХ источников для UI выбора в свойствах слоя «Устройство
      * захвата видео»: все подключённые UVC-вебки + все встроенные камеры ОС + виртуалка (дебаг).
@@ -98,6 +104,7 @@ class DeviceManager @Inject constructor() {
 
     fun selectVideoSource(source: VideoSource) {
         KLog.d(TAG, "User selected video source: ${source.displayName}")
+        userSelected = true
         _activeVideoSource.value = source
     }
 
@@ -109,6 +116,7 @@ class DeviceManager @Inject constructor() {
     fun selectPhoneCamera(isFront: Boolean): Boolean {
         val cam = _phoneCameras.value.firstOrNull { it.isFront == isFront }
             ?: _phoneCameras.value.firstOrNull() ?: return false
+        userSelected = true
         KLog.i(TAG, "Select device camera: ${cam.displayName}")
         _activeVideoSource.value = cam
         return true
@@ -121,6 +129,7 @@ class DeviceManager @Inject constructor() {
      */
     fun selectPhoneCameraById(cameraId: String): Boolean {
         val cam = _phoneCameras.value.firstOrNull { it.cameraId == cameraId } ?: return false
+        userSelected = true
         KLog.i(TAG, "Select device camera by id=$cameraId: ${cam.displayName}")
         _activeVideoSource.value = cam
         return true
@@ -129,6 +138,7 @@ class DeviceManager @Inject constructor() {
     /** plans/05 S5 — выбрать виртуальную дебаг-камеру источником (включает её и делает активной). */
     fun selectVirtual() {
         setVirtualCamera(true)
+        userSelected = true
         KLog.i(TAG, "Select virtual source")
         _activeVideoSource.value = VideoSource.Virtual
     }
@@ -136,6 +146,7 @@ class DeviceManager @Inject constructor() {
     /** Plan 05 — явно выбрать подключённую UVC-вебку как источник камера-слоя. null если вебок нет. */
     fun selectUvc(): Boolean {
         val uvc = _uvcSources.value.firstOrNull() ?: return false
+        userSelected = true
         KLog.i(TAG, "Select UVC source: ${uvc.displayName}")
         _activeVideoSource.value = uvc
         return true
@@ -166,6 +177,15 @@ class DeviceManager @Inject constructor() {
         if (current is VideoSource.UvcCamera && current in _uvcSources.value) return
         // Явно выбранную встроенную камеру (selectPhoneCamera) тоже не перебиваем, если она ещё есть.
         if (current is VideoSource.PhoneCamera && current in _phoneCameras.value) return
+
+        // plans/05 S3 — после ЯВНОГО выбора пользователя авто-приоритет молчит для Virtual/None:
+        // это осознанный выбор, а не «нет источника по умолчанию». Иначе спам connect-событий кривой
+        // 2K-вебки (bug 25) откатывал бы выбор обратно на UVC (наблюдали: none/virtual не срабатывал).
+        // Устройство, которое ИСЧЕЗЛО (выше guard не сработал), — авто-фолбэк ниже, это норм.
+        if (userSelected && (current is VideoSource.Virtual || current is VideoSource.None)) {
+            KLog.d(TAG, "Explicit ${current.displayName} kept (auto-priority suppressed)")
+            return
+        }
 
         // Приоритет авто-выбора (жалоба Криника 2026-07-06): USB-вебка → виртуалка (дебаг) → НЕТ.
         // ВСТРОЕННУЮ камеру устройства по умолчанию НЕ выбираем — иначе при запуске (пока USB-вебка
