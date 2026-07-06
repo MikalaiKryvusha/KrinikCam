@@ -8,6 +8,11 @@ import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -203,6 +208,17 @@ class MainActivity : ComponentActivity() {
                             else -> KLog.w("MainActivity", "select-source: front|rear|uvc|virtual|none|builtin <id>")
                         }
                     }
+                    // plans/03 S8 — двухпальцевые жесты для АГЕНТА (устройство без рута, sendevent
+                    // запрещён → инъектируем синтетические 2-пальцевые MotionEvent в СВОЙ decorView,
+                    // прогоняя настоящий Compose-жест над выбранным слоем). Криник просил.
+                    "gesture-pinch" -> {
+                        val dir = arg?.trim()?.split(Regex("\\s+"))?.firstOrNull() ?: "out"
+                        injectTwoFinger(if (dir == "in") "pinch-in" else "pinch-out", 0f)
+                    }
+                    "gesture-twist" -> {
+                        val deg = arg?.trim()?.split(Regex("\\s+"))?.firstOrNull()?.toFloatOrNull() ?: 45f
+                        injectTwoFinger("twist", deg)
+                    }
                     else -> KLog.w("MainActivity", "CMD: unknown action '$action'")
                 }
             }
@@ -213,6 +229,71 @@ class MainActivity : ComponentActivity() {
             ContextCompat.RECEIVER_EXPORTED,
         )
         cmdReceiver = receiver
+    }
+
+    /**
+     * plans/03 S8 — проиграть СИНТЕТИЧЕСКИЙ двухпальцевый жест (щипок/поворот) поверх превью: диспатчим
+     * последовательность MotionEvent (2 указателя) в свой `decorView`. Права на инъекцию в СВОИ вьюхи
+     * есть без рута — жест проходит настоящий Compose-пайплайн (detectTransformGestures) над выбранным
+     * слоем. [kind] = pinch-in|pinch-out|twist; [amount] — градусы для twist. Центр — центр экрана.
+     */
+    private fun injectTwoFinger(kind: String, amount: Float) {
+        val root = window.decorView
+        if (root.width == 0 || root.height == 0) return
+        val cx = root.width / 2f
+        val cy = root.height / 2f
+        val minDim = minOf(root.width, root.height).toFloat()
+        val steps = 24
+        val stepMs = 16L
+        // Начальный/конечный радиус разведения и угол (рад): щипок меняет радиус, twist — угол.
+        val r0: Float; val r1: Float; val a0: Float; val a1: Float
+        when (kind) {
+            "pinch-in"  -> { r0 = minDim * 0.30f; r1 = minDim * 0.10f; a0 = 0f; a1 = 0f }
+            "pinch-out" -> { r0 = minDim * 0.10f; r1 = minDim * 0.30f; a0 = 0f; a1 = 0f }
+            else        -> { r0 = minDim * 0.22f; r1 = minDim * 0.22f; a0 = 0f
+                             a1 = Math.toRadians(amount.toDouble()).toFloat() } // twist
+        }
+        val downTime = SystemClock.uptimeMillis()
+        val handler = Handler(Looper.getMainLooper())
+        val props = arrayOf(
+            MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_FINGER },
+            MotionEvent.PointerProperties().apply { id = 1; toolType = MotionEvent.TOOL_TYPE_FINGER },
+        )
+        // Два пальца симметрично: A в (cx+r·cosθ, cy+r·sinθ), B — напротив.
+        fun coords(r: Float, a: Float): Array<MotionEvent.PointerCoords> {
+            val dx = (r * kotlin.math.cos(a)); val dy = (r * kotlin.math.sin(a))
+            val c0 = MotionEvent.PointerCoords().apply { x = cx + dx; y = cy + dy; pressure = 1f; size = 1f }
+            val c1 = MotionEvent.PointerCoords().apply { x = cx - dx; y = cy - dy; pressure = 1f; size = 1f }
+            return arrayOf(c0, c1)
+        }
+        fun dispatch(eventTime: Long, action: Int, count: Int, cs: Array<MotionEvent.PointerCoords>) {
+            val ev = MotionEvent.obtain(
+                downTime, eventTime, action, count,
+                props.copyOfRange(0, count), cs.copyOfRange(0, count),
+                0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0,
+            )
+            runCatching { root.dispatchTouchEvent(ev) }
+            ev.recycle()
+        }
+        // DOWN (палец 0) → POINTER_DOWN (палец 1) → MOVE×steps → POINTER_UP → UP. Разносим по времени.
+        handler.postDelayed({ dispatch(downTime, MotionEvent.ACTION_DOWN, 1, coords(r0, a0)) }, 0)
+        handler.postDelayed({
+            val act = MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+            dispatch(downTime + stepMs, act, 2, coords(r0, a0))
+        }, stepMs)
+        for (i in 1..steps) {
+            val frac = i.toFloat() / steps
+            val r = r0 + (r1 - r0) * frac; val a = a0 + (a1 - a0) * frac
+            val off = (i + 1) * stepMs
+            handler.postDelayed({ dispatch(downTime + off, MotionEvent.ACTION_MOVE, 2, coords(r, a)) }, off)
+        }
+        val upOff = (steps + 2) * stepMs
+        handler.postDelayed({
+            val act = MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+            dispatch(downTime + upOff, act, 2, coords(r1, a1))
+        }, upOff)
+        handler.postDelayed({ dispatch(downTime + upOff + stepMs, MotionEvent.ACTION_UP, 1, coords(r1, a1)) }, upOff + stepMs)
+        KLog.i("MainActivity", "injectTwoFinger $kind amount=$amount (steps=$steps)")
     }
 
     /**

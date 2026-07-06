@@ -215,7 +215,10 @@ fun MainScreen(
                                 270 -> gfy to (1f - gfx)
                                 else -> gfx to gfy
                             }
-                            streamViewModel.nudgeSelectedLayer(dCx, dCy, zoom, rotation, pvx, pvy)
+                            // −rotation: у Compose detectTransformGestures знак поворота обратный нашему
+                            // CW-соглашению (проверено инъекцией: twist по часовой давал контент против
+                            // часовой). Негация синхронно разворачивает и спин контента, и орбиту пивота.
+                            streamViewModel.nudgeSelectedLayer(dCx, dCy, zoom, -rotation, pvx, pvy)
                         }
                     }
                     .pointerInput(gestureRotation, scene) {
@@ -269,10 +272,21 @@ fun MainScreen(
                     val left = (w - cW) / 2f; val top = (h - cH) / 2f
                     val t = sel.transform
                     val half = t.scale / 2f
-                    // Углы слоя в scene-координатах [0,1].
-                    val corners = listOf(
-                        (t.cx - half) to (t.cy - half), (t.cx + half) to (t.cy - half),
-                        (t.cx + half) to (t.cy + half), (t.cx - half) to (t.cy + half),
+                    val a = 16f / 9f
+                    // Поворот содержимого слоя (CW-визуально для +rotation, как в композиторе), аспект-
+                    // корректно: локальный угол в аспект-пространстве (x·a) → поворот → обратно.
+                    val rot = Math.toRadians(t.rotation.toDouble())
+                    val cosR = kotlin.math.cos(rot).toFloat(); val sinR = kotlin.math.sin(rot).toFloat()
+                    fun corner(dx: Float, dy: Float): Pair<Float, Float> {
+                        val ax = dx * a; val ay = dy
+                        val rx = ax * cosR - ay * sinR
+                        val ry = ax * sinR + ay * cosR
+                        return (t.cx + rx / a) to (t.cy + ry)
+                    }
+                    // 4 угла слоя (по часовой) в scene-координатах, уже повёрнутые.
+                    val sc = listOf(
+                        corner(-half, -half), corner(half, -half),
+                        corner(half, half), corner(-half, half),
                     )
                     // scene → доля экранного контента (обратно к S5-развороту точки), затем → пиксели.
                     fun toScreen(sx: Float, sy: Float): Offset {
@@ -284,15 +298,15 @@ fun MainScreen(
                         }
                         return Offset(left + fx * cW, top + fy * cH)
                     }
-                    val pts = corners.map { toScreen(it.first, it.second) }
-                    val minX = pts.minOf { it.x }; val maxX = pts.maxOf { it.x }
-                    val minY = pts.minOf { it.y }; val maxY = pts.maxOf { it.y }
-                    drawRect(
-                        color = Color(0xFFFF1A8C),
-                        topLeft = Offset(minX, minY),
-                        size = Size(maxX - minX, maxY - minY),
-                        style = Stroke(width = 4f),
-                    )
+                    val pts = sc.map { toScreen(it.first, it.second) }
+                    // Рамкой обводим повёрнутый прямоугольник (полигон), а не axis-aligned габарит.
+                    for (i in pts.indices) {
+                        drawLine(
+                            color = Color(0xFFFF1A8C),
+                            start = pts[i], end = pts[(i + 1) % pts.size],
+                            strokeWidth = 4f,
+                        )
+                    }
                 }
             }
         }
