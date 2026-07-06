@@ -186,17 +186,30 @@ fun MainScreen(
                     .pointerInput(selectedLayerId, gestureRotation) {
                         detectTransformGestures { _, pan, zoom, rotation ->
                             // contentRect: композит вписан в экран по аспекту (леттербокс). Для
-                            // canvas 0/180 — 16:9, для 90/270 — 9:16 (S4 обобщит повороты pan).
+                            // canvas 0/180 — 16:9, для 90/270 — 9:16 (портретный выход).
                             val w = size.width.toFloat()
                             val h = size.height.toFloat()
                             val portrait = gestureRotation == 90 || gestureRotation == 270
                             val aspect = if (portrait) 9f / 16f else 16f / 9f
                             val contentW = minOf(w, h * aspect)
                             val contentH = contentW / aspect
-                            // S2: pan в доли кадра. Поворот холста в маппинге pan — задача S4.
+                            // Доли ЭКРАННОГО контента.
+                            val fx = pan.x / contentW
+                            val fy = pan.y / contentH
+                            // S4 — маппинг экранного pan в координаты НЕПОВЁРНУТОЙ сцены (cx,cy живут в
+                            // landscape-FBO прохода 1; проход 2 крутит холст текстурно). Разворачиваем
+                            // экранный вектор в систему сцены. ЗНАКИ подтверждены live-свайпами: превью
+                            // относительно scene-координат повёрнуто ПРОТИВОположно (Y-флип текстур в
+                            // проходе 2), поэтому 90 и 270 против «наивного» вывода.
+                            val (dCx, dCy) = when (gestureRotation) {
+                                90 -> -fy to fx
+                                180 -> -fx to -fy
+                                270 -> fy to -fx
+                                else -> fx to fy   // 0
+                            }
                             streamViewModel.nudgeSelectedLayer(
-                                dCx = pan.x / contentW,
-                                dCy = pan.y / contentH,
+                                dCx = dCx,
+                                dCy = dCy,
                                 zoom = zoom,
                                 dRotation = rotation,
                             )
