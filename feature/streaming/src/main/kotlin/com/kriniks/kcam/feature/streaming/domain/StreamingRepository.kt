@@ -65,16 +65,48 @@ class StreamingRepository @Inject constructor(
     /**
      * plans/03 (жесты слоёв) — применить ИНКРЕМЕНТАЛЬНУЮ дельту жеста к слою [id]: [dCx],[dCy] — сдвиг
      * центра в долях кадра; [zoom] — множитель масштаба; [dRotation] — дельта угла содержимого (°).
-     * Читает текущую трансформу синхронно из `scene.value`, применяет дельту, клампит (§3.4) и пишет
-     * назад. Общий путь для пальцев (StreamViewModel.nudgeSelectedLayer) и харнеса (CMD gesture-*).
+     *
+     * ПИВОТ (Криник 2026-07-06: «в фоторедакторах вращается по-другому, интуитивнее»): масштаб и
+     * поворот происходят вокруг [pivotX],[pivotY] — точки между пальцами (центроид жеста) в
+     * scene-координатах [0,1]. Так слой «держится за пальцы», а не орбитит вокруг своего центра.
+     * Если пивот не задан (NaN — путь харнеса CMD gesture-*), крутим/масштабируем вокруг центра слоя.
+     * Аспект-коррекция (a=16/9) — чтобы поворот был рИгидным в ПИКСЕЛЯХ, а не в неквадратных clip-осях.
+     *
+     * Читает трансформу синхронно из `scene.value`, применяет, клампит (§3.4) и пишет назад.
      */
-    fun nudgeLayer(id: String, dCx: Float, dCy: Float, zoom: Float, dRotation: Float) {
+    fun nudgeLayer(
+        id: String, dCx: Float, dCy: Float, zoom: Float, dRotation: Float,
+        pivotX: Float = Float.NaN, pivotY: Float = Float.NaN,
+    ) {
         val layer = scene.value.layers.firstOrNull { it.id == id } ?: return
         val t = layer.transform
         val newScale = (t.scale * zoom).coerceIn(0.05f, 4.0f)
-        val newCx = (t.cx + dCx).coerceIn(-0.1f, 1.1f)
-        val newCy = (t.cy + dCy).coerceIn(-0.1f, 1.1f)
         val newRot = ((((t.rotation + dRotation) % 360f) + 360f) % 360f).toInt()
+
+        var cx = t.cx
+        var cy = t.cy
+        // Пивот-якорь: сдвигаем центр так, чтобы точка под центроидом пальцев осталась на месте при
+        // масштабе/повороте. Считаем в аспект-скорректированном пространстве (x·a), где поворот рИгиден.
+        if (!pivotX.isNaN() && !pivotY.isNaN() && (zoom != 1f || dRotation != 0f)) {
+            val a = 16f / 9f
+            val px = pivotX * a
+            val py = pivotY
+            val vx = cx * a - px
+            val vy = cy - py
+            // Поворот CW на dRotation (система Y-вниз, как у содержимого слоя: +° = по часовой).
+            val rad = Math.toRadians(dRotation.toDouble())
+            val cos = kotlin.math.cos(rad).toFloat()
+            val sin = kotlin.math.sin(rad).toFloat()
+            val sx = vx * zoom
+            val sy = vy * zoom
+            val rx = sx * cos - sy * sin
+            val ry = sx * sin + sy * cos
+            cx = (px + rx) / a
+            cy = py + ry
+        }
+        // Плюс трансляция центроида (перетаскивание) — уже в scene-долях (маппинг поворота холста в UI).
+        val newCx = (cx + dCx).coerceIn(-0.1f, 1.1f)
+        val newCy = (cy + dCy).coerceIn(-0.1f, 1.1f)
         rtmpStreamer.setLayerTransform(id, newScale, newCx, newCy, t.alpha, newRot)
     }
     fun capturePhoto() = rtmpStreamer.capturePhoto()

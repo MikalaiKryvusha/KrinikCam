@@ -67,9 +67,12 @@ class StreamViewModel @Inject constructor(
      * Читаем текущую трансформу СИНХРОННО из `scene.value` (repository — единый in-memory источник),
      * применяем дельту, клампим (§3.4) и пишем назад. Композитор перерисует сразу.
      */
-    fun nudgeSelectedLayer(dCx: Float, dCy: Float, zoom: Float, dRotation: Float) {
+    fun nudgeSelectedLayer(
+        dCx: Float, dCy: Float, zoom: Float, dRotation: Float,
+        pivotX: Float = Float.NaN, pivotY: Float = Float.NaN,
+    ) {
         val id = _selectedLayerId.value ?: return
-        repository.nudgeLayer(id, dCx, dCy, zoom, dRotation)
+        repository.nudgeLayer(id, dCx, dCy, zoom, dRotation, pivotX, pivotY)
     }
 
     // Монотонный счётчик ТОЛЬКО для уникальных id (id не должны повторяться даже после удалений).

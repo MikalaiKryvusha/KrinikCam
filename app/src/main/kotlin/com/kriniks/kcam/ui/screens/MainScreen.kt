@@ -29,6 +29,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -185,12 +189,13 @@ fun MainScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(selectedLayerId, gestureRotation) {
-                        detectTransformGestures { _, pan, zoom, rotation ->
+                        detectTransformGestures { centroid, pan, zoom, rotation ->
                             if (selectedLayerId == null) return@detectTransformGestures
                             val w = size.width.toFloat(); val h = size.height.toFloat()
                             val portrait = gestureRotation == 90 || gestureRotation == 270
                             val aspect = if (portrait) 9f / 16f else 16f / 9f
                             val contentW = minOf(w, h * aspect); val contentH = contentW / aspect
+                            val left = (w - contentW) / 2f; val top = (h - contentH) / 2f
                             val fx = pan.x / contentW; val fy = pan.y / contentH
                             // S4 — экранный pan → координаты НЕПОВЁРНУТОЙ сцены (двухпроходный FBO;
                             // знаки подтверждены live-свайпом, учтён Y-флип текстур прохода 2).
@@ -200,7 +205,17 @@ fun MainScreen(
                                 270 -> fy to -fx
                                 else -> fx to fy
                             }
-                            streamViewModel.nudgeSelectedLayer(dCx, dCy, zoom, rotation)
+                            // ПИВОТ (центроид пальцев) экран→scene (как хиттест S5) — чтобы масштаб/поворот
+                            // шли вокруг точки между пальцами (Криник: интуитивнее, как в фоторедакторах).
+                            val gfx = ((centroid.x - left) / contentW).coerceIn(0f, 1f)
+                            val gfy = ((centroid.y - top) / contentH).coerceIn(0f, 1f)
+                            val (pvx, pvy) = when (gestureRotation) {
+                                90 -> (1f - gfy) to gfx
+                                180 -> (1f - gfx) to (1f - gfy)
+                                270 -> gfy to (1f - gfx)
+                                else -> gfx to gfy
+                            }
+                            streamViewModel.nudgeSelectedLayer(dCx, dCy, zoom, rotation, pvx, pvy)
                         }
                     }
                     .pointerInput(gestureRotation, scene) {
@@ -235,6 +250,51 @@ fun MainScreen(
                         })
                     },
             )
+        }
+
+        // ── Layer 0.8: Рамка выделенного слоя на превью (plans/03 S5) ──
+        // Тонкая розовая рамка вокруг выбранного слоя (interview_007 Q2=B), чтобы блогер ВИДЕЛ, что
+        // выбрано. Неинтерактивная (без pointerInput). Габарит слоя (scale, cx,cy) переводим scene→
+        // экран с учётом леттербокса и поворота холста (обратно к хиттесту S5). Поворот СОДЕРЖИМОГО
+        // слоя рамка пока не отражает (axis-aligned, первый заход) — этого достаточно «увидеть выбор».
+        selectedLayerId?.let { selId ->
+            val sel = scene.layers.firstOrNull { it.id == selId }
+            if (sel != null && sel.visible) {
+                val gestureRotation = videoRotation
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width; val h = size.height
+                    val portrait = gestureRotation == 90 || gestureRotation == 270
+                    val aspect = if (portrait) 9f / 16f else 16f / 9f
+                    val cW = minOf(w, h * aspect); val cH = cW / aspect
+                    val left = (w - cW) / 2f; val top = (h - cH) / 2f
+                    val t = sel.transform
+                    val half = t.scale / 2f
+                    // Углы слоя в scene-координатах [0,1].
+                    val corners = listOf(
+                        (t.cx - half) to (t.cy - half), (t.cx + half) to (t.cy - half),
+                        (t.cx + half) to (t.cy + half), (t.cx - half) to (t.cy + half),
+                    )
+                    // scene → доля экранного контента (обратно к S5-развороту точки), затем → пиксели.
+                    fun toScreen(sx: Float, sy: Float): Offset {
+                        val (fx, fy) = when (gestureRotation) {
+                            90 -> sy to (1f - sx)
+                            180 -> (1f - sx) to (1f - sy)
+                            270 -> (1f - sy) to sx
+                            else -> sx to sy
+                        }
+                        return Offset(left + fx * cW, top + fy * cH)
+                    }
+                    val pts = corners.map { toScreen(it.first, it.second) }
+                    val minX = pts.minOf { it.x }; val maxX = pts.maxOf { it.x }
+                    val minY = pts.minOf { it.y }; val maxY = pts.maxOf { it.y }
+                    drawRect(
+                        color = Color(0xFFFF1A8C),
+                        topLeft = Offset(minX, minY),
+                        size = Size(maxX - minX, maxY - minY),
+                        style = Stroke(width = 4f),
+                    )
+                }
+            }
         }
 
         // ── Layer 1: Rotation menu (top-right) — ВСЕГДА виден (bug 21) ──────

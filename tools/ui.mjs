@@ -460,6 +460,27 @@ switch (cmd) {
     break;
   }
 
+  // ── Двухпальцевые жесты (plans/03 S8, просьба Криника) — pinch (масштаб) и twist (поворот) ──
+  // Устройство БЕЗ рута → sendevent в /dev/input запрещён. Поэтому мультитач инъектируется ВНУТРИ
+  // приложения: broadcast-CMD gesture-pinch/gesture-twist → MainActivity собирает синтетические
+  // двухпальцевые MotionEvent и диспатчит в СВОЙ decorView (прав хватает) → настоящий Compose-жест
+  // (detectTransformGestures) над выбранным слоем. Здесь ui.mjs — тонкий враппер над этим CMD.
+  case 'pinch':
+  case 'twist': {
+    // pinch <in|out> [frac]  ·  twist <deg> [radiusFrac]
+    const action = cmd === 'pinch' ? 'gesture-pinch' : 'gesture-twist';
+    const arg = cmd === 'pinch'
+      ? `${(rest[0] || 'out').toLowerCase()} ${rest[1] || ''}`.trim()
+      : `${rest[0] || '45'} ${rest[1] || ''}`.trim();
+    const deviceFlag = ADB_DEVICE ? ['-s', ADB_DEVICE] : [];
+    const out = execFileSync('adb', [...deviceFlag, 'shell', 'am', 'broadcast',
+      '-a', 'com.kriniks.kcam.CMD', '--es', 'action', action, '--es', 'arg', arg],
+      { encoding: 'utf8' });
+    const ok = /result=-1|result=0/.test(out) || /Broadcast completed/.test(out);
+    console.log(`${ok ? '✓' : '⚠️'} ${cmd} → CMD ${action} "${arg}" (инъекция мультитача в приложении)`);
+    break;
+  }
+
   case 'allow': {
     // Approve visible system permission / USB dialogs. Loops to handle a chain of dialogs
     // (e.g. camera → microphone → USB) — re-dumps after each tap until none remain.
