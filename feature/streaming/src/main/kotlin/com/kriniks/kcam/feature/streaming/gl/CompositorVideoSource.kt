@@ -421,11 +421,18 @@ class CompositorVideoSource : VideoSource() {
             android.opengl.Matrix.rotateM(layerM, 0, -layer.rotation.toFloat(), 0f, 0f, 1f)
             android.opengl.Matrix.scaleM(layerM, 0, SCENE_ASPECT, 1f, 1f)
         }
-        // bug 32 — вписываем КАМЕРУ в её квад с сохранением РОДНОГО аспекта (без растяга). Если аспект
-        // источника ≠ 16:9 сцены — ужимаем квад по одной оси (полосы), а не тянем. Innermost (к вершине
-        // первым): сырой квад → аспект-фит → [поворот] → масштаб → сдвиг. UVC 16:9 → фактор 1, no-op.
-        if (layer is CompositorLayer.Camera && kotlin.math.abs(cameraAspect - SCENE_ASPECT) > 0.01f) {
-            val a = cameraAspect / SCENE_ASPECT
+        // bug 32 / idea 35 — вписываем слой в его квад с сохранением РОДНОГО аспекта (без растяга).
+        // Если аспект слоя ≠ 16:9 сцены — ужимаем квад по одной оси (полосы), а не тянем. Аспект:
+        // камера = cameraAspect; картинка = аспект bitmap (idea 35: картинки больше не letterbox'ятся
+        // в 16:9, ведём родной аспект). Innermost (к вершине первым): сырой квад → аспект-фит →
+        // [поворот] → масштаб → сдвиг. 16:9-слой → фактор 1, no-op.
+        val layerAspect = when (layer) {
+            is CompositorLayer.Camera -> cameraAspect
+            is CompositorLayer.Image ->
+                if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else SCENE_ASPECT
+        }
+        if (kotlin.math.abs(layerAspect - SCENE_ASPECT) > 0.01f) {
+            val a = layerAspect / SCENE_ASPECT
             if (a < 1f) android.opengl.Matrix.scaleM(layerM, 0, a, 1f, 1f)      // уже 16:9 → полосы по бокам
             else android.opengl.Matrix.scaleM(layerM, 0, 1f, 1f / a, 1f)        // шире 16:9 → полосы сверху/снизу
         }

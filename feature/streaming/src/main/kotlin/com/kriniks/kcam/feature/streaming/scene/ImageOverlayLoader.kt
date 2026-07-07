@@ -16,11 +16,6 @@ package com.kriniks.kcam.feature.streaming.scene
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Rect
-import android.graphics.RectF
 import com.kriniks.kcam.core.logging.KLog
 
 private const val TAG = "ImageOverlayLoader"
@@ -36,13 +31,10 @@ object ImageOverlayLoader {
      * пропорций. Возвращает полнокадровый ARGB_8888-битмап (готовый оверлей) или null при ошибке.
      */
     fun loadOverlay(bytes: ByteArray): Bitmap? {
-        val src = decodeDownsampled(bytes, maxDim = FRAME_W) ?: return null
-        return try {
-            compositeFullFrame(src)
-        } finally {
-            // Исходник больше не нужен — освобождаем (полотно уже содержит его копию).
-            if (!src.isRecycled) src.recycle()
-        }
+        // idea 35 (Криник): БОЛЬШЕ НЕ вписываем в 16:9-полотно — отдаём картинку в её РОДНОМ аспекте.
+        // Теперь слой хранит нативный bitmap (квадрат/текст/любой), а композитор вписывает его по
+        // аспекту (как камеру, пилларбокс/леттербокс), рамка выделения и снап тоже адаптивны по аспекту.
+        return decodeDownsampled(bytes, maxDim = FRAME_W)
     }
 
     /** Декод с inSampleSize так, чтобы большая сторона не превышала [maxDim] (степень двойки). */
@@ -66,22 +58,4 @@ object ImageOverlayLoader {
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
     }
 
-    /** Вписать [src] по центру прозрачного полотна 16:9 с сохранением пропорций (letterbox-fit). */
-    private fun compositeFullFrame(src: Bitmap): Bitmap {
-        val canvasBmp = Bitmap.createBitmap(FRAME_W, FRAME_H, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(canvasBmp)
-        canvas.drawColor(Color.TRANSPARENT)
-
-        // Масштаб «вписать целиком» (fit): берём минимальный из коэффициентов по осям.
-        val scale = minOf(FRAME_W.toFloat() / src.width, FRAME_H.toFloat() / src.height)
-        val drawW = src.width * scale
-        val drawH = src.height * scale
-        val left = (FRAME_W - drawW) / 2f
-        val top = (FRAME_H - drawH) / 2f
-        val dst = RectF(left, top, left + drawW, top + drawH)
-
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-        canvas.drawBitmap(src, Rect(0, 0, src.width, src.height), dst, paint)
-        return canvasBmp
-    }
 }

@@ -105,14 +105,19 @@ class StreamingRepository @Inject constructor(
             cy = py + ry
         }
         // Плюс трансляция центроида (перетаскивание) — уже в scene-долях (маппинг поворота холста в UI).
-        var newCx = (cx + dCx).coerceIn(-0.1f, 1.1f)
-        var newCy = (cy + dCy).coerceIn(-0.1f, 1.1f)
+        // idea 35: клампим шире (слой МОЖЕТ уезжать за кадр — наезды/обрезка, если оторван от снапа).
+        var newCx = (cx + dCx).coerceIn(-0.5f, 1.5f)
+        var newCy = (cy + dCy).coerceIn(-0.5f, 1.5f)
 
-        // plans/03 S6 — СНАП для удобной компоновки (Криник): центр холста (0.5) и края (0/1) по обеим
-        // осям; угол — к кратным 90°. Мягко: только когда значение уже БЛИЗКО к цели (порог), иначе
-        // свободно. Так блогер легко ставит слой по центру / прижимает к краю / выпрямляет.
-        newCx = snapTo(newCx, SNAP_POS, 0f, 0.5f, 1f)
-        newCy = snapTo(newCy, SNAP_POS, 0f, 0.5f, 1f)
+        // plans/03 S6 + idea 35 — СНАП для удобной компоновки (Криник): центр холста (0.5) и КРАЯ по
+        // краю КАДРА ЗАПОДЛИЦО (вариант A) — прилипает КРАЙ слоя, слой целиком в кадре. Цели зависят от
+        // ПОЛУРАЗМЕРА слоя (аспект+scale): левый край флеш при cx=halfW, правый при cx=1-halfW, центр 0.5.
+        // Мягко (порог), с tear-off. Угол — к кратным 90°.
+        val aFit = layerAspect(layer) / (16f / 9f)
+        val halfW = if (aFit <= 1f) newScale * aFit / 2f else newScale / 2f
+        val halfH = if (aFit <= 1f) newScale / 2f else newScale / aFit / 2f
+        newCx = snapTo(newCx, SNAP_POS, halfW, 0.5f, 1f - halfW)
+        newCy = snapTo(newCy, SNAP_POS, halfH, 0.5f, 1f - halfH)
         val nearest90 = ((Math.round(newRot / 90f) * 90) % 360 + 360) % 360
         val snappedRot = if (kotlin.math.abs(newRot - Math.round(newRot / 90f) * 90) <= SNAP_ANGLE) nearest90 else newRot
 
@@ -132,7 +137,20 @@ class StreamingRepository @Inject constructor(
     fun capturePhoto() = rtmpStreamer.capturePhoto()
 
     /** bug 32 — аспект источника камеры (ширина/высота) для рендера без растяга. */
-    fun setCameraAspect(aspect: Float) = rtmpStreamer.setCameraAspect(aspect)
+    fun setCameraAspect(aspect: Float) {
+        if (aspect > 0f) lastCameraAspect = aspect   // idea 35 — кешируем для адаптивного снапа камера-слоя
+        rtmpStreamer.setCameraAspect(aspect)
+    }
+
+    // idea 35 — последний известный аспект камеры-источника (для снапа краёв камера-слоя по его размеру).
+    @Volatile private var lastCameraAspect = 16f / 9f
+
+    // idea 35 — аспект (ширина/высота) конкретного слоя: картинка = аспект bitmap, камера = cameraAspect.
+    private fun layerAspect(layer: com.kriniks.kcam.feature.streaming.scene.Layer): Float = when (layer) {
+        is com.kriniks.kcam.feature.streaming.scene.Layer.Image ->
+            if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else 16f / 9f
+        else -> lastCameraAspect
+    }
 
     /** bug 19 — ориентация сенсора камеры (+ зеркало фронталки) для выпрямления в композиторе. */
     fun setCameraOrientation(degrees: Int, mirror: Boolean) = rtmpStreamer.setCameraOrientation(degrees, mirror)

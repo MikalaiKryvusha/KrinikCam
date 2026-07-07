@@ -106,11 +106,17 @@ class StreamViewModel @Inject constructor(
             rawCx = (px + (sx * cos - sy * sin)) / a
             rawCy = py + (sx * sin + sy * cos)
         }
-        rawCx = (rawCx + dCx).coerceIn(-0.1f, 1.1f)
-        rawCy = (rawCy + dCy).coerceIn(-0.1f, 1.1f)
+        // idea 35: клампим шире — слой МОЖЕТ уезжать за кадр (наезды/обрезка, если оторван от снапа).
+        rawCx = (rawCx + dCx).coerceIn(-0.5f, 1.5f)
+        rawCy = (rawCy + dCy).coerceIn(-0.5f, 1.5f)
         // СНАП только для отображения (сырое не трогаем → tear-off возможен).
-        val snapCx = snapTo(rawCx, 0f, 0.5f, 1f)
-        val snapCy = snapTo(rawCy, 0f, 0.5f, 1f)
+        // idea 35: снап краёв ЗАПОДЛИЦО к краю кадра (вариант A) — цели по ПОЛУРАЗМЕРУ слоя (аспект+scale):
+        // левый край флеш при cx=halfW, правый при 1-halfW, центр 0.5 (аналогично по Y).
+        val aFit = layerAspect(layer) / (16f / 9f)
+        val halfW = if (aFit <= 1f) rawScale * aFit / 2f else rawScale / 2f
+        val halfH = if (aFit <= 1f) rawScale / 2f else rawScale / aFit / 2f
+        val snapCx = snapTo(rawCx, halfW, 0.5f, 1f - halfW)
+        val snapCy = snapTo(rawCy, halfH, 0.5f, 1f - halfH)
         val n90 = Math.round(rawRot / 90f) * 90
         val snapRot = if (kotlin.math.abs(rawRot - n90) <= 5f) ((n90 % 360) + 360) % 360
                       else ((rawRot.toInt() % 360) + 360) % 360
@@ -246,7 +252,21 @@ class StreamViewModel @Inject constructor(
     fun stopPreview() = repository.stopPreview()
 
     /** bug 32 — аспект текущего источника камеры (ширина/высота); зовёт опенер, чтобы не растягивать. */
-    fun setCameraAspect(aspect: Float) = repository.setCameraAspect(aspect)
+    fun setCameraAspect(aspect: Float) {
+        if (aspect > 0f) _cameraAspect.value = aspect   // idea 35 — для адаптивной рамки/снапа камера-слоя
+        repository.setCameraAspect(aspect)
+    }
+
+    // idea 35 — аспект текущего источника камеры, наблюдаемый UI (адаптивная рамка выделения камера-слоя).
+    private val _cameraAspect = MutableStateFlow(16f / 9f)
+    val cameraAspect: StateFlow<Float> = _cameraAspect.asStateFlow()
+
+    // idea 35 — аспект (ширина/высота) слоя: картинка = аспект bitmap, камера = аспект источника.
+    private fun layerAspect(layer: com.kriniks.kcam.feature.streaming.scene.Layer): Float = when (layer) {
+        is com.kriniks.kcam.feature.streaming.scene.Layer.Image ->
+            if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else 16f / 9f
+        else -> _cameraAspect.value
+    }
 
     /** bug 19 — ориентация сенсора камеры (+ зеркало фронталки); композитор выпрямляет кадр. */
     fun setCameraOrientation(degrees: Int, mirror: Boolean) = repository.setCameraOrientation(degrees, mirror)

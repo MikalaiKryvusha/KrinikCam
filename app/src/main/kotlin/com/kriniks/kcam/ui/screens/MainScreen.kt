@@ -116,6 +116,8 @@ fun MainScreen(
     val scene by streamViewModel.scene.collectAsStateWithLifecycle()
     // plans/03 — выбранный для жестов слой (подсветка в панели «Слои», позже — рамка на превью).
     val selectedLayerId by streamViewModel.selectedLayerId.collectAsStateWithLifecycle()
+    // idea 35 — аспект источника камеры для АДАПТИВНОЙ рамки выделения камера-слоя (картинки — по bitmap).
+    val cameraAspect by streamViewModel.cameraAspect.collectAsStateWithLifecycle()
     // plans/05 S4 — доступные источники для пикера в панели «Слои» (все встроенные + UVC + виртуалка).
     val availableSources by deviceManager.availableSources.collectAsStateWithLifecycle()
 
@@ -304,11 +306,23 @@ fun MainScreen(
             val sel = scene.layers.firstOrNull { it.id == selId }
             if (sel != null && sel.visible) {
                 val gestureRotation = videoRotation
-                // plans/03 S6 — состояние снапа (значение уже защёлкнуто в repository.nudgeLayer).
-                val cxCenter = sel.transform.cx == 0.5f
-                val cyCenter = sel.transform.cy == 0.5f
-                val cxEdge = sel.transform.cx == 0f || sel.transform.cx == 1f
-                val cyEdge = sel.transform.cy == 0f || sel.transform.cy == 1f
+                // idea 35 — АСПЕКТ слоя (картинка = bitmap, камера = cameraAspect) → полуразмеры слоя в
+                // scene-долях (для адаптивной рамки И детекции снапа краёв заподлицо).
+                val selAspect = when (sel) {
+                    is com.kriniks.kcam.feature.streaming.scene.Layer.Image ->
+                        if (sel.bitmap.height > 0) sel.bitmap.width.toFloat() / sel.bitmap.height else 16f / 9f
+                    else -> cameraAspect
+                }
+                val aFit = selAspect / (16f / 9f)
+                val halfW = if (aFit <= 1f) sel.transform.scale * aFit / 2f else sel.transform.scale / 2f
+                val halfH = if (aFit <= 1f) sel.transform.scale / 2f else sel.transform.scale / aFit / 2f
+                // plans/03 S6 + idea 35 — состояние снапа (значение уже защёлкнуто в nudge). Край = слой
+                // прилип ЗАПОДЛИЦО к краю кадра (cx=halfW или 1-halfW), центр = 0.5.
+                val eps = 0.001f
+                val cxCenter = kotlin.math.abs(sel.transform.cx - 0.5f) < eps
+                val cyCenter = kotlin.math.abs(sel.transform.cy - 0.5f) < eps
+                val cxEdge = kotlin.math.abs(sel.transform.cx - halfW) < eps || kotlin.math.abs(sel.transform.cx - (1f - halfW)) < eps
+                val cyEdge = kotlin.math.abs(sel.transform.cy - halfH) < eps || kotlin.math.abs(sel.transform.cy - (1f - halfH)) < eps
                 val rotSnapped = sel.transform.rotation % 90 == 0 && sel.transform.rotation != 0
                 // Haptic-тик при НОВОМ защёлкивании любого снапа (лёгкая вибрация, interview_007 Q4).
                 val view = LocalView.current
@@ -323,8 +337,10 @@ fun MainScreen(
                     val cW = minOf(w, h * aspect); val cH = cW / aspect
                     val left = (w - cW) / 2f; val top = (h - cH) / 2f
                     val t = sel.transform
-                    val half = t.scale / 2f
                     val a = 16f / 9f
+                    // idea 35 — рамка АДАПТИВНА под аспект слоя: полуразмеры halfW/halfH (посчитаны выше по
+                    // аспекту+scale) вместо квадратного half. Квадратная картинка → квадратная рамка, текст
+                    // (низкий-широкий) → широкая низкая, камера 4:3 → 4:3 и т.д.
                     // Поворот содержимого слоя (CW-визуально для +rotation, как в композиторе), аспект-
                     // корректно: локальный угол в аспект-пространстве (x·a) → поворот → обратно.
                     val rot = Math.toRadians(t.rotation.toDouble())
@@ -337,8 +353,8 @@ fun MainScreen(
                     }
                     // 4 угла слоя (по часовой) в scene-координатах, уже повёрнутые.
                     val sc = listOf(
-                        corner(-half, -half), corner(half, -half),
-                        corner(half, half), corner(-half, half),
+                        corner(-halfW, -halfH), corner(halfW, -halfH),
+                        corner(halfW, halfH), corner(-halfW, halfH),
                     )
                     // scene → доля экранного контента (обратно к S5-развороту точки), затем → пиксели.
                     fun toScreen(sx: Float, sy: Float): Offset {
@@ -367,11 +383,12 @@ fun MainScreen(
                     // Центр холста: вертикальная / горизонтальная линия через середину кадра.
                     if (cxCenter) drawLine(guide, toScreen(0.5f, 0f), toScreen(0.5f, 1f), strokeWidth = 2.5f)
                     if (cyCenter) drawLine(guide, toScreen(0f, 0.5f), toScreen(1f, 0.5f), strokeWidth = 2.5f)
-                    // Прижатие к краям кадра.
-                    if (sel.transform.cx == 0f) drawLine(guide, toScreen(0f, 0f), toScreen(0f, 1f), strokeWidth = 2.5f)
-                    if (sel.transform.cx == 1f) drawLine(guide, toScreen(1f, 0f), toScreen(1f, 1f), strokeWidth = 2.5f)
-                    if (sel.transform.cy == 0f) drawLine(guide, toScreen(0f, 0f), toScreen(1f, 0f), strokeWidth = 2.5f)
-                    if (sel.transform.cy == 1f) drawLine(guide, toScreen(0f, 1f), toScreen(1f, 1f), strokeWidth = 2.5f)
+                    // idea 35 — прижатие КРАЯ слоя ЗАПОДЛИЦО к краю кадра: линия по тому краю кадра, к
+                    // которому слой прилип (левый край слоя у cx=halfW → линия по левому краю кадра, и т.д.).
+                    if (kotlin.math.abs(sel.transform.cx - halfW) < eps) drawLine(guide, toScreen(0f, 0f), toScreen(0f, 1f), strokeWidth = 2.5f)
+                    if (kotlin.math.abs(sel.transform.cx - (1f - halfW)) < eps) drawLine(guide, toScreen(1f, 0f), toScreen(1f, 1f), strokeWidth = 2.5f)
+                    if (kotlin.math.abs(sel.transform.cy - halfH) < eps) drawLine(guide, toScreen(0f, 0f), toScreen(1f, 0f), strokeWidth = 2.5f)
+                    if (kotlin.math.abs(sel.transform.cy - (1f - halfH)) < eps) drawLine(guide, toScreen(0f, 1f), toScreen(1f, 1f), strokeWidth = 2.5f)
                     // Штриховая ось через ЦЕНТР слоя при снапе угла к кратному 90° (interview_007 Q3).
                     if (rotSnapped) {
                         val dash = PathEffect.dashPathEffect(floatArrayOf(22f, 16f), 0f)
