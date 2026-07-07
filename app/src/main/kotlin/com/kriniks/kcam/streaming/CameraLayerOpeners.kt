@@ -59,6 +59,12 @@ class UvcCameraOpener(
     // Bug 25 — переоткрывали ли уже на выбранном из списка размере (чтобы не зациклиться).
     private var reopenedAtBest = false
 
+    // Bug 31 — фоновый Thread Фазы-2 (reopen). Держим ссылку + флаг закрытия, чтобы ОТМЕНИТЬ его в
+    // close(): иначе при быстром свитче источника (UVC→virtual) он просыпается ПОСЛЕ close и
+    // переоткрывает камеру в уже отданную новому источнику поверхность → гонка HWUI «no surface».
+    @Volatile private var closed = false
+    private var reopenThread: Thread? = null
+
     private fun openAt(surfaceTexture: SurfaceTexture, w: Int, h: Int) {
         camera.openCamera(
             surfaceTexture,
@@ -81,9 +87,9 @@ class UvcCameraOpener(
             // Фаза 2 (bug 25, указание Криника «ставить размер ИЗ поддерживаемых камерой, не от балды»):
             // после негоциации опрашиваем реальный список размеров и, если камера негоциировала мелкий
             // (напр. 640×360), а поддерживает больше — ПЕРЕОТКРЫВАЕМ на лучшем 16:9 ИЗ СПИСКА. Один раз.
-            Thread {
+            reopenThread = Thread {
                 runCatching { Thread.sleep(1500) }
-                if (reopenedAtBest) return@Thread
+                if (closed || reopenedAtBest) return@Thread // bug 31: не переоткрывать после close/свитча
                 val sizes: List<PreviewSize> = runCatching { camera.getAllPreviewSizes(null) }.getOrNull().orEmpty()
                 KLog.i(TAG, "UVC поддерживаемые размеры: " + sizes.joinToString { "${it.width}x${it.height}" })
                 // Лучший поддерживаемый 16:9, не крупнее желаемого (напр. 1920×1080); иначе самый большой 16:9.
@@ -97,19 +103,23 @@ class UvcCameraOpener(
                 // реальный потолок. Если best == запрошенному (или список пуст) — не трогаем (без
                 // лишнего churn/риска нативного close-краша bug 28). Для 2K-лимона best=1920×1080=
                 // запрошенному → no-op (её практический потолок 640×360 = bandwidth/FPS-лимит AUSBC API).
+                if (closed) return@Thread // bug 31: свитч мог случиться, пока читали размеры — не трогать
                 if (best != null && (best.width != previewWidth || best.height != previewHeight)) {
                     reopenedAtBest = true
                     KLog.i(TAG, "UVC: переоткрываю на выбранном из списка ${best.width}x${best.height} (запрошено было ${previewWidth}x${previewHeight})")
                     runCatching { openAt(surfaceTexture, best.width, best.height) }
                         .onFailure { KLog.e(TAG, "UVC reopen failed", it) }
                 }
-            }.start()
+            }.also { it.start() }
         } catch (e: Exception) {
             KLog.e(TAG, "UvcCameraOpener.open failed", e)
         }
     }
 
     override fun close() {
+        closed = true // bug 31: гасим Фазу-2 reopen ДО закрытия камеры (не переоткроет в чужую поверхность)
+        runCatching { reopenThread?.interrupt() }
+        reopenThread = null
         reopenedAtBest = false
         try {
             camera.closeCamera()

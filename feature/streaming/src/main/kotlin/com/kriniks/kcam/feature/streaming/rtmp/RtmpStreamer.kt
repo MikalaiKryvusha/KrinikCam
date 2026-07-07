@@ -116,6 +116,9 @@ class RtmpStreamer @Inject constructor(
     }
     @Volatile private var cameraOpener: CameraOpener? = null
     private var cameraLayerSurface: SurfaceTexture? = null
+    // Bug 31 — тип последнего ОТКРЫТОГО продюсера (класс opener). На смене типа пересоздаём поверхность
+    // камеры (чистый BufferQueue). None (opener=null) НЕ трогает это поле → тип помнится через None.
+    private var lastOpenedKind: String? = null
 
     /** bug 32 — опенер сообщает аспект источника (ширина/высота); композитор рисует камеру без растяга. */
     fun setCameraAspect(aspect: Float) = compositorSource.setCameraAspect(aspect)
@@ -134,7 +137,22 @@ class RtmpStreamer @Inject constructor(
             // источника (напр. UVC→фронталка) старая камера продолжает писать в ту же поверхность слоя
             // и «побеждает» (виден старый источник). Закрыли старую → открыли выбранную.
             runCatching { old?.close() }
-            if (opener != null) cameraLayerSurface?.let { opener.open(it) }
+            if (opener != null) {
+                // Bug 31: при смене ТИПА продюсера (UVC-AUSBC ↔ виртуалка-HWUI ↔ Camera2) старый продюсер
+                // мог оставить BufferQueue общей SurfaceTexture в несовместимом состоянии → HWUI-краш
+                // «no surface». Даём новому продюсеру СВЕЖУЮ поверхность: recreateCameraSurface() на
+                // GL-потоке → onCameraSurfaceReady → onCameraLayerSurfaceReady откроет ТЕКУЩИЙ opener.
+                // Пересоздаём ТОЛЬКО на смене типа (не на старте/пересборке того же типа) — минимум churn.
+                // None не меняет lastOpenedKind → тип помнится через None (чинит uvc→none→virtual).
+                val kind = opener::class.simpleName
+                val typeChanged = lastOpenedKind != null && lastOpenedKind != kind
+                lastOpenedKind = kind
+                if (typeChanged) {
+                    compositorSource.recreateCameraSurface() // reopen произойдёт из onCameraSurfaceReady
+                } else {
+                    cameraLayerSurface?.let { opener.open(it) }
+                }
+            }
         }
     }
 

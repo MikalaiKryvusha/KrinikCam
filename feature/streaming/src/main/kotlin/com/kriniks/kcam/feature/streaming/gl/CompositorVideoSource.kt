@@ -178,6 +178,37 @@ class CompositorVideoSource : VideoSource() {
         handler?.post { syncTextures() }
     }
 
+    /**
+     * Bug 31 — пересоздать SurfaceTexture слоя-камеры на GL-потоке (ЧИСТОЕ окно новому продюсеру).
+     * Нужно при смене ТИПА продюсера (UVC-AUSBC ↔ виртуалка-HWUI): нативный AUSBC оставляет BufferQueue
+     * поверхности в состоянии, несовместимом с последующим HWUI `lockHardwareCanvas` → нативный SIGABRT
+     * «drawRenderNode called on a context with no surface». Свежая OES-текстура + SurfaceTexture рвут
+     * связь со старым продюсером — грубо, но надёжно (указание Криника: «надёжно, не обязательно красиво»).
+     * Продюсер должен быть уже ЗАКРЫТ вызывающим. Затем onCameraSurfaceReady(new) → RtmpStreamer
+     * откроет ТЕКУЩИЙ opener в свежую поверхность.
+     */
+    fun recreateCameraSurface() {
+        val h = handler ?: return
+        h.post {
+            if (!running) return@post
+            val r = renderer ?: return@post
+            runCatching { eglSurface?.let { eglCore?.makeCurrent(it) } }
+            // Освободить старую поверхность камеры (продюсер уже закрыт вызывающим).
+            runCatching { cameraSurfaceTexture?.setOnFrameAvailableListener(null) }
+            runCatching { cameraSurfaceTexture?.release() }
+            if (cameraOesTex != 0) runCatching { GLES20.glDeleteTextures(1, intArrayOf(cameraOesTex), 0) }
+            // Свежая OES-текстура + SurfaceTexture (как в initGl) — новый продюсер получит чистый BufferQueue.
+            cameraOesTex = r.createOesTexture()
+            val camSt = SurfaceTexture(cameraOesTex)
+            camSt.setDefaultBufferSize(SCENE_W, SCENE_H)
+            camSt.setOnFrameAvailableListener { newCameraFrame = true }
+            cameraSurfaceTexture = camSt
+            newCameraFrame = false
+            KLog.d(TAG, "Camera layer SurfaceTexture RECREATED (bug 31 — чистое окно новому продюсеру)")
+            onCameraSurfaceReady?.invoke(camSt)
+        }
+    }
+
     override fun create(width: Int, height: Int, fps: Int, rotation: Int): Boolean = true
 
     override fun start(surfaceTexture: SurfaceTexture) {
