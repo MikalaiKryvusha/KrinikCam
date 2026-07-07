@@ -200,12 +200,19 @@ class StreamingRepository @Inject constructor(
         rtmpStreamer.stopPreview()
     }
 
-    fun startStream(profile: StreamProfile): Boolean {
-        if (profile.streamKey.isBlank()) {
-            KLog.w(TAG, "Stream key is empty for profile '${profile.name}'")
+    fun startStream(profile: StreamProfile): Boolean = startStream(listOf(profile))
+
+    /** plans/07 — МУЛЬТИСТРИМ: запуск на несколько платформ разом (профили с непустым ключом). */
+    fun startStream(profiles: List<StreamProfile>): Boolean {
+        val valid = profiles.filter { it.streamKey.isNotBlank() }
+        if (valid.isEmpty()) {
+            KLog.w(TAG, "startStream: нет профилей с ключом (all blank)")
             return false
         }
-        return rtmpStreamer.startStream(profile)
+        if (valid.size < profiles.size) {
+            KLog.w(TAG, "startStream: пропущены профили с пустым ключом (${profiles.size - valid.size})")
+        }
+        return rtmpStreamer.startStream(valid)
     }
 
     fun stopStream() = rtmpStreamer.stopStream()

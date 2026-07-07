@@ -272,23 +272,27 @@ class StreamViewModel @Inject constructor(
     fun setCameraOrientation(degrees: Int, mirror: Boolean) = repository.setCameraOrientation(degrees, mirror)
 
     fun startStream() {
-        val profile = _activeProfile.value
+        // plans/07 S2/S4 — МУЛЬТИСТРИМ: стримим на ВСЕ включённые (isEnabled) платформы разом. Каждая
+        // enabled-платформа = отдельный RTMP-выход (движок MultiStream, S1/S3). Если ни одна не включена
+        // — фолбэк на выбранный профиль (обратная совместимость). Первый = основной (параметры энкодера).
+        val enabled = profiles.value.filter { it.isEnabled }
+        val targets = enabled.ifEmpty { listOfNotNull(_activeProfile.value) }
+        val primary = targets.firstOrNull()
         // Idea 10 — virtual stream platform: record encoder output to a file instead of RTMP.
-        // No stream key needed; use the active profile's video params, or defaults if none.
         if (repository.virtualStreamToFile) {
-            val p = profile ?: StreamProfile()
+            val p = primary ?: StreamProfile()
             val path = repository.startRecordToFile(p)
             viewModelScope.launch {
                 _snackbar.emit(if (path != null) "Virtual stream → file: $path" else "Record failed")
             }
             return
         }
-        if (profile == null) {
-            viewModelScope.launch { _snackbar.emit("No streaming platform configured") }
+        if (targets.isEmpty()) {
+            viewModelScope.launch { _snackbar.emit("Не выбрано ни одной платформы для эфира") }
             return
         }
-        KLog.i(TAG, "Starting stream on profile '${profile.name}'")
-        val ok = repository.startStream(profile)
+        KLog.i(TAG, "Starting MULTISTREAM on ${targets.size} platform(s): ${targets.joinToString { it.name }}")
+        val ok = repository.startStream(targets)
         if (!ok) {
             viewModelScope.launch { _snackbar.emit("Failed to start encoder — check device support") }
         }
