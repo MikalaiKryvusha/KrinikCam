@@ -115,6 +115,9 @@ class UsbDeviceRepositoryImpl @Inject constructor(
     private var lastPermDeviceId = -1
     private var lastPermTime = 0L
 
+    // bug 33 — UsbManager для проверки уже выданного разрешения (S1) + диагностики.
+    private val usbManager by lazy { context.getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager }
+
     override fun requestPermission(device: UsbDevice) {
         val now = android.os.SystemClock.elapsedRealtime()
         if (device.deviceId == lastPermDeviceId && now - lastPermTime < 3000L) {
@@ -123,6 +126,12 @@ class UsbDeviceRepositoryImpl @Inject constructor(
         }
         lastPermDeviceId = device.deviceId
         lastPermTime = now
+        // bug 33 — диагностика навязчивого диалога: логируем, ЕСТЬ ли уже разрешение на устройство.
+        // Если hasPermission=true → системного диалога быть НЕ должно (грант персистит); если диалог
+        // всё равно лезет — проблема в AUSBC (тогда S1: открывать напрямую, минуя requestPermission).
+        // Если hasPermission=false на каждом hot-plug → грант не персистит (нужен intent-filter/«всегда»).
+        val has = runCatching { usbManager.hasPermission(device) }.getOrDefault(false)
+        KLog.i(TAG, "requestPermission: device ${device.deviceId} vid=${device.vendorId} pid=${device.productId} hasPermission=$has (bug 33 diag)")
         multiCameraClient?.requestPermission(device)
     }
 
