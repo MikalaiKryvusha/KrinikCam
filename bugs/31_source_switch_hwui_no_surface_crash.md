@@ -37,6 +37,23 @@ Abort message: 'drawRenderNode called on a context with no surface!'
   при смене источника (как в фиксе bug 27 `resizeCanvasInPreview` — менять содержимое, не поверхность).
 - Не блокер для жестов слоёв (plans/03): там источник не свитчится. Отдельная задача.
 
+## Расследование (2026-07-07, офис, живой 2K-лимон)
+
+**Воспроизведён надёжно** серией быстрых свитчей `uvc↔virtual` (2с интервал) — падает на 1-2 цикле.
+Стек полностью нативный HWUI, без кадров приложения:
+```
+SkiaOpenGLPipeline::getFrame()  ← 'drawRenderNode called on a context with no surface!'
+CanvasContext::draw → DrawFrameTask::postAndWait → RenderThread::threadLoop
+```
+Общий RenderThread приложения. Кадров Compose/наших нет → рисование в abandoned-поверхность.
+
+**Две подозреваемые гонки (по коду):**
+1. **`VirtualCameraOpener.lockHardwareCanvas`** (drawOnce, HandlerThread 30fps) рисует в `Surface(layerSurfaceTexture)` через ХАРДВАРНЫЙ канвас = использует общий HWUI RenderThread. При свитче композитор/close рвут слой-SurfaceTexture под ним → getFrame() без surface → abort. Наиболее вероятный корень.
+2. **Лишний reopen-Thread у `UvcCameraOpener`**: фоновый Thread (sleep 1.5с, Фаза-2 bug 25) НЕ отменяется в `close()`. При быстром свитче просыпается ПОСЛЕ close и переоткрывает камеру в уже отданную/рвущуюся поверхность. Латентный баг независимо от bug 31.
+3. `setCameraOpener` гоняет `old.close()`+`open()` на **главном потоке** (`Dispatchers.Main.immediate`) — тяжёлый нативный AUSBC-close 2K на UI-потоке = стопор/гонка перерисовки.
+
+**Направление фикса:** (а) в `VirtualCameraOpener.drawOnce` — guard: не рисовать, если surface невалиден/после close; ловить `Surface.OutOfResourcesException`/проверять `surface.isValid`. (б) отменять reopen-Thread в `UvcCameraOpener.close()`. (в) при свопе opener'а — атомарно останавливать старый producer до отдачи поверхности новому.
+
 ## Статус
-🔴 ОТКРЫТ. Приоритет: средний (свитч источника — базовый сценарий выбора источника, plans/05).
-Смежное: bug 27 (HWUI/EGL гонка поверхности), bug 25/28 (2K-вебка).
+🔴 ОТКРЫТ — воспроизведён, гипотезы сузаны (выше). Приоритет: средний (свитч источника — базовый
+сценарий выбора источника, plans/05). Смежное: bug 27 (HWUI/EGL гонка поверхности), bug 25/28 (2K-вебка).
