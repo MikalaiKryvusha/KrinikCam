@@ -44,7 +44,8 @@ import com.pedro.common.ConnectChecker
 import com.pedro.library.base.recording.RecordController
 import java.lang.ref.WeakReference
 import com.pedro.encoder.utils.gl.AspectRatioMode
-import com.pedro.library.rtmp.RtmpStream
+import com.pedro.library.multiple.MultiStream
+import com.pedro.library.multiple.MultiType
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.feature.streaming.gl.CompositorLayer
@@ -75,7 +76,16 @@ class RtmpStreamer @Inject constructor(
     private val _state = MutableStateFlow<StreamState>(StreamState.Idle)
     val state: StateFlow<StreamState> = _state.asStateFlow()
 
-    private var rtmpStream: RtmpStream? = null
+    // plans/07 — движок МУЛЬТИСТРИМА: MultiStream (extends StreamBase, тот же превью/энкодер-API, что и
+    // RtmpStream) раздаёт ОДИН энкодер на N RTMP-выходов. S1: используем как одно-выходной (index 0),
+    // мультивыход включим в S2-S4. Имя поля оставлено `rtmpStream` для минимума churn.
+    private var rtmpStream: MultiStream? = null
+
+    // plans/07 — сколько RTMP-выходов держит MultiStream (потолок платформ одновременно). Стартуем
+    // только активные; массив ConnectChecker'ов такого размера задаёт число слотов.
+    private val maxRtmpOutputs = 4
+    // Индексы РТМП-выходов, реально запущенных сейчас (для корректной остановки). S1: {0}.
+    private val activeRtmpOutputs = mutableSetOf<Int>()
     // Weak ref so we don't leak the TextureView; used to restore preview after startStream
     private var lastPreviewTextureView: WeakReference<TextureView>? = null
 
@@ -230,8 +240,14 @@ class RtmpStreamer @Inject constructor(
         }
     }
 
-    private fun ensureStream(): RtmpStream =
-        rtmpStream ?: RtmpStream(context, connectChecker).also { rtmpStream = it }
+    private fun ensureStream(): MultiStream =
+        rtmpStream ?: MultiStream(
+            context,
+            // RTMP-выходы: массив ConnectChecker'ов размером maxRtmpOutputs (S1 — общий инстанс на все
+            // слоты; per-output различение статусов — S3). RTSP/SRT/UDP не используем.
+            Array(maxRtmpOutputs) { connectChecker },
+            emptyArray(), emptyArray(), emptyArray(),
+        ).also { rtmpStream = it }
 
     /**
      * Set the global CANVAS rotation to [degrees] (normalized to 0/90/180/270) — interview_006.
@@ -318,7 +334,7 @@ class RtmpStreamer @Inject constructor(
      * otherwise sneak in 270° for "phone sensors" — Bug 02 A). No RotatableSource, no
      * setStreamRotation — those legacy mechanisms are gone. Returns whether prepareVideo succeeded.
      */
-    private fun configureCaptureRotation(stream: RtmpStream, profile: StreamProfile): Boolean {
+    private fun configureCaptureRotation(stream: MultiStream, profile: StreamProfile): Boolean {
         val deg = _videoRotation.value
         val portrait = deg == 90 || deg == 270
         val (encW, encH) = rotatedDims(profile.videoWidth, profile.videoHeight, deg)
@@ -402,7 +418,7 @@ class RtmpStreamer @Inject constructor(
      * itself when the surface isn't ready. Once GL is up, re-trigger changeVideoSource() so the
      * compositor restarts on the now-valid SurfaceTexture.
      */
-    private fun scheduleVideoSourceRetryIfNeeded(stream: RtmpStream) {
+    private fun scheduleVideoSourceRetryIfNeeded(stream: MultiStream) {
         if (stream.getGlInterface().isRunning) return  // already up, no retry needed
         scope.launch {
             val gl = stream.getGlInterface()
@@ -431,7 +447,7 @@ class RtmpStreamer @Inject constructor(
      * Safe: StreamBase.startPreview skips videoSource.start()/glInterface.start() when already
      * running for the encoder — the compositor is not restarted or redirected.
      */
-    private fun schedulePreviewRestoreAfterStream(stream: RtmpStream) {
+    private fun schedulePreviewRestoreAfterStream(stream: MultiStream) {
         scope.launch {
             val gl = stream.getGlInterface()
             var waited = 0
@@ -515,8 +531,10 @@ class RtmpStreamer @Inject constructor(
             }
 
             _state.value = StreamState.Connecting
-            KLog.i(TAG, "startStream: calling stream.startStream() ...")
-            stream.startStream(rtmpUrl)
+            // plans/07 S1 — MultiStream: стартуем ОДИН RTMP-выход (index 0). S3 — по всем активным профилям.
+            KLog.i(TAG, "startStream: calling stream.startStream(RTMP, 0) ...")
+            stream.startStream(MultiType.RTMP, 0, rtmpUrl)
+            activeRtmpOutputs.add(0)
             KLog.d(TAG, "startStream: stream.startStream() returned — waiting for GL + ConnectChecker callbacks")
 
             // Wait for GL to start, re-attach preview TextureView
@@ -536,7 +554,8 @@ class RtmpStreamer @Inject constructor(
         KLog.i(TAG, "stopStream: stopping RTMP stream")
         isStreamSetupInProgress = false
         _state.value = StreamState.Stopping
-        rtmpStream?.stopStream()
+        rtmpStream?.stopStream()   // StreamBase.stopStream() — гасит ВСЕ выходы + энкодер
+        activeRtmpOutputs.clear()
         _state.value = StreamState.Idle
         // Restore preview after stream stops — the compositor keeps rendering the scene
         lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }

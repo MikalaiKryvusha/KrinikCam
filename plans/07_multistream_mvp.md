@@ -36,7 +36,7 @@ start/stop — per (type, index, url). Свап `RtmpStream → MultiStream` —
 
 ## Пошаговый план
 
-- [ ] **S1. Движок:** `RtmpStreamer` `RtmpStream → MultiStream` (N RTMP-слотов, массив ConnectChecker).
+- [x] **S1. Движок:** `RtmpStreamer` `RtmpStream → MultiStream` (N RTMP-слотов, массив ConnectChecker).
       Сохранить ОДНО-выходное поведение рабочим (регресс!). Verified: file-record + локальный RTMP-полигон.
 - [ ] **S2. Мультивыбор активных профилей** в модели/VM (набор активных id вместо одного).
 - [ ] **S3. startStream/stopStream** по всем активным профилям (per index); статусы/битрейт per-output.
