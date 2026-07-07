@@ -1,12 +1,17 @@
 /**
- * StreamLayersOverlay — модальная панель «Слои/Сцена» (Idea 19, Q3=A).
+ * StreamLayersOverlay — панель управления слоями сцены (idea 34, interview_008).
  *
- * Показывает слои текущей сцены СВЕРХУ ВНИЗ (верхний в списке = поверх остальных в кадре, как в OBS).
- * По каждому слою: «глаз» (вкл/выкл видимость), стрелки порядка (z-order), удаление (для оверлеев —
- * камеру в первом заходе не удаляем). Внизу — кнопка добавить тестовый PNG-оверлей (первый заход
- * доказывает пайплайн без файлов/SAF; выбор реального PNG из файла — следующий шаг).
+ * НЕ модальный bottom-sheet (устарел, удалён), а компактный **вертикальный список**, растущий ВВЕРХ
+ * от FAB «Слои» (внизу-слева). Принцип Криника: управление слоями быстрое и наглядное, не перекрывая
+ * кадр; детальные настройки слоя — в модальном диалоге.
  *
- * Вьюфайндер под панелью показывает результат компоновки вживую (превью = тот же GL, что и энкодер).
+ *   • Пункты полупрозрачные и компактные — сквозь них видно превью.
+ *   • Список растёт вверх; если не влезает по высоте — скроллится.
+ *   • Тап по пункту РАСКРЫВАЕТ его (мини-кнопки 👁 видимость / 🗑 удалить / ↕ вверх / ↕ вниз / ⚙
+ *     настройки); повторный тап — сворачивает.
+ *   • ⚙ открывает модалку настроек слоя (per-type: камера → выбор источника; картинка → …).
+ *   • Внизу (у FAB) — обязательная кнопка «＋ Добавить слой» (выбор типа источника).
+ *   • Закрытие — тап вовне (по кадру/FAB) ИЛИ повторный тап FAB (обрабатывается в MainScreen).
  *
  * Related: StreamViewModel, Scene/Layer (scene package), CompositorVideoSource (gl)
  */
@@ -20,10 +25,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -47,7 +53,10 @@ import kotlinx.coroutines.withContext
 
 private val AcidPink = Color(0xFFFF1A8C)
 private val DarkSurface = Color(0xFF1A1A1A)
-private val CardSurface = Color(0xFF232323)
+// Полупрозрачные подложки пунктов — сквозь них видно превью (interview_008 Q2). Прозрачности дано
+// больше (указание Криника): свёрнутый ~40% непрозрачности, раскрытый плотнее для читаемости кнопок.
+private val ItemBg = Color(0x66151515)
+private val ItemBgExpanded = Color(0xCC151515)
 
 /**
  * plans/05 S4 — вариант источника для слоя «Устройство захвата видео» в UI выбора. Лёгкий DTO (id +
@@ -56,7 +65,6 @@ private val CardSurface = Color(0xFF232323)
  */
 data class SourceOption(val id: String, val label: String)
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StreamLayersOverlay(
     scene: Scene,
@@ -80,10 +88,13 @@ fun StreamLayersOverlay(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Слой, ожидающий ПОДТВЕРЖДЕНИЯ удаления (Криник 2026-07-06: удаление только через модалку).
-    // Пара (id, имя) — имя показываем в диалоге; null = модалки нет.
+    // Какой пункт РАСКРЫТ (показывает мини-кнопки). null = все свёрнуты. Тап по пункту — тоггл.
+    var expandedId by remember { mutableStateOf<String?>(null) }
+    // Слой, ожидающий ПОДТВЕРЖДЕНИЯ удаления (Криник: удаление только через модалку). null = нет.
     var pendingDelete by remember { mutableStateOf<Pair<String, String>?>(null) }
-    // Раскрыто ли меню кнопки «+ Добавить слой».
+    // Слой, чьи НАСТРОЙКИ открыты в модалке (⚙). null = закрыта.
+    var settingsFor by remember { mutableStateOf<Layer?>(null) }
+    // Раскрыто ли меню кнопки «＋ Добавить слой».
     var addMenuOpen by remember { mutableStateOf(false) }
 
     // SAF «open document» для картинок: пользователь выбирает файл, читаем и декодируем off-main,
@@ -100,7 +111,6 @@ fun StreamLayersOverlay(
                     ImageOverlayLoader.loadOverlay(bytes)
                 }.getOrNull()
             }
-            // Имя файла из SAF (DISPLAY_NAME), иначе дефолт.
             val name = runCatching {
                 context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                     ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
@@ -109,69 +119,73 @@ fun StreamLayersOverlay(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = DarkSurface,
-        modifier = modifier,
-    ) {
-        Column(
+    // Полноэкранный оверлей: прозрачный скрим (тап вовне → закрыть) + список внизу-слева над FAB.
+    Box(modifier = modifier.fillMaxSize()) {
+        // Скрим на весь экран — прозрачный, но перехватывает тапы «вовне списка» → закрытие.
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
+                .fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                )
+        )
+
+        // Список слоёв: якорь внизу-слева, растёт ВВЕРХ; скроллится при переполнении.
+        // Порядок сверху вниз по экрану: верхний z-слой (рисуется поверх) → нижний; внизу — «Добавить».
+        val topToBottom = scene.layers.asReversed()
+        Column(
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                // отступ снизу оставляет место для самого FAB «Слои» (внизу-слева).
+                .padding(start = 12.dp, end = 12.dp, bottom = 84.dp, top = 40.dp)
+                .widthIn(min = 200.dp, max = 340.dp)
+                .heightIn(max = 560.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
-            // Заголовок панели.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Layers, contentDescription = null, tint = AcidPink)
-                Spacer(Modifier.width(10.dp))
-                Text("Scene layers", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Top of the list is drawn on top of the frame",
-                color = Color(0xFF999999), fontSize = 12.sp,
-            )
-            Spacer(Modifier.height(16.dp))
-
-            // Список слоёв СВЕРХУ ВНИЗ: scene.layers идёт снизу вверх по z-order → разворачиваем.
-            val topToBottom = scene.layers.asReversed()
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.heightIn(max = 360.dp),
-            ) {
-                itemsIndexed(topToBottom, key = { _, layer -> layer.id }) { index, layer ->
-                    LayerRow(
-                        layer = layer,
-                        // index в развёрнутом списке: 0 = самый верхний. «Вверх» по экрану = выше z-order.
-                        isTop = index == 0,
-                        isBottom = index == topToBottom.lastIndex,
-                        selected = layer.id == selectedLayerId,
-                        onSelect = { onSelect(layer.id) },
-                        onToggleVisible = { onToggleVisible(layer.id) },
-                        // Корзина не удаляет сразу — открывает модалку подтверждения.
-                        onRemove = { pendingDelete = layer.id to layer.name },
-                        onMoveUp = { onMoveUp(layer.id) },
-                        onMoveDown = { onMoveDown(layer.id) },
-                        sourceOptions = sourceOptions,
-                        currentSourceId = currentSourceId,
-                        onSelectSource = onSelectSource,
-                    )
-                }
+            topToBottom.forEachIndexed { index, layer ->
+                // Вторая строка-подпись: КРАТКО что настроено в слое (указание Криника). Для камера-слоя
+                // — текущий выбранный источник (напр. «2K USB Camera»), чтобы с ходу понимать содержимое.
+                val subtitle = if (layer is Layer.VideoCapture)
+                    sourceOptions.firstOrNull { it.id == currentSourceId }?.label else null
+                LayerItem(
+                    layer = layer,
+                    subtitle = subtitle,
+                    isTop = index == 0,
+                    isBottom = index == topToBottom.lastIndex,
+                    expanded = expandedId == layer.id,
+                    selected = layer.id == selectedLayerId,
+                    onTap = {
+                        // Тап по пункту: раскрыть/свернуть (interview_008 Q3) + выбрать для жестов.
+                        expandedId = if (expandedId == layer.id) null else layer.id
+                        onSelect(layer.id)
+                    },
+                    onToggleVisible = { onToggleVisible(layer.id) },
+                    onMoveUp = { onMoveUp(layer.id) },
+                    onMoveDown = { onMoveDown(layer.id) },
+                    onRemove = { pendingDelete = layer.id to layer.name },
+                    onOpenSettings = { settingsFor = layer },
+                )
             }
 
-            Spacer(Modifier.height(16.dp))
-            // Кнопка «+ Добавить слой» (Криник 2026-07-06) → меню выбора, ЧТО добавить. Пока —
-            // картинка из файла (SAF) и тестовый оверлей; будущие типы (устройство захвата видео,
-            // видеофайл, текст) добавятся сюда же (plans/05 Фаза B).
+            // ＋ Добавить слой (обязательная кнопка) — у самого низа, ближе к FAB. Меню выбора типа.
             Box {
-                Button(
-                    onClick = { addMenuOpen = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = AcidPink),
-                    modifier = Modifier.fillMaxWidth(),
+                Surface(
+                    color = AcidPink,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.clickable { addMenuOpen = true },
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Добавить слой")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Добавить слой", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
                 }
                 DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
                     DropdownMenuItem(
@@ -188,7 +202,7 @@ fun StreamLayersOverlay(
             }
         }
 
-        // Модалка подтверждения удаления слоя (Криник: удаление только через подтверждение).
+        // ── Модалка подтверждения удаления слоя ──
         pendingDelete?.let { (id, name) ->
             AlertDialog(
                 onDismissRequest = { pendingDelete = null },
@@ -207,123 +221,197 @@ fun StreamLayersOverlay(
                 },
             )
         }
+
+        // ── Модалка настроек слоя (⚙) — per-type содержимое (interview_008 Q5) ──
+        settingsFor?.let { layer ->
+            LayerSettingsDialog(
+                layer = layer,
+                onDismiss = { settingsFor = null },
+                sourceOptions = sourceOptions,
+                currentSourceId = currentSourceId,
+                onSelectSource = onSelectSource,
+            )
+        }
     }
 }
 
-/** Одна строка слоя: имя/тип, «глаз», стрелки порядка, удаление (оверлеи). */
+/**
+ * Один компактный пункт слоя в вертикальном списке. Свёрнутый — миниатюра/иконка + имя. Раскрытый
+ * (interview_008 Q3) — плюс ряд мини-кнопок: видимость / z-вверх / z-вниз / удалить / настройки.
+ */
 @Composable
-private fun LayerRow(
+private fun LayerItem(
     layer: Layer,
+    subtitle: String? = null,   // краткая подпись 2-й строкой (что настроено в слое, напр. источник)
     isTop: Boolean,
     isBottom: Boolean,
-    selected: Boolean,          // plans/03 S1 — выбран ли слой для жестов (подсветка рамкой).
-    onSelect: () -> Unit,       // тап по строке = выбрать/снять этот слой.
+    expanded: Boolean,
+    selected: Boolean,
+    onTap: () -> Unit,
     onToggleVisible: () -> Unit,
-    onRemove: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    // plans/05 S4 — выбор источника (только для камера-слоя).
-    sourceOptions: List<SourceOption> = emptyList(),
-    currentSourceId: String? = null,
-    onSelectSource: (String) -> Unit = {},
+    onRemove: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val isCamera = layer is Layer.VideoCapture
-    // Выбранный слой — акцентная рамка (тонкая подсветка, interview_007 Q2=B), иначе без рамки.
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(10.dp)
     Surface(
-        color = if (selected) Color(0xFF2E2333) else CardSurface,
+        color = if (expanded) ItemBgExpanded else ItemBg,
         shape = shape,
         modifier = Modifier
             .fillMaxWidth()
             .then(if (selected) Modifier.border(1.5.dp, AcidPink, shape) else Modifier)
-            .clickable(onClick = onSelect),   // тап по площади строки → выбор слоя
+            .clickable(onClick = onTap),
     ) {
-      Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            // Превью слоя: для картинки — миниатюра её содержимого, для камеры — иконка.
-            if (layer is Layer.Image) {
-                Image(
-                    bitmap = layer.bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .size(44.dp, 28.dp)               // 16:9-миниатюра
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF111111)),    // подложка под прозрачные области
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Videocam,
-                    contentDescription = null,
-                    tint = if (layer.visible) Color.White else Color(0xFF666666),
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                layer.name,
-                color = if (layer.visible) Color.White else Color(0xFF888888),
-                fontSize = 15.sp,
-                modifier = Modifier.weight(1f),
-            )
-
-            // Порядок (z-order): вверх/вниз. Камера-низ обычно не двигается, но не блокируем явно —
-            // стрелки сами гаснут на границах.
-            IconButton(onClick = onMoveUp, enabled = !isTop) {
-                Icon(Icons.Default.KeyboardArrowUp, "Move up",
-                    tint = if (isTop) Color(0xFF555555) else Color.White)
-            }
-            IconButton(onClick = onMoveDown, enabled = !isBottom) {
-                Icon(Icons.Default.KeyboardArrowDown, "Move down",
-                    tint = if (isBottom) Color(0xFF555555) else Color.White)
-            }
-            // Видимость.
-            IconButton(onClick = onToggleVisible) {
-                Icon(
-                    if (layer.visible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                    contentDescription = "Toggle visibility",
-                    tint = if (layer.visible) AcidPink else Color(0xFF888888),
-                )
-            }
-            // Удаление — только для НЕ-камеры (камеру в первом заходе не убираем).
-            if (!isCamera) {
-                IconButton(onClick = onRemove) {
-                    Icon(Icons.Default.Delete, "Remove", tint = Color(0xFFCC5555))
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
+            // Верхняя строка: превью/иконка + имя.
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                if (layer is Layer.Image) {
+                    Image(
+                        bitmap = layer.bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .size(40.dp, 24.dp)                // 16:9-миниатюра
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFF111111)),
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = null,
+                        tint = if (layer.visible) Color.White else Color(0xFF666666),
+                    )
                 }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        layer.name,
+                        color = if (layer.visible) Color.White else Color(0xFF888888),
+                        fontSize = 14.sp,
+                    )
+                    // Подпись 2-й строкой: что настроено в слое (мелким серым). Скрыта, если пусто.
+                    if (!subtitle.isNullOrBlank()) {
+                        Text(
+                            subtitle,
+                            color = Color(0xFF9A9A9A),
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+                // Компактный шеврон-индикатор раскрытия.
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = Color(0xFF888888),
+                )
             }
-        }
 
-        // plans/05 S4 — пикер источника для слоя «Устройство захвата видео»: строка «Источник: <тек.>»
-        // с выпадающим списком доступных (встроенные камеры / UVC / виртуалка / нет).
-        if (isCamera && sourceOptions.isNotEmpty()) {
-            var srcMenuOpen by remember { mutableStateOf(false) }
-            val currentLabel = sourceOptions.firstOrNull { it.id == currentSourceId }?.label ?: "Нет источника"
-            Box {
+            // Раскрытый пункт — ряд мини-кнопок (interview_008 Q3).
+            if (expanded) {
+                Spacer(Modifier.height(2.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { srcMenuOpen = true }
-                        .padding(start = 48.dp, end = 12.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Источник: ", color = Color(0xFF999999), fontSize = 13.sp)
-                    Text(currentLabel, color = AcidPink, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF999999))
-                }
-                DropdownMenu(expanded = srcMenuOpen, onDismissRequest = { srcMenuOpen = false }) {
-                    sourceOptions.forEach { opt ->
-                        DropdownMenuItem(
-                            text = { Text(opt.label) },
-                            onClick = { onSelectSource(opt.id); srcMenuOpen = false },
+                    // Видимость.
+                    IconButton(onClick = onToggleVisible) {
+                        Icon(
+                            if (layer.visible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = "Видимость",
+                            tint = if (layer.visible) AcidPink else Color(0xFF888888),
                         )
+                    }
+                    // Z-порядок: вверх/вниз (interview_008 Q4=B — две стрелки).
+                    IconButton(onClick = onMoveUp, enabled = !isTop) {
+                        Icon(Icons.Default.KeyboardArrowUp, "Выше",
+                            tint = if (isTop) Color(0xFF555555) else Color.White)
+                    }
+                    IconButton(onClick = onMoveDown, enabled = !isBottom) {
+                        Icon(Icons.Default.KeyboardArrowDown, "Ниже",
+                            tint = if (isBottom) Color(0xFF555555) else Color.White)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    // Настройки (⚙) → модалка per-type.
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, "Настройки", tint = Color.White)
+                    }
+                    // Удаление — только для НЕ-камеры (камеру-базу в первом заходе не убираем).
+                    if (!isCamera) {
+                        IconButton(onClick = onRemove) {
+                            Icon(Icons.Default.Delete, "Удалить", tint = Color(0xFFCC5555))
+                        }
                     }
                 }
             }
         }
-      }
     }
+}
+
+/**
+ * Модальный диалог детальных настроек слоя (interview_008 Q5). Содержимое зависит от ТИПА слоя (как в
+ * OBS): камера → выбор источника; картинка → пока информационно (расширим по мере надобности).
+ */
+@Composable
+private fun LayerSettingsDialog(
+    layer: Layer,
+    onDismiss: () -> Unit,
+    sourceOptions: List<SourceOption>,
+    currentSourceId: String?,
+    onSelectSource: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DarkSurface,
+        title = { Text("Настройки: ${layer.name}", color = Color.White, fontSize = 17.sp) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                when (layer) {
+                    is Layer.VideoCapture -> {
+                        Text("Источник видео", color = Color(0xFF999999), fontSize = 13.sp)
+                        Spacer(Modifier.height(8.dp))
+                        // Список доступных источников — выбор подсвечивает текущий.
+                        sourceOptions.forEach { opt ->
+                            val isCurrent = opt.id == currentSourceId
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onSelectSource(opt.id) }
+                                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                            ) {
+                                Icon(
+                                    if (isCurrent) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                                    contentDescription = null,
+                                    tint = if (isCurrent) AcidPink else Color(0xFF777777),
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    opt.label,
+                                    color = if (isCurrent) Color.White else Color(0xFFCCCCCC),
+                                    fontSize = 14.sp,
+                                )
+                            }
+                        }
+                    }
+                    is Layer.Image -> {
+                        Text(
+                            "Дополнительные настройки картинки (прозрачность, замена файла) появятся здесь.",
+                            color = Color(0xFFAAAAAA), fontSize = 13.sp,
+                        )
+                    }
+                    else -> {
+                        Text("Настройки этого слоя появятся позже.", color = Color(0xFFAAAAAA), fontSize = 13.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Готово", color = AcidPink) }
+        },
+    )
 }
