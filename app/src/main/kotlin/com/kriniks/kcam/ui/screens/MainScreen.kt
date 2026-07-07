@@ -361,7 +361,9 @@ fun MainScreen(
                     }
 
                     // ── S6: направляющие снапа (голубые) — блогер видит, к чему прилип слой ──
-                    val guide = Color(0xFF00E5FF)
+                    // idea 35: линии ЛЁГКИЕ/полупрозрачные (Криник: яркие сильно отвлекали) — видно, но
+                    // ненавязчиво. Альфа ~45%, тоньше.
+                    val guide = Color(0x7300E5FF)
                     // Центр холста: вертикальная / горизонтальная линия через середину кадра.
                     if (cxCenter) drawLine(guide, toScreen(0.5f, 0f), toScreen(0.5f, 1f), strokeWidth = 2.5f)
                     if (cyCenter) drawLine(guide, toScreen(0f, 0.5f), toScreen(1f, 0.5f), strokeWidth = 2.5f)
