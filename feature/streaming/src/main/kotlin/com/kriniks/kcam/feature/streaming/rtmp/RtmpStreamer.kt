@@ -486,7 +486,21 @@ class RtmpStreamer @Inject constructor(
      *  4. stream.startStream(url) — start RTMP + GL pipeline
      *  5. schedulePreviewRestoreAfterStream — re-attach TextureView once GL is ready
      */
-    fun startStream(profile: StreamProfile): Boolean {
+    /** Одно-профильный запуск (обёртка над мультивыходом). */
+    fun startStream(profile: StreamProfile): Boolean = startStream(listOf(profile))
+
+    /**
+     * plans/07 S3 — МУЛЬТИСТРИМ: запустить трансляцию на НЕСКОЛЬКО платформ разом (ютуб+инстаграм…).
+     * Один энкодер (наш композитор) кодирует ОДИН раз; каждый профиль = отдельный RTMP-выход (index).
+     * Параметры энкодера (разрешение/битрейт/fps) берём у ПЕРВОГО (основного) профиля — выходы общие.
+     * Ограничение — [maxRtmpOutputs] выходов.
+     */
+    fun startStream(profiles: List<StreamProfile>): Boolean {
+        val profile = profiles.firstOrNull() ?: run {
+            KLog.e(TAG, "startStream: пустой список профилей")
+            return false
+        }
+        val outputs = profiles.take(maxRtmpOutputs)
         val stream = rtmpStream ?: run {
             KLog.e(TAG, "startStream: no rtmpStream — call startPreview first")
             return false
@@ -531,11 +545,14 @@ class RtmpStreamer @Inject constructor(
             }
 
             _state.value = StreamState.Connecting
-            // plans/07 S1 — MultiStream: стартуем ОДИН RTMP-выход (index 0). S3 — по всем активным профилям.
-            KLog.i(TAG, "startStream: calling stream.startStream(RTMP, 0) ...")
-            stream.startStream(MultiType.RTMP, 0, rtmpUrl)
-            activeRtmpOutputs.add(0)
-            KLog.d(TAG, "startStream: stream.startStream() returned — waiting for GL + ConnectChecker callbacks")
+            // plans/07 S3 — стартуем КАЖДЫЙ выход на своём индексе (ютуб=0, инстаграм=1, …).
+            outputs.forEachIndexed { i, p ->
+                val url = "${p.rtmpUrl}/${p.streamKey}"
+                KLog.i(TAG, "startStream: RTMP out[$i] '${p.name}' → $url")
+                stream.startStream(MultiType.RTMP, i, url)
+                activeRtmpOutputs.add(i)
+            }
+            KLog.d(TAG, "startStream: запущено выходов=${outputs.size} — ждём GL + ConnectChecker")
 
             // Wait for GL to start, re-attach preview TextureView
             schedulePreviewRestoreAfterStream(stream)

@@ -39,7 +39,7 @@ start/stop — per (type, index, url). Свап `RtmpStream → MultiStream` —
 - [x] **S1. Движок:** `RtmpStreamer` `RtmpStream → MultiStream` (N RTMP-слотов, массив ConnectChecker).
       Сохранить ОДНО-выходное поведение рабочим (регресс!). Verified: file-record + локальный RTMP-полигон.
 - [ ] **S2. Мультивыбор активных профилей** в модели/VM (набор активных id вместо одного).
-- [ ] **S3. startStream/stopStream** по всем активным профилям (per index); статусы/битрейт per-output.
+- [x] **S3. startStream/stopStream** по всем активным профилям (per index); статусы/битрейт per-output.
 - [ ] **S4. UI** мультивыбора в `StreamPlatformsOverlay` + LIVE-индикатор на несколько платформ.
 - [ ] **S5. Verified:** локальный RTMP-полигон (`tools/rtmp-server.mjs`) на 2 выхода + запись; финальная
       сверка настоящими ключами ютуб/инстаграм — **ДЗ Криника** (homeworks/, нужны его stream-ключи).
