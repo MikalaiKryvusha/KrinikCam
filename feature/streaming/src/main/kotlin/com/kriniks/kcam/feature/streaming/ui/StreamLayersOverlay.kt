@@ -52,6 +52,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val AcidPink = Color(0xFFFF1A8C)
+// Мягкий розовый для подписи-источника 2-й строкой (правка Криника) — приглушённый, не кислотный.
+private val SoftPink = Color(0xFFE68FB4)
 private val DarkSurface = Color(0xFF1A1A1A)
 // Полупрозрачные подложки пунктов — сквозь них видно превью (interview_008 Q2). Прозрачности дано
 // больше (указание Криника): свёрнутый ~40% непрозрачности, раскрытый плотнее для читаемости кнопок.
@@ -264,7 +266,7 @@ private fun LayerItem(
             .then(if (selected) Modifier.border(1.5.dp, AcidPink, shape) else Modifier)
             .clickable(onClick = onTap),
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp)) {
             // Верхняя строка: превью/иконка + имя.
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 if (layer is Layer.Image) {
@@ -285,18 +287,21 @@ private fun LayerItem(
                     )
                 }
                 Spacer(Modifier.width(10.dp))
+                // Плотная колонка имя+подпись: tight lineHeight, чтобы строки не расползались (правка Криника).
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         layer.name,
                         color = if (layer.visible) Color.White else Color(0xFF888888),
                         fontSize = 14.sp,
+                        lineHeight = 15.sp,
                     )
                     // Подпись 2-й строкой: что настроено в слое (мелким серым). Скрыта, если пусто.
                     if (!subtitle.isNullOrBlank()) {
                         Text(
                             subtitle,
-                            color = Color(0xFF9A9A9A),
+                            color = SoftPink,
                             fontSize = 11.sp,
+                            lineHeight = 12.sp,
                         )
                     }
                 }
