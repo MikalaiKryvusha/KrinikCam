@@ -34,7 +34,7 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 | Built-in device cameras as a source (Camera2, correct orientation & aspect) | ✅ Phase 3 |
 | Vertical layer menu (per-layer settings dialog, source label) | ✅ Phase 3 |
 | Built-in User Manual (Settings) | ✅ Phase 3 |
-| Simultaneous multi-platform streaming | 📅 Phase 4 |
+| Simultaneous multi-platform streaming (YouTube + Instagram…) | 🔧 engine done (MultiStream), live key check pending |
 | Auto image regulation (exposure, white balance) | 📅 Phase 4 |
 | Picture-in-Picture, GPU filters | 📅 Phase 4 |
 | Background streaming (Foreground Service) | 📅 Phase 5 |
@@ -169,7 +169,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Встроенные камеры устройства как источник (Camera2, верные ориентация и аспект) | ✅ Phase 3 |
 | Вертикальное меню слоёв (диалог настроек слоя, подпись источника) | ✅ Phase 3 |
 | Встроенное руководство пользователя (Настройки) | ✅ Phase 3 |
-| Одновременный стрим на несколько платформ | 📅 Phase 4 |
+| Одновременный стрим на несколько платформ (YouTube + Instagram…) | 🔧 движок готов (MultiStream), ждёт сверки ключами |
 | Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 4 |
 | Картинка-в-картинке, GPU-фильтры | 📅 Phase 4 |
 | Фоновый режим стриминга (Foreground Service) | 📅 Phase 5 |
