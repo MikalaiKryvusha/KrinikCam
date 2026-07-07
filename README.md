@@ -4,12 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF1A8C.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2013%2B-3DDC84.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
-[![Version](https://img.shields.io/badge/Version-0.5-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
+[![Version](https://img.shields.io/badge/Version-0.6-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
 
-**An open-source Android app for streamers and bloggers.**  
-Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTube, Instagram, Twitch, or TikTok — all at once.
+**An open-source Android app for streamers and bloggers — a mobile OBS.**  
+Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose a scene from layers → go live on YouTube, Instagram, Twitch, or TikTok.
 
-> **Status:** Active development · Phase 1 ✅ USB preview · Phase 2 MVP ✅ RTMP to YouTube confirmed on device · portrait + landscape ✅
+> **Status:** Active development · Phase 1 ✅ USB preview · Phase 2 ✅ RTMP confirmed on device (portrait + landscape) · **Phase 3 ✅ GL compositor "camera = layer" is the default pipeline** (multi-source scene, layer gestures, unified rotation model)
 
 ---
 
@@ -27,11 +27,15 @@ Plug in a USB webcam via OTG → see a full-screen preview → go live on YouTub
 | Re-grant camera / mic permissions from Settings | ✅ Phase 2 |
 | Import / export stream profiles (JSON) | ✅ Phase 2 |
 | USB permission — remember device (no re-ask) | ✅ Phase 2 |
-| Manual rotation (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
-| Multi-source scene layers (camera + image overlays, z-order, visibility) | 🔧 foundation done |
-| Simultaneous multi-platform streaming | 📅 Phase 2+ |
-| Phone camera fallback (Camera2) | 📅 Phase 2+ |
-| Auto image regulation (exposure, white balance) | 📅 Phase 3 |
+| **GL compositor "camera = layer" (mobile OBS)** | ✅ Phase 3 default |
+| Manual canvas rotation (0° / 90° / 180° / 270°) + per-layer content rotation | ✅ Phase 3 |
+| Multi-source scene layers (camera + image overlays, z-order, visibility) | ✅ Phase 3 |
+| Layer gestures — drag / pinch-zoom / two-finger rotate + magnetic snap | ✅ Phase 3 |
+| Built-in device cameras as a source (Camera2, correct orientation & aspect) | ✅ Phase 3 |
+| Vertical layer menu (per-layer settings dialog, source label) | ✅ Phase 3 |
+| Built-in User Manual (Settings) | ✅ Phase 3 |
+| Simultaneous multi-platform streaming | 📅 Phase 4 |
+| Auto image regulation (exposure, white balance) | 📅 Phase 4 |
 | Picture-in-Picture, GPU filters | 📅 Phase 4 |
 | Background streaming (Foreground Service) | 📅 Phase 5 |
 | Stickers, reactions, video overlays | 📅 Phase 6 |
@@ -93,14 +97,16 @@ Multi-module Android project (Kotlin DSL, Jetpack Compose, Hilt DI):
 :data:profiles          Room DB + DataStore (stream profiles, device config)
 ```
 
-**Phase 2 streaming pipeline:**
+**Phase 3 pipeline — the GL compositor is the single video path (camera = layer):**
 ```
-USB Camera (UVC)
-  → UvcVideoSource.start(glSurfaceTexture)   // :app — bridges USB ↔ GL
-  → GL input SurfaceTexture                  // RootEncoder GL thread
-  → GlStreamInterface (render loop)
-  → GL output → TextureView (preview)
-  → MediaCodec encoder → RTMP packets
+Sources (opener per type)                 Compose UI → ViewModel → Repository → Streamer → Compositor
+  • UVC webcam    (AndroidUSBCamera)         a fact discovered by an opener (aspect, sensor
+  • built-in cam  (Camera2)                  orientation) travels up this chain to the compositor
+  • virtual cam   (debug test pattern)
+        → OES texture of the camera layer
+  → CompositorVideoSource (OpenGL ES)     // draws ALL layers bottom-up into one frame
+        two-pass FBO render: scene in a fixed 16:9 buffer, canvas rotation as a final blit
+  → MediaCodec encoder (RootEncoder) → RTMP packets  +  mirror to on-screen preview
 ```
 
 **Key libraries:**
@@ -135,10 +141,10 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 
 # KrinikCam (на русском)
 
-**Открытое Android-приложение для стримеров и блогеров.**  
-Подключи USB-вебкамеру через OTG → видишь превью во весь экран → жмёшь кнопку → стрим идёт на YouTube, Instagram, Twitch или TikTok — одновременно.
+**Открытое Android-приложение для стримеров и блогеров — мобильный OBS.**  
+Подключи USB-вебкамеру через OTG (или используй встроенные камеры устройства) → собери сцену из слоёв → выходи в эфир на YouTube, Instagram, Twitch или TikTok.
 
-> **Статус:** Активная разработка · Phase 1 ✅ USB превью · Phase 2 MVP ✅ RTMP на YouTube подтверждён на устройстве · портрет + ландшафт ✅
+> **Статус:** Активная разработка · Phase 1 ✅ USB превью · Phase 2 ✅ RTMP подтверждён на устройстве (портрет + ландшафт) · **Phase 3 ✅ GL-композитор «камера = слой» — основной пайплайн** (мультиисточниковая сцена, жесты слоёв, единая модель поворота)
 
 ---
 
@@ -156,11 +162,15 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Ре-запрос разрешений камера / микрофон из Settings | ✅ Phase 2 |
 | Импорт / экспорт профилей стримов (JSON) | ✅ Phase 2 |
 | USB permission — запомнить устройство | ✅ Phase 2 |
-| Ручной поворот видео (0° / 90° / 180° / 270°) | 🔧 Phase 2 |
-| Слои-источники сцены (камера + картинки-оверлеи, z-order, видимость) | 🔧 фундамент готов |
-| Одновременный стрим на несколько платформ | 📅 Phase 2+ |
-| Фолбэк на камеру телефона (Camera2) | 📅 Phase 2+ |
-| Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 3 |
+| **GL-композитор «камера = слой» (мобильный OBS)** | ✅ Phase 3 (дефолт) |
+| Поворот холста (0° / 90° / 180° / 270°) + поворот содержимого слоя | ✅ Phase 3 |
+| Слои-источники сцены (камера + картинки-оверлеи, z-order, видимость) | ✅ Phase 3 |
+| Жесты слоёв — перетаскивание / щипок / поворот двумя пальцами + магнитный снап | ✅ Phase 3 |
+| Встроенные камеры устройства как источник (Camera2, верные ориентация и аспект) | ✅ Phase 3 |
+| Вертикальное меню слоёв (диалог настроек слоя, подпись источника) | ✅ Phase 3 |
+| Встроенное руководство пользователя (Настройки) | ✅ Phase 3 |
+| Одновременный стрим на несколько платформ | 📅 Phase 4 |
+| Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 4 |
 | Картинка-в-картинке, GPU-фильтры | 📅 Phase 4 |
 | Фоновый режим стриминга (Foreground Service) | 📅 Phase 5 |
 | Стикеры, реакции, видео-оверлеи | 📅 Phase 6 |
