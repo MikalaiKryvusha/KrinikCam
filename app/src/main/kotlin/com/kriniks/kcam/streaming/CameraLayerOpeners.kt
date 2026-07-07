@@ -54,6 +54,8 @@ class UvcCameraOpener(
     private val previewHeight: Int = 1080,
     // bug 32 — аспект источника композитору. UVC негоциирует 16:9 → сообщаем 16:9 (рендер без полос).
     private val onAspect: (Float) -> Unit = {},
+    // bug 19 — UVC отдаёт кадр уже «прямо», без sensor-ориентации → (0, false).
+    private val onOrientation: (Int, Boolean) -> Unit = { _, _ -> },
 ) : RtmpStreamer.CameraOpener {
 
     // Bug 25 — переоткрывали ли уже на выбранном из списка размере (чтобы не зациклиться).
@@ -80,6 +82,7 @@ class UvcCameraOpener(
     override fun open(surfaceTexture: SurfaceTexture) {
         try {
             runCatching { onAspect(previewWidth.toFloat() / previewHeight.toFloat()) } // bug 32: UVC 16:9
+            runCatching { onOrientation(0, false) } // bug 19: UVC уже «прямо», без зеркала
             // Фаза 1: первый open (дескрипторы UVC читаются только ПОСЛЕ открытия → getAllPreviewSizes
             // до open пуст). Просим желаемый размер; AUSBC негоциирует что сможет.
             openAt(surfaceTexture, previewWidth, previewHeight)
@@ -144,6 +147,8 @@ class UvcCameraOpener(
 class VirtualCameraOpener(
     // bug 32 — виртуалка всегда 16:9; сообщаем композитору (рендер без полос).
     private val onAspect: (Float) -> Unit = {},
+    // bug 19 — виртуалка рисует «прямо», без sensor-ориентации → (0, false).
+    private val onOrientation: (Int, Boolean) -> Unit = { _, _ -> },
 ) : RtmpStreamer.CameraOpener {
 
     private companion object {
@@ -174,6 +179,7 @@ class VirtualCameraOpener(
         close() // close-before-open: слой мог отдать НОВУЮ SurfaceTexture при реините GL
         try {
             runCatching { onAspect(SENSOR_W.toFloat() / SENSOR_H.toFloat()) } // bug 32: виртуалка 16:9
+            runCatching { onOrientation(0, false) } // bug 19: виртуалка «прямо», без зеркала
             staticFrame = VirtualFrameRenderer.renderStatic(SENSOR_W, SENSOR_H)
             surfaceTexture.setDefaultBufferSize(SENSOR_W, SENSOR_H)
             val s = Surface(surfaceTexture)

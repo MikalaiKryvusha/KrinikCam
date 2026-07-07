@@ -123,6 +123,9 @@ class RtmpStreamer @Inject constructor(
     /** bug 32 — опенер сообщает аспект источника (ширина/высота); композитор рисует камеру без растяга. */
     fun setCameraAspect(aspect: Float) = compositorSource.setCameraAspect(aspect)
 
+    /** bug 19 — ориентация сенсора камеры-источника (+ зеркало фронталки) для выпрямления в композиторе. */
+    fun setCameraOrientation(degrees: Int, mirror: Boolean) = compositorSource.setCameraOrientation(degrees, mirror)
+
     /**
      * :app сообщает текущий источник камеры (или null при отключении). Если слой-камеры уже отдал
      * свою SurfaceTexture — сразу открываем туда камеру; при null — закрываем предыдущую.

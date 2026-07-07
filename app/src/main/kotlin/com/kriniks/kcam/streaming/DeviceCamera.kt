@@ -94,6 +94,9 @@ class DeviceCameraOpener(
     private val height: Int = 1080,
     // bug 32 — сообщить композитору аспект (w/h) выбранного НАТИВНОГО размера, чтобы рисовать без растяга.
     private val onAspect: (Float) -> Unit = {},
+    // bug 19 — сообщить композитору ориентацию сенсора (CW-градусы) + зеркало (фронталка), чтобы
+    // выпрямить кадр («камеру вращаем сами»). UVC/виртуалка передают (0, false).
+    private val onOrientation: (Int, Boolean) -> Unit = { _, _ -> },
 ) : RtmpStreamer.CameraOpener {
 
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -112,9 +115,19 @@ class DeviceCameraOpener(
             // Bug 19/29.2: диагностика ориентации сенсора + выбор НАТИВНОГО 16:9-размера (иначе Camera2
             // тянет сенсор в чужой аспект → искажение). Интервью_006: физкамера отдаёт СЫРОЙ поток,
             // ориентацию НЕ компенсируем — выпрямляет пользователь трансформой слоя.
-            val (nw, nh) = pickNativeSize()
-            // bug 32 (Криник): рисуем в РОДНОМ аспекте камеры, без растяга — сообщаем аспект композитору.
-            runCatching { onAspect(nw.toFloat() / nh.toFloat()) }
+            val (nw, nh, sensorOrient) = pickNativeSize()
+            // bug 19/32 (Криник, измерено OpenCV): рисуем в РОДНОМ аспекте камеры БЕЗ растяга. Сообщаем
+            // НАТИВНЫЙ аспект БУФЕРА (nw/nh). Композитор сам ВЫПРЯМЛЯЕТ кадр (поворот texMatrix на
+            // SENSOR_ORIENTATION), а поворот на 90°/270° инвертирует требование к пилларбоксу обратно —
+            // поэтому здесь инверсия НЕ нужна (её делает поворот в композиторе). Замер: ratio→~1.0.
+            val displayAspect = nw.toFloat() / nh
+            // bug 19 — зеркало для фронтальной камеры (LENS_FACING_FRONT), чтобы текст читался прямо.
+            val isFront = runCatching {
+                cameraManager.getCameraCharacteristics(cameraId).get(CameraCharacteristics.LENS_FACING) ==
+                    CameraCharacteristics.LENS_FACING_FRONT
+            }.getOrDefault(false)
+            runCatching { onAspect(displayAspect) }
+            runCatching { onOrientation(sensorOrient, isFront) }
             surfaceTexture.setDefaultBufferSize(nw, nh)
             val s = Surface(surfaceTexture)
             surface = s
@@ -161,10 +174,10 @@ class DeviceCameraOpener(
      * отсутствии 16:9 форсили 1920×1080 → Camera2 растягивал 4:3-сенсор в 16:9-буфер (растяг).
      * Ограничиваем сверху ~площадью 1920×1080, чтобы не тянуть гигантские буферы.
      */
-    private fun pickNativeSize(): Pair<Int, Int> {
+    private fun pickNativeSize(): Triple<Int, Int, Int> {
         return try {
             val ch = cameraManager.getCameraCharacteristics(cameraId)
-            val sensorOrient = ch.get(CameraCharacteristics.SENSOR_ORIENTATION)
+            val sensorOrient = ch.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
             val map = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val sizes = map?.getOutputSizes(SurfaceTexture::class.java)?.toList().orEmpty()
             // bug 32: НАТИВНЫЙ аспект = аспект СЕНСОРА (active array). Дешёвые фронталки объявляют
@@ -185,10 +198,10 @@ class DeviceCameraOpener(
             val h = best?.height ?: height
             KLog.i(TAG, "Device cam $cameraId: SENSOR_ORIENTATION=$sensorOrient; сенсор-аспект " +
                 "${"%.3f".format(sensorAspect)}; выбран нативный ${w}x${h} (аспект ${"%.3f".format(w.toFloat() / h)})")
-            w to h
+            Triple(w, h, sensorOrient)
         } catch (e: Exception) {
             KLog.w(TAG, "pickNativeSize failed: ${e.message}")
-            width to height
+            Triple(width, height, 0)
         }
     }
 

@@ -113,6 +113,35 @@ class CompositorVideoSource : VideoSource() {
         if (aspect > 0f) cameraAspect = aspect
     }
 
+    // bug 19 (Криник: «камеру вращаем сами» → композитор знает ориентацию сенсора) — базовый поворот
+    // КОНТЕНТА камеры до вертикали + зеркало фронталки. Встроенные Camera2-камеры отдают буфер в
+    // координатах сенсора (SENSOR_ORIENTATION, у фронталки + зеркало). Приводим к «прямому» виду ЗДЕСЬ,
+    // поворачивая ТЕКСТУРНЫЕ координаты OES вокруг центра (0.5,0.5). UVC/виртуалка: deg=0, mirror=false.
+    @Volatile private var cameraSensorRotation = 0
+    @Volatile private var cameraMirror = false
+
+    /** bug 19 — ориентация сенсора камеры-источника (CW, чтобы выпрямить) + зеркало (фронталка). */
+    fun setCameraOrientation(degrees: Int, mirror: Boolean) {
+        cameraSensorRotation = ((degrees % 360) + 360) % 360
+        cameraMirror = mirror
+        KLog.i(TAG, "cameraSensorRotation=$cameraSensorRotation° mirror=$mirror")
+    }
+
+    // Эффективная tex-матрица камеры = базовая (от SurfaceTexture) с поворотом на sensorRotation и
+    // зеркалом вокруг центра texcoord (0.5,0.5). Пересобирается на GL-потоке каждый кадр.
+    private val cameraDrawTexMatrix = FloatArray(16)
+    private val texRot = FloatArray(16)
+    private fun buildCameraDrawTexMatrix() {
+        android.opengl.Matrix.setIdentityM(texRot, 0)
+        android.opengl.Matrix.translateM(texRot, 0, 0.5f, 0.5f, 0f)
+        if (cameraSensorRotation != 0)
+            android.opengl.Matrix.rotateM(texRot, 0, cameraSensorRotation.toFloat(), 0f, 0f, 1f)
+        if (cameraMirror) android.opengl.Matrix.scaleM(texRot, 0, -1f, 1f, 1f)
+        android.opengl.Matrix.translateM(texRot, 0, -0.5f, -0.5f, 0f)
+        // Сначала базовая tex-матрица SurfaceTexture, затем наш поворот/зеркало вокруг центра.
+        android.opengl.Matrix.multiplyMM(cameraDrawTexMatrix, 0, cameraTexMatrix, 0, texRot, 0)
+    }
+
     /** Задать глобальный поворот холста (0/90/180/270, CW). Применяется со следующего кадра. */
     fun setCanvasRotation(degrees: Int) {
         canvasRotation = ((degrees % 360) + 360) % 360
@@ -284,6 +313,8 @@ class CompositorVideoSource : VideoSource() {
                 runCatching { camSt.updateTexImage(); camSt.getTransformMatrix(cameraTexMatrix) }
                 newCameraFrame = false
             }
+            // bug 19 — собрать эффективную tex-матрицу камеры (базовая + sensor-поворот + зеркало).
+            buildCameraDrawTexMatrix()
 
             // ── ПРОХОД 1: сцена в 16:9 FBO (аспект-корректно, БЕЗ поворота холста) ──────────
             // Камера в нативном 16:9-буфере рисуется в 16:9 FBO → не сжимается. Поворот холста здесь
@@ -297,7 +328,7 @@ class CompositorVideoSource : VideoSource() {
                 layerMatrixOf(layer)                           // T·S·PhysRot слоя (в координатах сцены)
                 when (layer) {
                     is CompositorLayer.Camera -> if (cameraOesTex != 0)
-                        r.draw(cameraOesTex, oes = true, texMatrix = cameraTexMatrix, posMatrix = finalM, alpha = layer.alpha)
+                        r.draw(cameraOesTex, oes = true, texMatrix = cameraDrawTexMatrix, posMatrix = finalM, alpha = layer.alpha)
                     is CompositorLayer.Image -> {
                         val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
                         if (texId != null) r.draw(texId, oes = false, posMatrix = finalM, alpha = layer.alpha)

@@ -134,6 +134,9 @@ class StreamingRepository @Inject constructor(
     /** bug 32 — аспект источника камеры (ширина/высота) для рендера без растяга. */
     fun setCameraAspect(aspect: Float) = rtmpStreamer.setCameraAspect(aspect)
 
+    /** bug 19 — ориентация сенсора камеры (+ зеркало фронталки) для выпрямления в композиторе. */
+    fun setCameraOrientation(degrees: Int, mirror: Boolean) = rtmpStreamer.setCameraOrientation(degrees, mirror)
+
     // ── Idea 10 — virtual stream platform (record to file instead of RTMP) ──
     // Dev toggle: when ON, "Go Live" records the encoder output to a file instead of pushing RTMP.
     @Volatile var virtualStreamToFile: Boolean = false
