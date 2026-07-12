@@ -110,7 +110,9 @@ async function start() {
   // Node 23: createWriteStream в stdio ещё не имеет открытого fd на момент spawn → ERR_INVALID_ARG_VALUE.
   // Открываем fd файла синхронно и передаём число — надёжно для detached-процесса (stdout+stderr в лог).
   const logFd = openSync(logOut, 'w');
-  const child = spawn(BIN, [CFG], { detached: true, stdio: ['ignore', logFd, logFd] });
+  // cwd = BIN_DIR: MediaMTX генерит auto.crt/auto.key в текущую папку — держим их в (gitignored)
+  // tools/bin/, чтобы не мусорить в корне репозитория.
+  const child = spawn(BIN, [CFG], { cwd: BIN_DIR, detached: true, stdio: ['ignore', logFd, logFd] });
   child.unref();
   writeFileSync(PIDFILE, String(child.pid));
   execSync('sleep 1');

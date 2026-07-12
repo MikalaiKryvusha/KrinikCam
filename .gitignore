@@ -66,4 +66,7 @@ gl_preview_debug.txt
 
 # MediaMTX RTMP polygon binary (plans/01 C) — auto-downloaded, gitignored
 tools/bin/
+# MediaMTX auto-generated TLS certs (пишутся в CWD при старте) — не версионируем
+auto.crt
+auto.key
 keystore.properties
