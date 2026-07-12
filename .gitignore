@@ -66,3 +66,4 @@ gl_preview_debug.txt
 
 # MediaMTX RTMP polygon binary (plans/01 C) — auto-downloaded, gitignored
 tools/bin/
+keystore.properties

@@ -1,0 +1,43 @@
+# План 13 — Локализация: английский дефолт + русская локаль (interview_009 Q2=A)
+
+> Решение Криника 2026-07-12: канон языка UI — **EN дефолт** (`values/strings.xml`) + **RU локаль**
+> (`values-ru/strings.xml`), обе сразу. Закрывает массовое нарушение конвенции Idea 14, найденное
+> ревизией (UI говорит на двух языках вперемешку). Полностью автономная задача (проверка — dump/скрин
+> + смена локали `adb shell am start -a android.settings.LOCALE_SETTINGS` не нужна: forceLocale через
+> `adb shell settings`/per-app locale). Хороший груз для автономных циклов, можно частями.
+
+## Принципы (из AGENT_GUIDE / Idea 14)
+
+- Выносим ТОЛЬКО user-facing текст; KLog-теги, технические константы, CMD-actions — НЕ трогаем.
+- `stringResource(R.string.x)` только в @Composable-скоупе; для лямбд — резолвить заранее.
+- Плюрализация — `plurals` (аудит: ручная «platform(s)» в SettingsScreen:116).
+- User Manual: контент-модель остаётся, но строки через ресурсы (учтено в plans/06; можно этапом B).
+
+## S1 — Инвентаризация и каркас
+
+`values/strings.xml` уже существует (SettingsScreen/DevMenuScreen/RotationMenu сконвертированы).
+Создать `values-ru/strings.xml` с переводами существующих ключей. Прогнать grep по хардкодам
+(список из аудита): MainScreen (231, 419-451, 509, 543), FloatingRadialMenu (65-71),
+StreamPlatformsOverlay (целиком), снэкбары StreamViewModel (RU/EN вперемешку), SettingsScreen
+(116, 147-152, 249-256, 386-389).
+
+## S2 — Конверсия по файлам (маленькими коммитами)
+
+Порядок: FloatingRadialMenu → MainScreen → StreamPlatformsOverlay → снэкбары StreamViewModel
+(строки из VM — через UiText/resId, НЕ Context в VM) → SettingsScreen остатки → feature-модули.
+Каждый файл: EN-ключ + RU-перевод сразу.
+
+## S3 — User Manual (этап B, большой)
+
+Секции руководства → string-ресурсы (или структурированные ресурсы по секциям), RU-перевод.
+Отдельными коммитами, после S2.
+
+## S4 — Приёмка
+
+Сборка; `ui.mjs dump` на EN-локали — русских строк в дереве нет; per-app locale ru (Android 13+:
+`adb shell cmd locale set-app-locales com.kriniks.kcam.debug --locales ru`) — UI по-русски;
+smoke PASS.
+
+## Статус
+📋 План готов (2026-07-12, по решению interview_009 Q2). В автономный пул (после критикалов
+plans/09/10 по приоритету Q1=A).

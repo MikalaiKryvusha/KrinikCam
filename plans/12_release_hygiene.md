@@ -10,11 +10,12 @@
   правило в комментарии: «бамп version только с миграцией».
 - `StreamProfileEntity.toModel`: `runCatching { StreamPlatform.valueOf(...) }.getOrDefault(CUSTOM)`.
 
-## S2 — Подпись release (⏸ ждёт interview_009 Q3)
+## S2 — Подпись release (✅ interview_009 Q3=A: агент генерирует, Кринику — инструкция-домашка)
 
-`keystore.properties` (gitignored) + release keystore; `signingConfigs.release` из свойств с
-фолбэком на debug при отсутствии файла (чтобы CI/чужая машина собирала debug-подписанный RC с
-WARNING). Криник решает: где хранить keystore и бэкап (потеря = конец обновлений).
+Keystore: `~/keystores/krinikcam.keystore` (ВНЕ репо), пароль в `keystore.properties` в корне репо
+(gitignored); `signingConfigs.release` из свойств с фолбэком на debug при отсутствии файла (чтобы
+чужая машина собирала debug-подписанный RC с WARNING в логе сборки). Инструкция по бэкапу для
+Криника — `homeworks/06_keystore_backup.md` (потеря = конец обновлений).
 
 ## S3 — Секреты в логах
 
