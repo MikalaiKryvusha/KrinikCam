@@ -45,5 +45,27 @@ state Reconnecting(attempt), `reTry(delayMs, reason)` с бэкоффом 1с→
 Затем — S5 из plans/07 (живые ключи Криника, homeworks/05).
 
 ## Статус
-📋 План готов (2026-07-12, из ревизии). Реализация не начата. Оценка: S1-S3 — день, S4 — полдня,
-S5 — полдня.
+🔄 **S1-S4 РЕАЛИЗОВАНЫ и ПРОВЕРЕНЫ живьём на полигоне (2026-07-12, дневной цикл, build 21+).**
+
+- ✅ **S1** — корректный стоп (per-index disconnect + no-arg энкодер). Перепроверен на build 19:
+  стоп→рестарт → `connected ✓`, полигон republishing.
+- ✅ **S2** — per-output ConnectChecker: `Array(maxRtmpOutputs){ i -> makeConnectChecker(i) }`, каждый
+  знает свой индекс (сверено байткодом: `MultiStream` строит `rtmpClients[i]=RtmpClient(checker[i])`).
+  Per-output состояние `outputStates: Map<Int,OutputStatus>` (Connecting/Live/Reconnecting/Failed/Stopped
+  + имя платформы + битрейт + попытка). Агрегат в `StreamState` через `recomputeAggregateState()`
+  (Live=хоть один живой; список выходов приложен к `StreamState.Live.outputs`).
+- ✅ **S3** — изоляция сбоя: `onOutputFailed(i)` стопит ТОЛЬКО упавший индекс, живые не трогает; упал
+  последний → гасим энкодер + восстанавливаем превью. **Проверено:** 2 выхода [0]=полигон [1]=кривой
+  `127.0.0.1:9/dead` → [0] в эфире (publishing), [1] изолирован (ECONNREFUSED), [0] цел.
+- ✅ **S4** — реконнект с экспоненциальным бэкоффом (1с→2с→4с→8с, потолок 5 попыток) через
+  `getStreamClient(RTMP,i).reTry(backoff,reason)`. **КОРЕНЬ (сверено байткодом):** `reTry` →
+  `shouldRetry = doingRetry && !reason.contains("Endpoint malformed") && reTries>0`; счётчик `reTries`
+  по умолчанию **0** → без `setReTries(n)` реконнект НИКОГДА не срабатывал (эфир умирал на любом блипе).
+  Фикс: `setReTries(maxReconnectAttempts)` перед каждой попыткой. **Проверено живьём:** эфир → убил
+  полигон → attempt 1(1с)→2(2с)→4с → полигон вернулся → **`connected ✓`**, republishing, 0 крашей.
+- 🔄 **S5** — приёмка: пройдены пункты 1 (стоп/рестарт), 3 (кривой URL — изоляция), 4 (убийство
+  полигона — реконнект), 5 (smoke одно-выходного пути цел, стоп чист, превью восстановлено). Остаток:
+  пункт 2 (ДВА живых выхода растут одновременно — полигон MediaMTX, 2 пути `live/test`+`live/test2`).
+  Затем DONE bug 34 и S5 из plans/07 (живые ключи Криника, homeworks/05).
+
+Оценка остатка: пункт 2 матрицы (~15 мин на полигоне) → DONE bug 34.

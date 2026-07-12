@@ -51,6 +51,8 @@ import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.feature.streaming.gl.CompositorLayer
 import com.kriniks.kcam.feature.streaming.gl.CompositorVideoSource
 import com.kriniks.kcam.feature.streaming.model.StreamState
+import com.kriniks.kcam.feature.streaming.model.OutputPhase
+import com.kriniks.kcam.feature.streaming.model.OutputStatus
 import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.scene.Layer
 import com.kriniks.kcam.feature.streaming.scene.LayerTransform
@@ -84,8 +86,17 @@ class RtmpStreamer @Inject constructor(
     // plans/07 — сколько RTMP-выходов держит MultiStream (потолок платформ одновременно). Стартуем
     // только активные; массив ConnectChecker'ов такого размера задаёт число слотов.
     private val maxRtmpOutputs = 4
-    // Индексы РТМП-выходов, реально запущенных сейчас (для корректной остановки). S1: {0}.
+    // Индексы РТМП-выходов, реально запущенных сейчас (живые ИЛИ реконнектящиеся) — для корректной
+    // остановки и решения «упал последний выход → гасим энкодер». Failed-выход отсюда убирается (S3).
     private val activeRtmpOutputs = mutableSetOf<Int>()
+
+    // plans/09 S2 — статус КАЖДОГО RTMP-выхода по индексу (имя платформы, фаза, битрейт, попытки
+    // реконнекта). Источник правды для агрегата StreamState и для per-output UI («Twitch упал, YouTube
+    // в эфире»). Пишется из per-output ConnectChecker'ов; читается recomputeAggregateState().
+    private val outputStates = mutableMapOf<Int, OutputStatus>()
+
+    // plans/09 S4 — потолок попыток авто-реконнекта одного выхода; дальше выход → Failed (изоляция S3).
+    private val maxReconnectAttempts = 5
     // Weak ref so we don't leak the TextureView; used to restore preview after startStream
     private var lastPreviewTextureView: WeakReference<TextureView>? = null
 
@@ -194,66 +205,153 @@ class RtmpStreamer @Inject constructor(
     // Singleton lives for app lifetime — scope is appropriate here.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private val connectChecker = object : ConnectChecker {
+    /**
+     * plans/09 S2 — ФАБРИКА per-output ConnectChecker'а. Каждый RTMP-выход `i` получает СВОЙ инстанс,
+     * замыкающий свой [index] → события (`connected`/`failed`/`bitrate`/`auth`) атрибутируются к
+     * конкретной платформе. Сверено байткодом 2.4.7: `MultiStream` строит `rtmpClients[i] =
+     * RtmpClient(checker[i])` в цикле по массиву — значит выход i зовёт именно checker[i].
+     */
+    private fun makeConnectChecker(index: Int) = object : ConnectChecker {
         override fun onConnectionStarted(url: String) {
-            KLog.i(TAG, "RTMP connecting → $url")
+            KLog.i(TAG, "RTMP[$index] connecting → $url")
+            updateOutput(index) { it.copy(phase = OutputPhase.Connecting) }
+            recomputeAggregateState()
         }
 
         override fun onConnectionSuccess() {
-            KLog.i(TAG, "RTMP connected ✓")
-            _state.value = StreamState.Live()
+            KLog.i(TAG, "RTMP[$index] connected ✓")
+            // Успех выхода: сбрасываем счётчик реконнекта (S4), фаза Live, причина снята.
+            updateOutput(index) { it.copy(phase = OutputPhase.Live, attempt = 0, reason = null) }
             isStreamSetupInProgress = false
-            KLog.d(TAG, "onConnectionSuccess: stream setup flag cleared")
+            recomputeAggregateState()
         }
 
         override fun onConnectionFailed(reason: String) {
-            KLog.e(TAG, "RTMP connection failed: $reason")
-            isStreamSetupInProgress = false
-            _state.value = StreamState.Error(reason)
-            // Bug 34: библиотечный no-arg stopStream() клиента НЕ отключает (пустой rtpStopStream) →
-            // застрявшее состояние, следующий Go Live мёртв. Идём НАШИМ корректным путём: per-index
-            // disconnect всех выходов + гашение энкодера + восстановление превью (как во всех др.
-            // error-путях). (S3 сделает это по одному упавшему индексу, живые не трогая.)
-            scope.launch {
-                rtmpStream?.let { disconnectAllOutputs(it) }
-                activeRtmpOutputs.clear()
-                lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
-            }
+            KLog.e(TAG, "RTMP[$index] connection failed: $reason")
+            // S3/S4: сбой изолирован по индексу — сначала пробуем реконнект с бэкоффом, живые не трогаем.
+            scope.launch { onOutputFailed(index, reason, retriable = true) }
         }
 
         override fun onNewBitrate(bitrate: Long) {
-            // Log bitrate every update to diagnose video-only vs audio-only streams.
-            // Audio-only (no video frames) shows ~132 kbps; full video shows 2000-6000 kbps.
-            KLog.d(TAG, "onNewBitrate: ${bitrate / 1000} kbps (${bitrate} bps)")
+            // Битрейт КОНКРЕТНОГО выхода. Аудио-only (нет видеокадров) ≈132 kbps; полное видео 2-6 Mbps.
+            val kbps = (bitrate / 1000).toInt()
+            updateOutput(index) { it.copy(bitrateKbps = kbps) }
+            // Дёшево обновляем агрегат без полного пересчёта фаз: если в эфире — освежаем список выходов.
             val current = _state.value
             if (current is StreamState.Live) {
-                _state.value = current.copy(bitrateKbps = (bitrate / 1000).toInt())
+                val outs = outputStates.values.sortedBy { it.index }
+                _state.value = current.copy(
+                    bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.maxOfOrNull { it.bitrateKbps } ?: kbps,
+                    outputs = outs,
+                )
             }
         }
 
         override fun onDisconnect() {
-            KLog.w(TAG, "RTMP disconnected")
-            if (_state.value.isActive) {
-                _state.value = StreamState.Error("Disconnected from server")
-            }
+            KLog.w(TAG, "RTMP[$index] disconnected")
         }
 
         override fun onAuthError() {
-            KLog.e(TAG, "RTMP auth error")
-            _state.value = StreamState.Error("Authentication failed — check stream key")
+            KLog.e(TAG, "RTMP[$index] auth error")
+            // Auth-ошибка = кривой ключ платформы — реконнект бессмыслен: сразу изоляция (Failed).
+            scope.launch { onOutputFailed(index, "Authentication failed — check stream key", retriable = false) }
         }
 
         override fun onAuthSuccess() {
-            KLog.i(TAG, "RTMP auth OK")
+            KLog.i(TAG, "RTMP[$index] auth OK")
         }
+    }
+
+    // plans/09 S2 — обновить статус выхода [index] (создаёт запись, если её ещё нет).
+    private fun updateOutput(index: Int, transform: (OutputStatus) -> OutputStatus) {
+        val cur = outputStates[index] ?: OutputStatus(index, "out$index", OutputPhase.Connecting)
+        outputStates[index] = transform(cur)
+    }
+
+    /**
+     * plans/09 S2 — свести per-output статусы в ОДИН [StreamState] для UI:
+     *  • хоть один Live → Live (битрейт = максимум по живым; список всех выходов приложен);
+     *  • иначе хоть один Connecting/Reconnecting → Connecting;
+     *  • иначе все Failed → Error (первой ненулевой причиной);
+     *  • иначе (пусто/Stopped) — не трогаем (Idle/Stopping ставятся явно в stop-путях).
+     */
+    private fun recomputeAggregateState() {
+        val outs = outputStates.values.sortedBy { it.index }
+        val anyLive = outs.any { it.phase == OutputPhase.Live }
+        val anyPending = outs.any { it.phase == OutputPhase.Connecting || it.phase == OutputPhase.Reconnecting }
+        _state.value = when {
+            anyLive -> StreamState.Live(
+                bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.maxOfOrNull { it.bitrateKbps } ?: 0,
+                outputs = outs,
+            )
+            anyPending -> StreamState.Connecting
+            outs.isNotEmpty() && outs.all { it.phase == OutputPhase.Failed } ->
+                StreamState.Error(outs.firstOrNull { it.reason != null }?.reason ?: "All outputs failed")
+            else -> _state.value
+        }
+    }
+
+    // plans/09 S4 — экспоненциальный бэкофф реконнекта: 1с→2с→4с→8с (потолок 8с).
+    private fun reconnectBackoffMs(attempt: Int): Long = (1000L shl (attempt - 1)).coerceAtMost(8000L)
+
+    /**
+     * plans/09 S3+S4 — обработка сбоя ОДНОГО выхода [index] (сеть/кривой ключ):
+     *  • S4 (retriable, попытки не исчерпаны): фаза Reconnecting + `getStreamClient(RTMP,i).reTry(backoff)`
+     *    — ЖИВЫЕ выходы не трогаем, энкодер НЕ гасим. Сетевой блип больше не конец эфира.
+     *  • S3 (реконнект исчерпан / auth-ошибка): фаза Failed, стопим ТОЛЬКО этот индекс
+     *    (`stopStream(RTMP,i)`); если это был ПОСЛЕДНИЙ активный выход — гасим энкодер (no-arg) и
+     *    восстанавливаем превью (фикс чёрного экрана из bug 34).
+     */
+    private fun onOutputFailed(index: Int, reason: String, retriable: Boolean) {
+        val stream = rtmpStream ?: return
+        isStreamSetupInProgress = false
+        val attempt = (outputStates[index]?.attempt ?: 0) + 1
+
+        // S4 — попытка авто-реконнекта этого выхода с бэкоффом.
+        if (retriable && attempt <= maxReconnectAttempts) {
+            val backoff = reconnectBackoffMs(attempt)
+            updateOutput(index) { it.copy(phase = OutputPhase.Reconnecting, reason = reason, attempt = attempt) }
+            recomputeAggregateState()
+            val client = runCatching { stream.getStreamClient(MultiType.RTMP, index) }.getOrNull()
+            // КРИТИЧНО (сверено байткодом 2.4.7): `reTry` → `shouldRetry(reason)` =
+            //   `doingRetry && !reason.contains("Endpoint malformed") && reTries > 0`.
+            // Счётчик `reTries` по умолчанию 0 → без setReTries reTry ВСЕГДА возвращает false (эфир
+            // умирал на любом блипе — воспроизведено на полигоне убийством сервера). Держим reTries>0
+            // перед КАЖДОЙ попыткой; истинный потолок попыток задаёт НАШ attempt-счётчик + бэкофф.
+            // `doingRetry` библиотека ставит true при установленном коннекте → мёртвый URL (не
+            // подключался) сюда не пройдёт (shouldRetry=false) и корректно изолируется ниже.
+            runCatching { client?.setReTries(maxReconnectAttempts) }
+                .onFailure { KLog.w(TAG, "RTMP[$index] setReTries failed", it) }
+            val scheduled = runCatching { client?.reTry(backoff, reason) ?: false }
+                .getOrElse { KLog.w(TAG, "RTMP[$index] reTry threw", it); false }
+            KLog.i(TAG, "RTMP[$index] reconnect attempt $attempt через ${backoff}ms (scheduled=$scheduled)")
+            if (scheduled) return
+            // reTry не назначился (нет установленного коннекта / Endpoint malformed) → изоляция ниже.
+        }
+
+        // S3 — изоляция выхода: Failed + стоп ТОЛЬКО этого индекса, живые не трогаем.
+        KLog.e(TAG, "RTMP[$index] FAILED (reason=$reason) — изолируем выход, живые продолжают")
+        updateOutput(index) { it.copy(phase = OutputPhase.Failed, reason = reason) }
+        runCatching { stream.stopStream(MultiType.RTMP, index) }
+            .onFailure { KLog.w(TAG, "RTMP[$index] stopStream(RTMP,$index) failed", it) }
+        activeRtmpOutputs.remove(index)
+
+        // Упал ПОСЛЕДНИЙ активный выход? Тогда гасим энкодер и восстанавливаем превью.
+        if (activeRtmpOutputs.isEmpty()) {
+            KLog.w(TAG, "RTMP: последний выход упал — гасим энкодер, восстанавливаем превью")
+            runCatching { stream.stopStream() }
+                .onFailure { KLog.w(TAG, "no-arg stopStream (encoder) failed", it) }
+            lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
+        }
+        recomputeAggregateState()
     }
 
     private fun ensureStream(): MultiStream =
         rtmpStream ?: MultiStream(
             context,
-            // RTMP-выходы: массив ConnectChecker'ов размером maxRtmpOutputs (S1 — общий инстанс на все
-            // слоты; per-output различение статусов — S3). RTSP/SRT/UDP не используем.
-            Array(maxRtmpOutputs) { connectChecker },
+            // plans/09 S2 — per-output ConnectChecker'ы: свой инстанс на каждый слот-выход, знающий свой
+            // индекс → статусы платформ различаются (S3 изоляция, S4 реконнект). RTSP/SRT/UDP не используем.
+            Array(maxRtmpOutputs) { i -> makeConnectChecker(i) },
             emptyArray(), emptyArray(), emptyArray(),
         ).also { rtmpStream = it }
 
@@ -573,10 +671,15 @@ class RtmpStreamer @Inject constructor(
             }
 
             _state.value = StreamState.Connecting
-            // plans/07 S3 — стартуем КАЖДЫЙ выход на своём индексе (ютуб=0, инстаграм=1, …).
+            // plans/09 S2 — свежая сессия: сбрасываем per-output состояние прошлого эфира.
+            activeRtmpOutputs.clear()
+            outputStates.clear()
+            // plans/07 S3 — стартуем КАЖДЫЙ выход на своём индексе (ютуб=0, инстаграм=1, …);
+            // plans/09 S2 — сразу заводим статус выхода (имя платформы + фаза Connecting) для UI.
             outputs.forEachIndexed { i, p ->
                 val url = "${p.rtmpUrl}/${p.streamKey}"
                 KLog.i(TAG, "startStream: RTMP out[$i] '${p.name}' → $url")
+                outputStates[i] = OutputStatus(index = i, name = p.name, phase = OutputPhase.Connecting)
                 stream.startStream(MultiType.RTMP, i, url)
                 activeRtmpOutputs.add(i)
             }
@@ -601,6 +704,7 @@ class RtmpStreamer @Inject constructor(
         _state.value = StreamState.Stopping
         rtmpStream?.let { disconnectAllOutputs(it) }
         activeRtmpOutputs.clear()
+        outputStates.clear()   // plans/09 S2 — сбрасываем per-output состояние
         _state.value = StreamState.Idle
         // Restore preview after stream stops — the compositor keeps rendering the scene
         lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
