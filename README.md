@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF1A8C.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2013%2B-3DDC84.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
-[![Version](https://img.shields.io/badge/Version-0.6-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
+[![Version](https://img.shields.io/badge/Version-0.7-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
 
 **An open-source Android app for streamers and bloggers — a mobile OBS.**  
 Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose a scene from layers → go live on YouTube, Instagram, Twitch, or TikTok.
@@ -34,7 +34,8 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 | Built-in device cameras as a source (Camera2, correct orientation & aspect) | ✅ Phase 3 |
 | Vertical layer menu (per-layer settings dialog, source label) | ✅ Phase 3 |
 | Built-in User Manual (Settings) | ✅ Phase 3 |
-| Simultaneous multi-platform streaming (YouTube + Instagram…) | 🔧 engine done (MultiStream), live key check pending |
+| Simultaneous multi-platform streaming (YouTube + Instagram…) | ✅ engine stabilized — per-output failure isolation + auto-reconnect (backoff); live multi-key check pending |
+| Screen stays on while live (keep-screen-on) | ✅ v0.7 |
 | Auto image regulation (exposure, white balance) | 📅 Phase 4 |
 | Picture-in-Picture, GPU filters | 📅 Phase 4 |
 | Background streaming (Foreground Service) | 📅 Phase 5 |
@@ -169,7 +170,8 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Встроенные камеры устройства как источник (Camera2, верные ориентация и аспект) | ✅ Phase 3 |
 | Вертикальное меню слоёв (диалог настроек слоя, подпись источника) | ✅ Phase 3 |
 | Встроенное руководство пользователя (Настройки) | ✅ Phase 3 |
-| Одновременный стрим на несколько платформ (YouTube + Instagram…) | 🔧 движок готов (MultiStream), ждёт сверки ключами |
+| Одновременный стрим на несколько платформ (YouTube + Instagram…) | ✅ движок стабилизирован — изоляция сбоя выхода + авто-реконнект (бэкофф); сверка живыми ключами впереди |
+| Экран не гаснет во время эфира (keep-screen-on) | ✅ v0.7 |
 | Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 4 |
 | Картинка-в-картинке, GPU-фильтры | 📅 Phase 4 |
 | Фоновый режим стриминга (Foreground Service) | 📅 Phase 5 |
