@@ -210,7 +210,15 @@ class RtmpStreamer @Inject constructor(
             KLog.e(TAG, "RTMP connection failed: $reason")
             isStreamSetupInProgress = false
             _state.value = StreamState.Error(reason)
-            rtmpStream?.stopStream()
+            // Bug 34: библиотечный no-arg stopStream() клиента НЕ отключает (пустой rtpStopStream) →
+            // застрявшее состояние, следующий Go Live мёртв. Идём НАШИМ корректным путём: per-index
+            // disconnect всех выходов + гашение энкодера + восстановление превью (как во всех др.
+            // error-путях). (S3 сделает это по одному упавшему индексу, живые не трогая.)
+            scope.launch {
+                rtmpStream?.let { disconnectAllOutputs(it) }
+                activeRtmpOutputs.clear()
+                lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
+            }
         }
 
         override fun onNewBitrate(bitrate: Long) {
@@ -591,11 +599,33 @@ class RtmpStreamer @Inject constructor(
         KLog.i(TAG, "stopStream: stopping RTMP stream")
         isStreamSetupInProgress = false
         _state.value = StreamState.Stopping
-        rtmpStream?.stopStream()   // StreamBase.stopStream() — гасит ВСЕ выходы + энкодер
+        rtmpStream?.let { disconnectAllOutputs(it) }
         activeRtmpOutputs.clear()
         _state.value = StreamState.Idle
         // Restore preview after stream stops — the compositor keeps rendering the scene
         lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
+    }
+
+    /**
+     * Bug 34 (plans/09 S1) — КОРРЕКТНАЯ остановка мультистрима. Нужны ОБА шага (сверено байткодом
+     * RootEncoder 2.4.7):
+     *  1. per-index `stopStream(MultiType.RTMP, i)` по КАЖДОМУ активному выходу — единственный путь к
+     *     `RtmpClient.disconnect()`. no-arg `StreamBase.stopStream()` делегирует в
+     *     `MultiStream.rtpStopStream()`, а тот ПУСТОЙ (`Code: 0: return`) → сокеты остаются открытыми,
+     *     `RtmpClient.isStreaming=true` → следующий Go Live: `shouldStartEncoder=false` + `connect()`
+     *     no-op → второй эфир мёртв до перезапуска приложения. Это корень бага 34.
+     *  2. затем no-arg `stopStream()` — гасит энкодер (`stopSources()` + `prepareEncoders()`). Сам
+     *     per-index его НЕ трогает: флаг `allStopped` в `stopStream(RTMP,i)` считается ДО `disconnect`,
+     *     при ещё живом выходе он =false → `StreamBase.stopStream()` внутри не зовётся. Отсюда «ОБА шага».
+     * Идемпотентно: пустой `activeRtmpOutputs` → только no-arg (безопасен, если уже не стримим).
+     */
+    private fun disconnectAllOutputs(stream: MultiStream) {
+        activeRtmpOutputs.toList().forEach { i ->
+            runCatching { stream.stopStream(MultiType.RTMP, i) }
+                .onFailure { KLog.w(TAG, "disconnectAllOutputs: stopStream(RTMP,$i) failed", it) }
+        }
+        runCatching { stream.stopStream() }
+            .onFailure { KLog.w(TAG, "disconnectAllOutputs: no-arg stopStream (encoder) failed", it) }
     }
 
     // ── Idea 10 — virtual stream platform (record to file) ──────────────────

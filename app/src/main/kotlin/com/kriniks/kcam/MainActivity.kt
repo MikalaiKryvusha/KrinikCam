@@ -165,6 +165,22 @@ class MainActivity : ComponentActivity() {
                         val path = streamingRepository.goLiveHarness(profile)
                         KLog.i("MainActivity", "CMD go-live → ${path ?: "(rtmp)"}")
                     }
+                    // plans/09 S5 — старт РЕАЛЬНОГО RTMP-мультистрима на заданные URL для автономной
+                    // приёмки бага 34 на локальном полигоне (MediaMTX). arg = "url1,url2,…"; каждый url
+                    // режем на базу+ключ по последнему '/'. В ОТЛИЧИЕ от go-live (харнес → запись в MP4)
+                    // это НАСТОЯЩИЙ сетевой RTMP-путь (connect/publish/disconnect) — только он
+                    // воспроизводит стоп/рестарт и изоляцию сбоя выходов.
+                    "go-live-rtmp" -> {
+                        val urls = arg?.split(Regex("[,\\s]+"))?.filter { it.isNotBlank() } ?: emptyList()
+                        val profiles = urls.mapIndexed { i, u ->
+                            val cut = u.lastIndexOf('/')
+                            val base = if (cut > 0) u.substring(0, cut) else u
+                            val key = if (cut > 0) u.substring(cut + 1) else "test"
+                            StreamProfile(name = "polygon$i", rtmpUrl = base, streamKey = key)
+                        }
+                        if (profiles.isEmpty()) KLog.w("MainActivity", "go-live-rtmp: нужен url (или url1,url2)")
+                        else streamingRepository.startStream(profiles)
+                    }
                     "stop" -> streamingRepository.stopAll()
                     // Idea 17 — снять фото (кадр композита) в галерею DCIM/KrinikCam.
                     "photo" -> streamingRepository.capturePhoto()

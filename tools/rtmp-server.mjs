@@ -19,7 +19,7 @@
  */
 
 import { execSync, spawn } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, createWriteStream } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, openSync } from 'fs';
 import { join } from 'path';
 import { get } from 'https';
 
@@ -107,7 +107,10 @@ async function start() {
   if (runningPid()) { console.log(`уже работает (pid ${runningPid()}). URL: ${ingestUrl()}`); return; }
   await ensureBinary();
   const logOut = join(BIN_DIR, 'mediamtx.log');
-  const child = spawn(BIN, [CFG], { detached: true, stdio: ['ignore', createWriteStream(logOut), createWriteStream(logOut)] });
+  // Node 23: createWriteStream в stdio ещё не имеет открытого fd на момент spawn → ERR_INVALID_ARG_VALUE.
+  // Открываем fd файла синхронно и передаём число — надёжно для detached-процесса (stdout+stderr в лог).
+  const logFd = openSync(logOut, 'w');
+  const child = spawn(BIN, [CFG], { detached: true, stdio: ['ignore', logFd, logFd] });
   child.unref();
   writeFileSync(PIDFILE, String(child.pid));
   execSync('sleep 1');
