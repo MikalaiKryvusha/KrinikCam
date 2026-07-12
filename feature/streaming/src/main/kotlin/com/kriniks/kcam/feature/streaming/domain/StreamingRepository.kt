@@ -188,6 +188,9 @@ class StreamingRepository @Inject constructor(
         rtmpStreamer.startPreview(textureView)
     }
 
+    // Bug 40 — физический поворот: TextureView ресайзнулась, обновить вьюпорт превью (без пересборки).
+    fun onPreviewSurfaceResized(w: Int, h: Int) = rtmpStreamer.onPreviewSurfaceResized(w, h)
+
     /**
      * Phase 3 — задать/снять источник камеры-слоя (USB/встроенная/виртуальная); null = камеры нет.
      * Отрыв камеры ничего не подменяет: композитор продолжает рисовать сцену (стрим/запись живут).

@@ -13,6 +13,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -25,8 +26,11 @@ import com.kriniks.kcam.dev.DevSettings
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.streaming.DeviceCameraEnumerator
 import com.kriniks.kcam.feature.capture.DeviceManager
+import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
+import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -92,6 +96,26 @@ class MainActivity : ComponentActivity() {
         deviceManager.registerPhoneCameras(DeviceCameraEnumerator.enumerate(this))
         registerVirtualCamControl()
         if (BuildConfig.DEBUG) registerCmdControl() // Idea 22 — broadcast-команды только в debug
+        keepScreenOnWhileStreaming()
+    }
+
+    /**
+     * Bug 36 / plans/10 S1 — во время эфира экран НЕ гаснет. Таймаут экрана → lockscreen →
+     * заморозка процесса → умирают RTMP-сокет и энкодер (эфир падает). Держим FLAG_KEEP_SCREEN_ON,
+     * ПОКА стрим активен (Live/Connecting; запись в файл тоже ведёт state в Live), и снимаем на
+     * Idle/Error/Stopping — вне эфира экран гаснет как обычно, батарею не жжём.
+     * Флаг на ОКНЕ Activity (а не на composable MainScreen) — переживает уход на экран Settings.
+     */
+    private fun keepScreenOnWhileStreaming() {
+        lifecycleScope.launch {
+            streamingRepository.streamState.collect { state ->
+                if (state.isActive) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+        }
     }
 
     /**

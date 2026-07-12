@@ -209,13 +209,13 @@ fun MainScreen(
                 previewTextureView = tv
                 streamViewModel.startPreviewOnView(tv)
             },
-            // bug 27 (регресс, Криник поймал на живом девайсе 2026-07-07): на ФИЗИЧЕСКОМ повороте
-            // устройства (fullSensor) окно ресайзится → TextureView меняет размер → сюда. РАНЬШЕ звали
-            // startPreviewOnView → startPreview делает stopPreview()+пере-подцеп поверхности → гонка с
-            // системным HWUI RenderThread за EGL-контекст → SIGABRT 'EGL_BAD_CONTEXT'. НЕ трогаем
-            // поверхность: TextureView сохраняет ту же SurfaceTexture при ресайзе, композитор продолжает
-            // в неё рисовать, AspectRatioMode.Adjust вписывает композит в новый размер вью сам. No-op.
-            onSurfaceTextureSizeChanged = { _, _, _ -> },
+            // bug 27 + bug 40: на ФИЗИЧЕСКОМ повороте (fullSensor) окно ресайзится → TextureView меняет
+            // размер, но её SurfaceTexture ЖИВА — пересоздавать/пере-подцеплять поверхность НЕЛЬЗЯ
+            // (гонка с системным HWUI RenderThread за EGL-контекст → SIGABRT EGL_BAD_CONTEXT, bug 27).
+            // Но и no-op недостаточно (bug 40, Криник 2026-07-12: композит «уезжает вниз и обрезается»):
+            // GL-превью считает вьюпорт из СВОИХ полей previewWidth/Height (байткод GlStreamInterface),
+            // а не из фактического размера поверхности. Обновляем ТОЛЬКО эти числа — setPreviewResolution.
+            onSurfaceTextureSizeChanged = { _, w, h -> streamViewModel.onPreviewSizeChanged(w, h) },
             // Stop GL preview when surface is destroyed (navigation to Settings, backgrounding).
             // Prevents GL_OUT_OF_MEMORY crash from drawing to a dead surface (bug 02). Safe during
             // streaming: stopPreview() is a no-op when isOnPreview=false.

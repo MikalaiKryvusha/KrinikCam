@@ -243,6 +243,15 @@ class StreamViewModel @Inject constructor(
         KLog.d(TAG, "Preview started on TextureView")
     }
 
+    /**
+     * Bug 40 — физический поворот устройства: TextureView ресайзнулась (поверхность жива).
+     * Обновляем ТОЛЬКО вьюпорт превью — поверхность не трогаем (bug 27: гонка с HWUI).
+     */
+    fun onPreviewSizeChanged(w: Int, h: Int) {
+        repository.onPreviewSurfaceResized(w, h)
+        KLog.d(TAG, "Preview size changed → ${w}x$h")
+    }
+
     /** Phase 3 — задать/снять источник камеры-слоя (USB/встроенная/виртуальная); null = отключена. */
     fun setCameraOpener(opener: com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer.CameraOpener?) {
         repository.setCameraOpener(opener)

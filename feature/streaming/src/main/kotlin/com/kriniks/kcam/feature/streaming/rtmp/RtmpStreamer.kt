@@ -324,6 +324,26 @@ class RtmpStreamer @Inject constructor(
     }
 
     /**
+     * Bug 40 — ФИЗИЧЕСКИЙ поворот устройства (fullSensor): TextureView ресайзится, но её
+     * SurfaceTexture ЖИВЁТ (поверхность не пересоздаётся) — трогать её нельзя (bug 27: гонка с HWUI
+     * → EGL_BAD_CONTEXT). Однако GL-превью считает вьюпорт из полей previewWidth/previewHeight
+     * (проверено по байткоду GlStreamInterface.draw → drawScreenPreview), которые выставляются
+     * только при startPreview — после ресайза они СТАРЫЕ → композит «уезжает и обрезается».
+     * Фикс: обновить ТОЛЬКО числа вьюпорта (setPreviewResolution) — без stop/startPreview,
+     * без пересборки поверхности. Безопасно и в превью, и во время стрима.
+     */
+    fun onPreviewSurfaceResized(w: Int, h: Int) {
+        val stream = rtmpStream ?: return
+        if (!stream.isOnPreview || w <= 0 || h <= 0) return
+        try {
+            stream.getGlInterface().setPreviewResolution(w, h)
+            KLog.i(TAG, "onPreviewSurfaceResized: preview viewport → ${w}x${h} (поверхность не тронута)")
+        } catch (e: Exception) {
+            KLog.e(TAG, "onPreviewSurfaceResized failed", e)
+        }
+    }
+
+    /**
      * Phase 3 — configure the encoder for the current canvas rotation. Used by BOTH [startStream]
      * (real RTMP) and [startRecordToFile] (harness) so preview, stream and record stay IDENTICAL.
      *
