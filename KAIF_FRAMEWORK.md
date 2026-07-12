@@ -41,8 +41,9 @@ KAIF (Krinik AI Framework) — **устойчивый к потере конте
 | `GOAL.md` / `MASTER_PLAN.md` | Видение Криника и фазовый путь к нему. |
 | `STATUS.md` | Живое состояние — обновляется после каждой значимой задачи. |
 | `PROJECT_STRUCTURE_EXTERNAL_MAP.md` / `PROJECT_ARCHITECTURE_INTERNAL_MAP.md` | Внешняя и внутренняя карты. |
+| `EXPERIENCE.md` | Журнал уроков агента (1.4): вспомнить до задачи, зафиксировать после (навык `/experience`). |
 | `plans/ ideas/ bugs/ researches/ interviews/ homeworks/` | Директории знаний (в каждой свой README). |
-| `.claude/skills/` | Повторяемые ритуалы (`/resume`, `/pause`, лупы, …) — 21 навык (в 1.2 добавлены `/fix-vision`, `/what-next`). |
+| `.claude/skills/` | Повторяемые ритуалы (`/resume`, `/pause`, лупы, …) — 22 навыка (в 1.2 добавлены `/fix-vision`, `/what-next`; в 1.4 — `/experience`). |
 | `.kaif/kaif.json` | Маркер развёртывания: версия, sphere, agent, tracking. |
 | `tools/kaif.mjs` + `npm run kaif:*` | Ручки жизненного цикла (version/check/update/fork/remove). |
 
@@ -50,7 +51,7 @@ KAIF (Krinik AI Framework) — **устойчивый к потере конте
 
 | Поле | Значение |
 |------|----------|
-| **Версия KAIF** | `1.2` (обновлено 2026-07-05 навыком `/kaif-update`: +`/fix-vision`, +`/what-next`, правило интервью «до 10 вопросов») |
+| **Версия KAIF** | `1.4` (обновлено 2026-07-12 навыком `/kaif-update` с 1.2: +`EXPERIENCE.md` и навык `/experience`, +контекст-роутер в AGENT_GUIDE, +принцип «Учись один раз» в PHILOSOPHY, вшивки опыта в чеклист/лупы/resume/refresh-context/BUG_FIXING; 1.3 «Slim» для полной распаковки нейтрален; фикс «лупы не обрываются по контексту» уже был соблюдён локально) |
 | **Инжектирован** | `2026-07-02` |
 | **Как прошла инжекция** | Миграция «родины» KAIF: структуры существовали в сыром до-KAIF виде (AGENT_GUIDE/STATUS/bugs/interviews/12 навыков уже были); выполнена реструктуризация под канон 1.1 (GOAL/MASTER_PLAN/карты в корень, ideas/researches/homeworks, README директорий), добавлены 7 навыков и жизненный цикл. Существующие KrinikCam-навыки сохранены как локальные кастомизации. |
 | **Sphere** | `programming` (Android-приложение, Kotlin + Compose) |

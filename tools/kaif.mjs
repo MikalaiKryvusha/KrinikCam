@@ -30,7 +30,7 @@ function check() {
     // ключевые документы (корень)
     'AGENT_GUIDE.md', 'PHILOSOPHY.md', 'BUG_FIXING_FRAMEWORK.md', 'GOAL.md', 'STATUS.md',
     'MASTER_PLAN.md', 'PROJECT_STRUCTURE_EXTERNAL_MAP.md', 'PROJECT_ARCHITECTURE_INTERNAL_MAP.md',
-    'KAIF_FRAMEWORK.md', 'CLAUDE.md', 'AGENTS.md',
+    'KAIF_FRAMEWORK.md', 'CLAUDE.md', 'AGENTS.md', 'EXPERIENCE.md',
     // директории знаний + их README
     ...['plans', 'ideas', 'bugs', 'researches', 'interviews', 'homeworks']
       .flatMap((d) => [d, `${d}/README.md`]),
@@ -38,7 +38,7 @@ function check() {
     '.kaif/kaif.json',
     ...[
       'resume', 'pause', 'autoloop', 'dayloop', 'nightloop', 'refresh-context', 'check-backlog',
-      'report-bug', 'bug-research', 'propose-idea', 'interview', 'revision', 'help-kaif', 'release',
+      'report-bug', 'bug-research', 'propose-idea', 'experience', 'interview', 'revision', 'help-kaif', 'release',
       'kaif-version', 'kaif-update', 'kaif-fork', 'kaif-switch-origin', 'kaif-remove',
     ].map((s) => `.claude/skills/${s}/SKILL.md`),
   ];
