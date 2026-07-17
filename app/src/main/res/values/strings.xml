@@ -4,10 +4,10 @@
     <string name="app_name">KrinikCam</string>
 
     <!-- ============================================================
-         Localization groundwork (Idea 14): user-facing UI strings live
-         here, NOT inline in Compose. Add new UI text as a <string> and use
-         stringResource(R.string.x). Do NOT put log messages / tags here.
-         App is English-only for now; future locales = values-<lang>/strings.xml.
+         Localization (Idea 14 + plans/13, interview_009 Q2=A): user-facing UI
+         strings live here, NOT inline in Compose. EN is the default locale;
+         RU lives in values-ru/strings.xml — add BOTH when adding a key.
+         Use stringResource(R.string.x). Do NOT put log messages / tags here.
          ============================================================ -->
 
     <!-- Common actions -->
@@ -57,4 +57,38 @@
     <string name="notif_live_title">🔴 KrinikCam LIVE</string>
     <string name="notif_live_text">Streaming in progress — tap to open</string>
     <string name="notif_live_stop">Stop</string>
+
+    <!-- Common (plans/13) -->
+    <string name="common_delete">Delete</string>
+    <string name="common_cancel">Cancel</string>
+
+    <!-- Floating radial menu (plans/13) -->
+    <string name="fab_stop">Stop</string>
+    <string name="fab_go_live">Go Live</string>
+    <string name="fab_platforms">Platforms</string>
+    <string name="fab_settings">Settings</string>
+    <string name="fab_live_badge">LIVE</string>
+    <string name="fab_menu_desc">Menu</string>
+
+    <!-- Main screen (plans/13) -->
+    <string name="main_standby_hint">Connect a USB webcam via OTG,\nor check Settings for help</string>
+    <string name="main_layers_desc">Layers</string>
+    <string name="source_none">No source</string>
+    <string name="layer_menu_fullscreen">Fullscreen</string>
+    <string name="layer_menu_duplicate">Duplicate</string>
+    <string name="layer_delete_title">Delete layer?</string>
+    <string name="layer_delete_text">“%1$s” will be removed from the scene.</string>
+
+    <!-- Settings screen additions (plans/13) -->
+    <string name="settings_section_help">Help</string>
+    <string name="settings_manual_title">User manual</string>
+    <string name="settings_manual_subtitle">How to use KrinikCam and how it works</string>
+    <string name="settings_perm_status">Camera %1$s · Mic %2$s</string>
+    <string name="settings_perm_subtitle_granted">%1$s · tap to manage in system settings</string>
+    <string name="settings_perm_subtitle_grant">%1$s · tap to grant camera &amp; microphone</string>
+    <string name="about_description">Open-source Android app that turns a USB webcam (via OTG) into a live streaming camera for YouTube, Twitch and more. Built by a streamer, for streamers.</string>
+    <plurals name="settings_platforms_count">
+        <item quantity="one">%d platform · tap to manage</item>
+        <item quantity="other">%d platforms · tap to manage</item>
+    </plurals>
 </resources>

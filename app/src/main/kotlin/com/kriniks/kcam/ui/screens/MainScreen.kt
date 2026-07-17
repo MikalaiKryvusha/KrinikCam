@@ -35,6 +35,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import com.kriniks.kcam.R
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import android.view.HapticFeedbackConstants
@@ -228,7 +230,7 @@ fun MainScreen(
         // просто оверлей поверх живого чёрного холста, пока нет ни одного источника камеры.
         if (activeSource is VideoSource.None && !streamState.isActive) {
             StandbyPlaceholder(
-                message = "Connect a USB webcam via OTG,\nor check Settings for help",
+                message = stringResource(R.string.main_standby_hint),
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -416,20 +418,20 @@ fun MainScreen(
             }) {
                 DropdownMenu(expanded = true, onDismissRequest = { contextMenuLayerId = null }) {
                     DropdownMenuItem(
-                        text = { Text("На весь экран") },
+                        text = { Text(stringResource(R.string.layer_menu_fullscreen)) },
                         onClick = { streamViewModel.resetLayerFullscreen(ctxId); contextMenuLayerId = null },
                     )
                     // Дублирование — пока только для картинок (камера = Фаза B мультизахвата).
                     if (ctxLayer is Layer.Image) {
                         DropdownMenuItem(
-                            text = { Text("Дублировать") },
+                            text = { Text(stringResource(R.string.layer_menu_duplicate)) },
                             onClick = { streamViewModel.duplicateLayer(ctxId); contextMenuLayerId = null },
                         )
                     }
                     // Удаление — не для камеры-базы; через модалку подтверждения.
                     if (ctxLayer != null && ctxLayer !is Layer.VideoCapture) {
                         DropdownMenuItem(
-                            text = { Text("Удалить", color = Color(0xFFCC5555)) },
+                            text = { Text(stringResource(R.string.common_delete), color = Color(0xFFCC5555)) },
                             onClick = { contextDeleteLayer = ctxId to ctxLayer.name; contextMenuLayerId = null },
                         )
                     }
@@ -440,15 +442,15 @@ fun MainScreen(
         contextDeleteLayer?.let { (id, name) ->
             AlertDialog(
                 onDismissRequest = { contextDeleteLayer = null },
-                title = { Text("Удалить слой?", color = Color.White) },
-                text = { Text("«$name» будет удалён из сцены.", color = Color(0xFFCCCCCC)) },
+                title = { Text(stringResource(R.string.layer_delete_title), color = Color.White) },
+                text = { Text(stringResource(R.string.layer_delete_text, name), color = Color(0xFFCCCCCC)) },
                 confirmButton = {
                     TextButton(onClick = { streamViewModel.removeLayer(id); contextDeleteLayer = null }) {
-                        Text("Удалить", color = Color(0xFFCC5555))
+                        Text(stringResource(R.string.common_delete), color = Color(0xFFCC5555))
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { contextDeleteLayer = null }) { Text("Отмена", color = Color(0xFF999999)) }
+                    TextButton(onClick = { contextDeleteLayer = null }) { Text(stringResource(R.string.common_cancel), color = Color(0xFF999999)) }
                 },
             )
         }
@@ -506,7 +508,7 @@ fun MainScreen(
                 .align(Alignment.BottomStart)
                 .padding(16.dp),
         ) {
-            Icon(Icons.Default.Layers, contentDescription = "Слои")
+            Icon(Icons.Default.Layers, contentDescription = stringResource(R.string.main_layers_desc))
         }
     }
 
@@ -540,7 +542,7 @@ fun MainScreen(
             onSelect = { streamViewModel.selectLayer(it) },
             // plans/05 S4 — источники: все доступные + «Нет источника»; текущий = activeSource.
             sourceOptions = availableSources.map { SourceOption(it.id, it.displayName) } +
-                SourceOption("none", "Нет источника"),
+                SourceOption("none", stringResource(R.string.source_none)),
             currentSourceId = activeSource.id,
             onSelectSource = { id ->
                 val src = availableSources.firstOrNull { it.id == id }

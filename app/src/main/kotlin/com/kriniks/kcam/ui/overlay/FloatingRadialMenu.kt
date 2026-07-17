@@ -34,8 +34,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kriniks.kcam.R
 import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isLive
 
@@ -60,15 +62,16 @@ fun FloatingRadialMenu(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
+    // plans/13 — подписи из ресурсов (buildList выполняется в composable-скоупе, resolve законен).
     val actions = buildList {
         if (streamState.isLive) {
-            add(RadialAction(Icons.Default.StopCircle, "Stop", LiveRed, onStopStream))
+            add(RadialAction(Icons.Default.StopCircle, stringResource(R.string.fab_stop), LiveRed, onStopStream))
         } else {
-            add(RadialAction(Icons.Default.RadioButtonChecked, "Go Live", AcidPink, onStartStream))
+            add(RadialAction(Icons.Default.RadioButtonChecked, stringResource(R.string.fab_go_live), AcidPink, onStartStream))
         }
         // Слои вынесены в ОТДЕЛЬНЫЙ FAB внизу-слева (Криник 2026-07-06) — здесь их больше нет.
-        add(RadialAction(Icons.Default.Wifi, "Platforms", Color.White, onOpenPlatforms))
-        add(RadialAction(Icons.Default.Settings, "Settings", Color.White, onOpenSettings))
+        add(RadialAction(Icons.Default.Wifi, stringResource(R.string.fab_platforms), Color.White, onOpenPlatforms))
+        add(RadialAction(Icons.Default.Settings, stringResource(R.string.fab_settings), Color.White, onOpenSettings))
     }
 
     // Outer Box fills the whole screen (caller passes Modifier.fillMaxSize()) so the
@@ -176,11 +179,11 @@ fun FloatingRadialMenu(
                             .background(fabColor, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("LIVE", color = Color.White, fontSize = 13.sp,
+                        Text(stringResource(R.string.fab_live_badge), color = Color.White, fontSize = 13.sp,
                             style = MaterialTheme.typography.labelMedium)
                     }
                 } else {
-                    Icon(fabIcon, contentDescription = "Menu", modifier = Modifier.size(28.dp))
+                    Icon(fabIcon, contentDescription = stringResource(R.string.fab_menu_desc), modifier = Modifier.size(28.dp))
                 }
             }
         }

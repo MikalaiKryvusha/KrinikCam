@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Русская локаль (plans/13, interview_009 Q2=A). Зеркало values/strings.xml — новый ключ
+     добавляется В ОБА файла. app_name не переводится (бренд). -->
+<resources>
+    <string name="app_name">KrinikCam</string>
+
+    <!-- Common actions -->
+    <string name="action_back">Назад</string>
+    <string name="action_close">Закрыть</string>
+    <string name="action_ok">ОК</string>
+    <string name="action_info">Инфо</string>
+
+    <!-- Settings screen -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_section_streaming">Трансляция</string>
+    <string name="settings_platforms">Платформы</string>
+    <string name="settings_no_platforms">Платформы не настроены</string>
+    <string name="settings_active_profile">Активный профиль</string>
+    <string name="settings_section_debug">Отладка</string>
+    <string name="settings_share_log">Поделиться лог-файлом</string>
+    <string name="settings_share_log_sub">Отправить сегодняшний отладочный лог на анализ</string>
+    <string name="settings_share_log_chooser">Поделиться логом KrinikCam</string>
+    <string name="settings_section_about">О приложении</string>
+    <string name="settings_about_app_sub">Open-source стример USB-вебкамеры · Лицензия MIT</string>
+    <string name="settings_author">Автор</string>
+    <string name="settings_author_sub">Николай Кривуша aka КОТ КРИНИК</string>
+    <string name="settings_section_permissions">Разрешения</string>
+    <string name="settings_permissions_granted">Разрешения выданы</string>
+    <string name="settings_permissions_grant">Выдать разрешения</string>
+
+    <!-- About / Author dialogs -->
+    <string name="dialog_license">Лицензия MIT · © 2026 Николай Кривуша</string>
+    <string name="author_name">Mikalai Kryvusha</string>
+    <string name="author_aka">· aka KOT KRINIK</string>
+    <string name="author_ru">Николай Кривуша · Кот Криник</string>
+
+    <!-- Developer (hidden debug) menu -->
+    <string name="dev_title">Для разработчиков</string>
+    <string name="dev_section_orientation">Ориентация</string>
+    <string name="dev_adb_rotation">Вращение по ADB</string>
+    <string name="dev_section_debug_video">Отладочное видео</string>
+    <string name="dev_virtual_camera">Виртуальная камера</string>
+    <string name="dev_stream_to_file">Стрим в файл (виртуальная платформа)</string>
+
+    <!-- Rotation menu -->
+    <string name="rotation_locked">Поворот заблокирован (идёт эфир)</string>
+    <string name="rotation_rotate">Повернуть видео</string>
+
+    <!-- Stream foreground service notification (bug 36 / plans/10) -->
+    <string name="notif_channel_stream">Прямой эфир</string>
+    <string name="notif_live_title">🔴 KrinikCam В ЭФИРЕ</string>
+    <string name="notif_live_text">Идёт трансляция — нажмите, чтобы открыть</string>
+    <string name="notif_live_stop">Стоп</string>
+
+    <!-- Common (plans/13) -->
+    <string name="common_delete">Удалить</string>
+    <string name="common_cancel">Отмена</string>
+
+    <!-- Floating radial menu (plans/13) -->
+    <string name="fab_stop">Стоп</string>
+    <string name="fab_go_live">В эфир</string>
+    <string name="fab_platforms">Платформы</string>
+    <string name="fab_settings">Настройки</string>
+    <string name="fab_live_badge">ЭФИР</string>
+    <string name="fab_menu_desc">Меню</string>
+
+    <!-- Main screen (plans/13) -->
+    <string name="main_standby_hint">Подключите USB-вебкамеру через OTG\nили загляните в Настройки за подсказкой</string>
+    <string name="main_layers_desc">Слои</string>
+    <string name="source_none">Нет источника</string>
+    <string name="layer_menu_fullscreen">На весь экран</string>
+    <string name="layer_menu_duplicate">Дублировать</string>
+    <string name="layer_delete_title">Удалить слой?</string>
+    <string name="layer_delete_text">«%1$s» будет удалён из сцены.</string>
+
+    <!-- Settings screen additions (plans/13) -->
+    <string name="settings_section_help">Справка</string>
+    <string name="settings_manual_title">Руководство пользователя</string>
+    <string name="settings_manual_subtitle">Как пользоваться KrinikCam и как оно устроено</string>
+    <string name="settings_perm_status">Камера %1$s · Микрофон %2$s</string>
+    <string name="settings_perm_subtitle_granted">%1$s · нажмите, чтобы открыть настройки системы</string>
+    <string name="settings_perm_subtitle_grant">%1$s · нажмите, чтобы выдать доступ к камере и микрофону</string>
+    <string name="about_description">Open-source приложение для Android, которое превращает USB-вебкамеру (через OTG) в камеру прямых трансляций для YouTube, Twitch и других платформ. Сделано стримером для стримеров.</string>
+    <plurals name="settings_platforms_count">
+        <item quantity="one">%d платформа · управление по нажатию</item>
+        <item quantity="few">%d платформы · управление по нажатию</item>
+        <item quantity="many">%d платформ · управление по нажатию</item>
+        <item quantity="other">%d платформы · управление по нажатию</item>
+    </plurals>
+</resources>

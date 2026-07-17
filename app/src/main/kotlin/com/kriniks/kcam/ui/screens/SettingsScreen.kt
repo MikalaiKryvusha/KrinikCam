@@ -37,6 +37,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -113,7 +114,8 @@ fun SettingsScreen(
                     icon = Icons.Default.Wifi,
                     title = stringResource(R.string.settings_platforms),
                     subtitle = if (profiles.isEmpty()) stringResource(R.string.settings_no_platforms)
-                               else "${profiles.size} platform${if (profiles.size > 1) "s" else ""} · tap to manage",
+                               // plans/13 — честная плюрализация вместо ручного "s" (в RU три формы).
+                               else pluralStringResource(R.plurals.settings_platforms_count, profiles.size, profiles.size),
                     onClick = { showPlatforms = true },
                 )
                 if (activeProfile != null) {
@@ -144,11 +146,11 @@ fun SettingsScreen(
             }
 
             // ── Руководство (plans/06 / Idea 32) ──────────────────────
-            SettingsSection(title = "Справка") {
+            SettingsSection(title = stringResource(R.string.settings_section_help)) {
                 SettingsRow(
                     icon = Icons.Default.MenuBook,
-                    title = "Руководство пользователя",
-                    subtitle = "Как пользоваться KrinikCam и как оно устроено",
+                    title = stringResource(R.string.settings_manual_title),
+                    subtitle = stringResource(R.string.settings_manual_subtitle),
                     onClick = onOpenManual,
                 )
             }
@@ -246,14 +248,18 @@ private fun PermissionsSection() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { refreshTick++ }
 
-    val statusLine = "Camera ${if (cameraGranted) "✓" else "✗"} · Mic ${if (micGranted) "✓" else "✗"}"
+    val statusLine = stringResource(
+        R.string.settings_perm_status,
+        if (cameraGranted) "✓" else "✗",
+        if (micGranted) "✓" else "✗",
+    )
 
     SettingsSection(title = stringResource(R.string.settings_section_permissions)) {
         SettingsRow(
             icon = if (allGranted) Icons.Default.CheckCircle else Icons.Default.Lock,
             title = if (allGranted) stringResource(R.string.settings_permissions_granted) else stringResource(R.string.settings_permissions_grant),
-            subtitle = if (allGranted) "$statusLine · tap to manage in system settings"
-                       else "$statusLine · tap to grant camera & microphone",
+            subtitle = if (allGranted) stringResource(R.string.settings_perm_subtitle_granted, statusLine)
+                       else stringResource(R.string.settings_perm_subtitle_grant, statusLine),
             onClick = {
                 // Which required runtime permissions are still missing?
                 val missing = buildList {
@@ -383,8 +389,7 @@ private fun ProjectInfoDialog(buildInfo: String, onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Open-source Android app that turns a USB webcam (via OTG) into a live " +
-                        "streaming camera for YouTube, Twitch and more. Built by a streamer, for streamers.",
+                    stringResource(R.string.about_description),
                     color = Color(0xFFBBBBBB), fontSize = 13.sp,
                 )
                 Text(stringResource(R.string.dialog_license), color = Color(0xFF888888), fontSize = 12.sp)
