@@ -95,8 +95,12 @@ class MainActivity : ComponentActivity() {
         // Idea 24 — перечислить встроенные камеры устройства (Camera2) и зарегистрировать их как
         // источники. Приоритет в DeviceManager сам поднимет телефонную камеру, если нет UVC и виртуалки.
         deviceManager.registerPhoneCameras(DeviceCameraEnumerator.enumerate(this))
-        registerVirtualCamControl()
-        if (BuildConfig.DEBUG) registerCmdControl() // Idea 22 — broadcast-команды только в debug
+        // bug 38 — ВСЕ харнес-ресиверы только в debug: в release-сборке наружу не должно торчать
+        // ни одного exported receiver (любое стороннее приложение могло уронить камеру в эфире).
+        if (BuildConfig.DEBUG) {
+            registerVirtualCamControl() // SET_VIRTUAL_CAM — харнес-отрыв продюсера (bug 20 и др.)
+            registerCmdControl()        // Idea 22 — broadcast-команды CMD
+        }
         keepScreenOnWhileStreaming()
     }
 
@@ -388,6 +392,14 @@ class MainActivity : ComponentActivity() {
      *   mode = portrait | landscape | reversePortrait | reverseLandscape | auto (back to fullSensor)
      */
     fun setAdbRotationEnabled(enabled: Boolean) {
+        // bug 38 — SET_ORIENTATION-ресивер только в debug: exported-ресивер в release = дыра
+        // (кто угодно крутит ориентацию во время эфира). Дев-тумблер в release остаётся видимым
+        // (Idea 07: паритет меню), но включение — честный no-op с предупреждением: смысл режима
+        // ТОЛЬКО в ADB-харнесе, который работает с debug-сборкой.
+        if (enabled && !BuildConfig.DEBUG) {
+            KLog.w("MainActivity", "ADB rotation: недоступно в release-сборке (bug 38) — игнорируем")
+            return
+        }
         if (enabled) {
             if (adbOrientationReceiver == null) {
                 val receiver = object : BroadcastReceiver() {

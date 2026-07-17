@@ -34,5 +34,23 @@
 `adb shell am broadcast -a com.kriniks.kcam.SET_VIRTUAL_CAM --ez enabled false` на **release**-сборке
 → никакой реакции; harness-команды ui.mjs на debug работают как раньше.
 
+## Фикс 2026-07-18 (ночной цикл, build 0.7(7)) — [TESTED: 2026-07-18 · приёмка ниже]
+
+Выбран путь «гейтить BuildConfig.DEBUG» (минимальный дифф, семантика ресиверов сохранена):
+- `registerVirtualCamControl()` перенесён под общий `if (BuildConfig.DEBUG)` вместе с
+  `registerCmdControl()` — SET_VIRTUAL_CAM остаётся харнес-примитивом «отрыв продюсера» (bug 20),
+  но только в debug.
+- `setAdbRotationEnabled(true)` в release — честный no-op с `KLog.w` (ресивер SET_ORIENTATION не
+  регистрируется). Дев-тумблер в меню остаётся видимым (паритет Idea 07), но режим работает только
+  там, где есть его потребитель — ADB-харнес на debug-сборке.
+- CMD-receiver: был и остаётся debug-only; EXPORTED в debug — осознанный компромисс ради харнеса.
+- `tools/ui.mjs` не менялся (actions не переезжали; таргетит только `.debug`).
+
+**Приёмка (наблюдением):** release-сборка установлена на планшет → `am broadcast SET_VIRTUAL_CAM`
+и `SET_ORIENTATION` → **0 реакций** в логе release, приложение живо. Позитивный контроль на debug:
+те же броадкасты → 2 реакции («ADB virtual-cam» + «ADB orientation»), харнес цел. Release-сборка
+после теста удалена (на устройстве, как и было, только .debug).
+
 ## Статус
-🔴 ОТКРЫТ (высокий, фикс дешёвый — хороший кандидат в автономный пул).
+✅ **ЗАКРЫТ (2026-07-18).** В release не зарегистрирован ни один exported-ресивер: SET_VIRTUAL_CAM /
+SET_ORIENTATION / CMD — все под BuildConfig.DEBUG. Атака «уронить камеру в эфире броадкастом» закрыта.
