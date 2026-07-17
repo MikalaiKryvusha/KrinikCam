@@ -347,9 +347,15 @@ class StreamViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            imported.forEach { repository.saveProfile(it.copy(id = 0)) } // insert as new
-            KLog.i(TAG, "Imported ${imported.size} profile(s)")
-            _snackbar.emit("Imported ${imported.size} profile(s)")
+            // plans/12 S5 — дедуп: повторный импорт того же файла не плодит копии профилей.
+            val fresh = ProfilesBackupCodec.dedup(imported, profiles.value)
+            val skipped = imported.size - fresh.size
+            fresh.forEach { repository.saveProfile(it.copy(id = 0)) } // insert as new
+            KLog.i(TAG, "Imported ${fresh.size} profile(s), skipped $skipped duplicate(s)")
+            _snackbar.emit(
+                if (skipped == 0) "Imported ${fresh.size} profile(s)"
+                else "Imported ${fresh.size} profile(s), skipped $skipped duplicate(s)"
+            )
         }
     }
 

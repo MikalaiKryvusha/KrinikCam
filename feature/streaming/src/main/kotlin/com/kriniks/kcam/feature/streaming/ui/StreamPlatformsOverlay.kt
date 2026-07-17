@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.kriniks.kcam.data.profiles.model.StreamPlatform
 import com.kriniks.kcam.data.profiles.model.StreamProfile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 private val AcidPink = Color(0xFFFF1A8C)
 private val DarkSurface = Color(0xFF1A1A1A)
@@ -67,22 +69,33 @@ fun StreamPlatformsOverlay(
     val context = LocalContext.current
     var editingProfile by remember { mutableStateOf<StreamProfile?>(null) }
     var showAddNew by remember { mutableStateOf(false) }
+    // plans/12 S5 — подтверждение удаления: корзина была мгновенной безвозвратной потерей ключа.
+    var confirmDelete by remember { mutableStateOf<StreamProfile?>(null) }
+    val ioScope = rememberCoroutineScope()
 
     // SAF "create document" — user picks where to save; we write the export JSON there (no runtime
     // storage permission needed). Default filename suggested via the launch() call below.
+    // plans/12 S5 — файловый I/O в Dispatchers.IO: SAF-uri может быть сетевым/медленным провайдером,
+    // запись на main-потоке ловила бы ANR. JSON строится на main (снимок state), пишутся байты в IO.
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
-        if (uri != null) runCatching {
-            context.contentResolver.openOutputStream(uri)?.use { it.write(buildExportJson().toByteArray()) }
+        if (uri != null) {
+            val payload = buildExportJson().toByteArray()
+            ioScope.launch(Dispatchers.IO) {
+                runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(payload) } }
+            }
         }
     }
     // SAF "open document" — user picks a config file; we read its text and hand it to the importer.
+    // Чтение — в IO; onImportJson безопасен из фона (ViewModel сам уводит работу в viewModelScope).
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        if (uri != null) runCatching {
-            context.contentResolver.openInputStream(uri)?.use { onImportJson(it.readBytes().decodeToString()) }
+        if (uri != null) ioScope.launch(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { onImportJson(it.readBytes().decodeToString()) }
+            }
         }
     }
 
@@ -129,6 +142,13 @@ fun StreamPlatformsOverlay(
                     modifier = Modifier.weight(1f),
                 ) { Text("Import", color = AcidPink) }
             }
+            // plans/12 S5 — честное предупреждение: экспорт-файл несёт секретные stream-ключи.
+            Text(
+                text = "Export file contains your secret stream keys — store it safely",
+                color = Color.Gray,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
 
             Spacer(Modifier.height(12.dp))
 
@@ -157,7 +177,8 @@ fun StreamPlatformsOverlay(
                             onSelect = { onSelectProfile(profile) },
                             onEdit = { editingProfile = profile },
                             onToggle = { onSaveProfile(profile.copy(isEnabled = !profile.isEnabled)) },
-                            onDelete = { onDeleteProfile(profile) },
+                            // plans/12 S5 — сначала подтверждение (диалог ниже), потом удаление.
+                            onDelete = { confirmDelete = profile },
                         )
                     }
                 }
@@ -184,6 +205,31 @@ fun StreamPlatformsOverlay(
             onDismiss = {
                 editingProfile = null
                 showAddNew = false
+            },
+        )
+    }
+
+    // ── plans/12 S5 — подтверждение удаления профиля ───────────────────
+    // Корзина была мгновенной: тап = безвозвратная потеря stream-ключа. Теперь — явный вопрос.
+    confirmDelete?.let { doomed ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            containerColor = DarkSurface,
+            title = { Text("Delete profile?", color = Color.White) },
+            text = {
+                Text(
+                    "“${doomed.name}” and its stream key will be deleted permanently.",
+                    color = Color.Gray,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteProfile(doomed)
+                    confirmDelete = null
+                }) { Text("Delete", color = AcidPink) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) { Text("Cancel", color = Color.Gray) }
             },
         )
     }

@@ -55,4 +55,11 @@ class ProfilesDataStore @Inject constructor(
     suspend fun setActiveProfileId(id: Long) {
         context.dataStore.edit { it[KEY_ACTIVE_PROFILE_ID] = id }
     }
+
+    // plans/12 S5 — снять выбор активного профиля (например, он удалён): ключ удаляется целиком,
+    // подписчики activeProfileId получают null. Без этого удалённый профиль оставался «активным»
+    // висячим id в DataStore.
+    suspend fun clearActiveProfileId() {
+        context.dataStore.edit { it.remove(KEY_ACTIVE_PROFILE_ID) }
+    }
 }

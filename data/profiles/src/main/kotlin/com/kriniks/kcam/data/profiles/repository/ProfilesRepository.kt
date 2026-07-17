@@ -15,6 +15,7 @@ import com.kriniks.kcam.data.profiles.db.toEntity
 import com.kriniks.kcam.data.profiles.model.DeviceProfile
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,8 +36,13 @@ class ProfilesRepository @Inject constructor(
     suspend fun saveProfile(profile: StreamProfile): Long =
         dao.upsert(profile.toEntity())
 
-    suspend fun deleteProfile(profile: StreamProfile) =
+    suspend fun deleteProfile(profile: StreamProfile) {
         dao.delete(profile.toEntity())
+        // plans/12 S5 — чистим висячий указатель: если удалили АКТИВНЫЙ профиль, снимаем выбор в
+        // DataStore (иначе activeProfileId вечно указывает на несуществующую строку). Единая точка:
+        // все пути удаления проходят здесь.
+        if (dataStore.activeProfileId.first() == profile.id) dataStore.clearActiveProfileId()
+    }
 
     // ── Device profile (DataStore) ──────────────────────────────────────
 

@@ -39,17 +39,24 @@ enum class StreamPlatform(
     ),
     TWITCH(
         displayName = "Twitch",
-        defaultRtmpUrl = "rtmp://live.twitch.tv/live",
+        // bug 37 (смежное) / plans/12 S5 — канонический ingest Twitch: rtmp://live.twitch.tv/app
+        // (было /live — несуществующее приложение, стрим не поднимался бы).
+        defaultRtmpUrl = "rtmp://live.twitch.tv/app",
         maxBitrateBps = 6_000_000,
     ),
     INSTAGRAM(
         displayName = "Instagram",
-        defaultRtmpUrl = "rtmps://live-api-s.facebook.com:443/rtmp",
+        // plans/12 S5 — у Instagram НЕТ публичного стабильного RTMP-ingest (старый дефолт указывал
+        // на endpoint Facebook — чужой сервис). Честно: пусто, юзер вставляет URL из своего
+        // инструмента (Instagram выдаёт rtmps-URL в интерфейсе Live Producer).
+        defaultRtmpUrl = "",
         maxBitrateBps = 4_000_000,
     ),
     TIKTOK(
         displayName = "TikTok",
-        defaultRtmpUrl = "rtmp://push.tiktokv.com/rtmp",
+        // plans/12 S5 — персональный ingest TikTok выдаётся в LIVE Studio каждому стримеру свой
+        // (старый generic push.tiktokv.com не существует). Честно: пусто, юзер вставляет свой.
+        defaultRtmpUrl = "",
         maxBitrateBps = 4_000_000,
     ),
     CUSTOM(

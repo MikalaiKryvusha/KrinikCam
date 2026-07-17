@@ -50,4 +50,7 @@ dependencies {
 
     implementation(libs.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+
+    // plans/12 S6 — JVM-юниты на чистую логику модуля (valueOf-фолбэк, дедуп импорта)
+    testImplementation(libs.junit)
 }

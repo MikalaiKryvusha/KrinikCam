@@ -46,4 +46,15 @@ object ProfilesBackupCodec {
      */
     fun decode(text: String): List<StreamProfile> =
         runCatching { json.decodeFromString<ProfilesBackup>(text).profiles }.getOrDefault(emptyList())
+
+    /**
+     * plans/12 S5 — дедупликация импорта: повторный импорт того же файла не плодит копии.
+     * «Тот же профиль» = совпали (platform, rtmpUrl, streamKey) — имя/битрейт не считаем
+     * идентичностью (их правят). Дедуп и против существующих, и ВНУТРИ импортируемого списка.
+     * Чистая функция — покрыта юнитом (plans/12 S6).
+     */
+    fun dedup(imported: List<StreamProfile>, existing: List<StreamProfile>): List<StreamProfile> {
+        val seen = existing.map { Triple(it.platform, it.rtmpUrl, it.streamKey) }.toMutableSet()
+        return imported.filter { seen.add(Triple(it.platform, it.rtmpUrl, it.streamKey)) }
+    }
 }

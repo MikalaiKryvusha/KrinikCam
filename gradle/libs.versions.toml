@@ -17,8 +17,11 @@ kotlinxSerialization = "1.7.3"
 coil = "2.7.0"
 androidUsbCamera = "3.2.7"
 rootEncoder = "2.4.7"
+junit = "4.13.2"
 
 [libraries]
+# Testing (plans/12 S6 — первая юнит-инфра проекта)
+junit = { group = "junit", name = "junit", version.ref = "junit" }
 # AndroidX Core
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
