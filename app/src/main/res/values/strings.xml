@@ -51,4 +51,10 @@
     <!-- Rotation menu -->
     <string name="rotation_locked">Rotation locked (streaming)</string>
     <string name="rotation_rotate">Rotate video</string>
+
+    <!-- Stream foreground service notification (bug 36 / plans/10) -->
+    <string name="notif_channel_stream">Live stream</string>
+    <string name="notif_live_title">🔴 KrinikCam LIVE</string>
+    <string name="notif_live_text">Streaming in progress — tap to open</string>
+    <string name="notif_live_stop">Stop</string>
 </resources>

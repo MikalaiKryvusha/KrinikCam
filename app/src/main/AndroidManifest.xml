@@ -7,10 +7,15 @@
     <!-- Audio capture from USB microphone or internal mic -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Foreground service keeps streaming alive when app is backgrounded -->
+    <!-- Foreground service keeps streaming alive when app is backgrounded (bug 36 / plans/10):
+         types camera|microphone|connectedDevice — под источники эфира (встроенная камера, микрофон,
+         USB-вебка). WAKE_LOCK — страховка от Doze при выключенном экране (S3). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Required for Android 13+ notification permission (stream status notification) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -76,6 +81,14 @@
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />
         </activity>
+
+        <!-- Bug 36 / plans/10 S2 — тонкий foreground-сервис эфира: держит процесс живым при
+             выключенном экране/фоне, показывает нотификацию «LIVE». Управляется из MainActivity
+             по streamState; пайплайном не владеет. -->
+        <service
+            android:name=".streaming.StreamForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="camera|microphone|connectedDevice" />
 
     </application>
 

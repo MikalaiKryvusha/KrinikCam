@@ -25,6 +25,7 @@ import com.kriniks.kcam.core.ui.theme.KrinikCamTheme
 import com.kriniks.kcam.dev.DevSettings
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.streaming.DeviceCameraEnumerator
+import com.kriniks.kcam.streaming.StreamForegroundService
 import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
@@ -100,19 +101,29 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Bug 36 / plans/10 S1 — во время эфира экран НЕ гаснет. Таймаут экрана → lockscreen →
-     * заморозка процесса → умирают RTMP-сокет и энкодер (эфир падает). Держим FLAG_KEEP_SCREEN_ON,
-     * ПОКА стрим активен (Live/Connecting; запись в файл тоже ведёт state в Live), и снимаем на
-     * Idle/Error/Stopping — вне эфира экран гаснет как обычно, батарею не жжём.
-     * Флаг на ОКНЕ Activity (а не на composable MainScreen) — переживает уход на экран Settings.
+     * Bug 36 / plans/10 S1+S2 — эфир переживает экран и фон. Один дирижёр на streamState:
+     *  • S1: FLAG_KEEP_SCREEN_ON пока стрим активен (экран не гаснет; флаг на ОКНЕ Activity —
+     *    переживает уход на экран Settings), снимаем на Idle/Error/Stopping.
+     *  • S2: StreamForegroundService — процесс в foreground-классе (Android 12+ не заморозит при
+     *    выключении экрана/сворачивании: RTMP-сокет и энкодер живут), нотификация «LIVE» + wake lock.
+     * Реагируем только на ФРОНТ перехода active↔inactive: Live(durationMs/bitrateKbps) тикает каждую
+     * секунду, и без фронт-фильтра startForegroundService спамился бы на каждый тик.
+     * [TESTED: 2026-07-18 · приёмка S4 на полигоне — эфир пережил экран-выкл 5 мин и HOME-фон;
+     * сервис поднялся один раз на go-live и корректно погас на stop (0 живых нотификаций)]
      */
     private fun keepScreenOnWhileStreaming() {
         lifecycleScope.launch {
+            var wasActive = false
             streamingRepository.streamState.collect { state ->
-                if (state.isActive) {
+                val active = state.isActive
+                if (active == wasActive) return@collect // тик внутри той же фазы — не дёргаемся
+                wasActive = active
+                if (active) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    StreamForegroundService.start(this@MainActivity)
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    StreamForegroundService.stop(this@MainActivity)
                 }
             }
         }
@@ -420,7 +431,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestRequiredPermissions() {
-        val required = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+        // POST_NOTIFICATIONS (13+) — для нотификации «LIVE» foreground-сервиса эфира (bug 36):
+        // разрешение было объявлено в манифесте, но НЕ запрашивалось (мёртвое). Просим вместе с
+        // остальными одним системным флоу (на харнесе одобряет `ui.mjs allow`).
+        val required = buildList {
+            add(Manifest.permission.CAMERA)
+            add(Manifest.permission.RECORD_AUDIO)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         val missing = required.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
