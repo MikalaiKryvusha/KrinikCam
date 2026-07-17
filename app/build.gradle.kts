@@ -1,6 +1,7 @@
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -27,6 +28,18 @@ val (vMajor, vMinor, vBuild) = readVersion()
 // in Settings → About. Refreshes whenever version.json changes (every commit/release bumps it).
 val buildTime: String = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())
 
+// bug 37 №2 / plans/12 S2 (interview_009 Q3=A) — настоящая подпись release. Пароли в
+// keystore.properties (корень репо, GITIGNORED), сам ключ ~/keystores/krinikcam.keystore (вне репо;
+// бэкап — homeworks/06). На машине БЕЗ этих файлов сборка НЕ падает: release честно откатывается
+// на debug-подпись с WARNING в логе (такой APK — только для локальной отладки, не для релиза).
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+// storeFile в properties — АБСОЛЮТНЫЙ путь (gradle file() не разворачивает `~`).
+val releaseStoreFile = keystoreProps.getProperty("storeFile")?.let { rootProject.file(it) }
+val hasReleaseKeystore = releaseStoreFile?.exists() == true
+
 android {
     namespace = "com.kriniks.kcam"
     compileSdk = 35
@@ -49,6 +62,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // bug 37 №2 — release-подпись из keystore.properties (см. keystoreProps выше).
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -57,7 +82,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            // bug 37 №2 — настоящий ключ, если он есть на машине; иначе debug-фолбэк с WARNING.
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn("WARNING: keystore.properties/keystore не найдены — release будет подписан DEBUG-ключом (только для локальной отладки, НЕ публиковать!)")
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             applicationIdSuffix = ".debug"

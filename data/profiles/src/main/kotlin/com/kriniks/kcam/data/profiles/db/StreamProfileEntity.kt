@@ -27,7 +27,10 @@ data class StreamProfileEntity(
     fun toProfile() = StreamProfile(
         id             = id,
         name           = name,
-        platform       = StreamPlatform.valueOf(platform),
+        // bug 37 (смежное) / plans/12 S1 — неизвестное значение платформы (даунгрейд приложения,
+        // битый импорт) раньше роняло valueOf → IllegalArgumentException → падал ВЕСЬ Flow профилей.
+        // Теперь деградируем мягко в CUSTOM: профиль жив, URL/ключ сохранены.
+        platform       = runCatching { StreamPlatform.valueOf(platform) }.getOrDefault(StreamPlatform.CUSTOM),
         rtmpUrl        = rtmpUrl,
         streamKey      = streamKey,
         isEnabled      = isEnabled,

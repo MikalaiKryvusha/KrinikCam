@@ -20,6 +20,15 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object ProfilesModule {
 
+    // plans/12 S1 — ОБРАЗЕЦ миграции (закомментирован, пока схема version=1). Правило: бампишь
+    // version в AppDatabase → пиши Migration(N,N+1) по этому образцу и добавь в .addMigrations(...)
+    // ниже; JSON старой схемы лежит в data/profiles/schemas/ (exportSchema=true).
+    // private val MIGRATION_1_2 = object : Migration(1, 2) {
+    //     override fun migrate(db: SupportSQLiteDatabase) {
+    //         db.execSQL("ALTER TABLE stream_profiles ADD COLUMN new_column TEXT NOT NULL DEFAULT ''")
+    //     }
+    // }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
