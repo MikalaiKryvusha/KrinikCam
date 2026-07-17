@@ -89,6 +89,37 @@ function main() {
   ui('cmd', 'set-rotation', String(ROTATION));
   sleep(3000); // дать источнику/повороту устаканиться
 
+  // ── Контракт CMD-протокола (bug 39): каждый параметризованный action из help прогоняется через
+  // ресивер с безобидными аргументами; затем лог приложения проверяется на «unknown action» и
+  // warn-подсказки usage (они значат, что ресивер НЕ понял аргументы → протокол разошёлся).
+  // Новый action → добавь сюда строку, иначе рассинхрон ui.mjs↔ресивера снова уползёт в тень.
+  log('▶ contract: CMD-протокол (все actions с аргументами)…');
+  const CONTRACT = [
+    ['add-overlay', 'contract_ov'],
+    ['set-transform', 'contract_ov', '0.25', '0.8', '0.8', '0.6', '0'],
+    ['layer-up', 'contract_ov'],
+    ['layer-down', 'contract_ov'],
+    ['gesture-drag', 'contract_ov', '0.01', '0'],
+    ['gesture-scale', 'contract_ov', '1.0'],
+    ['gesture-rotate', 'contract_ov', '0'],
+    ['gesture-pinch', 'out', '0.05'],
+    ['gesture-twist', '2', '0.5'],
+    ['select-source', 'virtual'],
+    ['rotation-mode', 'on'],
+    ['rotation-mode', 'off'],
+    ['toggle-layer', 'contract_ov'], // спрятать контрактный оверлей, чтобы не влиял на запись
+  ];
+  for (const c of CONTRACT) ui('cmd', ...c);
+  sleep(1500);
+  const contractLog = adb('shell', `"tail -100 /sdcard/Android/data/${PKG}/files/logs/kcam_$(date +%Y-%m-%d).log 2>/dev/null"`);
+  const desync = contractLog.split('\n').filter((l) =>
+    /CMD: unknown action/.test(l) ||
+    /select-source: front\|rear/.test(l) ||          // usage-warn = аргументы не поняты
+    /gesture-(drag|scale|rotate): '/.test(l) ||
+    /set-transform: need/.test(l));
+  if (desync.length) fail(`контракт CMD-протокола разошёлся:\n  ${desync.join('\n  ')}`);
+  log('  ✓ контракт: все actions поняты ресивером');
+
   log(`▶ record ${DURATION}s…`);
   ui('cmd', 'go-live');
   sleep(DURATION * 1000);

@@ -138,15 +138,26 @@ class MainActivity : ComponentActivity() {
      * состояние приложения детерминированно, без навигации по UI. Расширяется новыми `action`.
      *
      * ADB: `adb shell am broadcast -a com.kriniks.kcam.CMD --es action <name> [--es arg <v>] -p <pkg.debug>`
-     * Команды:
-     *   virtual-camera  arg=on|off     — вкл/выкл виртуальную дебаг-камеру
+     * ПРОТОКОЛ АРГУМЕНТОВ (bug 39): ui.mjs клеит хвост аргументов ЗАПЯТОЙ (am --es рвёт по пробелам),
+     * ресивер парсит ВСЁ единым Regex("[,\\s]+") — запятая и пробел эквивалентны.
+     * Команды (полный список; при добавлении — сюда, в ui.mjs usage и в контракт-шаг smoke.mjs):
+     *   virtual-camera  arg=on|off     — вкл/выкл виртуальную дебаг-камеру (персистит)
      *   stream-to-file  arg=on|off     — режим записи в файл вместо RTMP (harness)
      *   go-live         [arg=<height>] — старт (в harness — запись в MP4); arg = высота кадра (1080/2160)
+     *   go-live-rtmp    arg=url1[,url2…] — старт НАСТОЯЩЕГО RTMP-мультистрима (полигон, plans/09)
      *   stop                           — остановить запись/стрим
+     *   photo                          — кадр композита в галерею DCIM/KrinikCam (Idea 17)
      *   set-rotation    arg=0|90|180|270 — глобальный поворот ХОЛСТА над сценой (interview_006):
      *                    90/270 → выход 9:16 портрет; вся композиция ворочается целиком
-     *   add-overlay                    — добавить тестовый PNG-оверлей
-     *   set-transform   arg="<id> <scale> <cx> <cy> [alpha] [rotation]" — трансформа слоя
+     *   add-overlay     [arg=<id>]     — тестовый PNG-оверлей (id для последующих жестов)
+     *   set-transform   arg=<id>,<scale>,<cx>,<cy>[,alpha][,rotation] — трансформа слоя
+     *   toggle-layer / layer-up / layer-down  arg=<id> — видимость/порядок слоя
+     *   select-source   arg=front|rear|uvc|virtual|none|builtin,<cameraId> — источник слоя видео
+     *   device-camera   arg=front|back|off — встроенная камера как источник (Idea 24)
+     *   gesture-drag    arg=<id>,<dCx>,<dCy> · gesture-scale arg=<id>,<factor> ·
+     *   gesture-rotate  arg=<id>,<deg> — кадр жеста над слоем (путь пальцев, plans/03 S8)
+     *   gesture-pinch   arg=in|out[,frac] · gesture-twist arg=<deg>[,radiusFrac] — синтетический
+     *                    двухпальцевый мультитач в decorView над ВЫБРАННЫМ слоем
      *   rotation-mode   arg=on|off     — режим «вращение по ADB» (для SET_ORIENTATION)
      * (Phase 3: команда `compositor` УДАЛЕНА — композитор всегда включён, второго пайплайна нет.)
      */
@@ -254,7 +265,9 @@ class MainActivity : ComponentActivity() {
                     // автоматизацией. front — селфи · rear — тыл · uvc — вебка · virtual — дебаг-паттерн ·
                     // none — нет источника · builtin <cameraId> — конкретная встроенная камера ОС по id.
                     "select-source" -> {
-                        val parts = arg?.trim()?.split(Regex("\\s+")) ?: emptyList()
+                        // bug 39 — разделитель ЕДИНЫЙ для всего CMD-протокола: [,\s]+ (ui.mjs клеит
+                        // хвост аргументов запятой, т.к. `am broadcast --es` рвёт значение по пробелам).
+                        val parts = arg?.trim()?.split(Regex("[,\\s]+"))?.filter { it.isNotEmpty() } ?: emptyList()
                         when (parts.firstOrNull()) {
                             "front" -> deviceManager.selectPhoneCamera(isFront = true)
                             "rear" -> deviceManager.selectPhoneCamera(isFront = false)
@@ -269,13 +282,20 @@ class MainActivity : ComponentActivity() {
                     // plans/03 S8 — двухпальцевые жесты для АГЕНТА (устройство без рута, sendevent
                     // запрещён → инъектируем синтетические 2-пальцевые MotionEvent в СВОЙ decorView,
                     // прогоняя настоящий Compose-жест над выбранным слоем). Криник просил.
+                    // bug 39 — split по [,\s]+ (раньше "\\s+": ui.mjs слал "in,0.5", токен не равнялся
+                    // "in" → ветка else давала ОБРАТНОЕ направление щипка). Заявленные в help
+                    // [frac]/[radiusFrac] теперь реально используются (дефолт 1.0 = прежнее поведение).
                     "gesture-pinch" -> {
-                        val dir = arg?.trim()?.split(Regex("\\s+"))?.firstOrNull() ?: "out"
-                        injectTwoFinger(if (dir == "in") "pinch-in" else "pinch-out", 0f)
+                        val p = arg?.trim()?.split(Regex("[,\\s]+"))?.filter { it.isNotEmpty() } ?: emptyList()
+                        val dir = p.firstOrNull()?.lowercase() ?: "out"
+                        val frac = p.getOrNull(1)?.toFloatOrNull() ?: 1f
+                        injectTwoFinger(if (dir == "in") "pinch-in" else "pinch-out", frac)
                     }
                     "gesture-twist" -> {
-                        val deg = arg?.trim()?.split(Regex("\\s+"))?.firstOrNull()?.toFloatOrNull() ?: 45f
-                        injectTwoFinger("twist", deg)
+                        val p = arg?.trim()?.split(Regex("[,\\s]+"))?.filter { it.isNotEmpty() } ?: emptyList()
+                        val deg = p.firstOrNull()?.toFloatOrNull() ?: 45f
+                        val radiusFrac = p.getOrNull(1)?.toFloatOrNull() ?: 1f
+                        injectTwoFinger("twist", deg, radiusFrac)
                     }
                     else -> KLog.w("MainActivity", "CMD: unknown action '$action'")
                 }
@@ -293,9 +313,12 @@ class MainActivity : ComponentActivity() {
      * plans/03 S8 — проиграть СИНТЕТИЧЕСКИЙ двухпальцевый жест (щипок/поворот) поверх превью: диспатчим
      * последовательность MotionEvent (2 указателя) в свой `decorView`. Права на инъекцию в СВОИ вьюхи
      * есть без рута — жест проходит настоящий Compose-пайплайн (detectTransformGestures) над выбранным
-     * слоем. [kind] = pinch-in|pinch-out|twist; [amount] — градусы для twist. Центр — центр экрана.
+     * слоем. [kind] = pinch-in|pinch-out|twist; [amount] — для twist градусы, для pinch — frac (0..1]
+     * интенсивности щипка (1 = полный ход, прежнее поведение); [radiusFrac] — множитель радиуса
+     * разведения пальцев для twist (bug 39: параметры из help теперь реально работают).
+     * Центр — центр экрана.
      */
-    private fun injectTwoFinger(kind: String, amount: Float) {
+    private fun injectTwoFinger(kind: String, amount: Float, radiusFrac: Float = 1f) {
         val root = window.decorView
         if (root.width == 0 || root.height == 0) return
         val cx = root.width / 2f
@@ -304,11 +327,14 @@ class MainActivity : ComponentActivity() {
         val steps = 24
         val stepMs = 16L
         // Начальный/конечный радиус разведения и угол (рад): щипок меняет радиус, twist — угол.
+        // bug 39: frac клампим в (0..1] — ход щипка = frac от полного диапазона 0.10↔0.30 minDim.
+        val frac = amount.coerceIn(0.01f, 1f)
         val r0: Float; val r1: Float; val a0: Float; val a1: Float
         when (kind) {
-            "pinch-in"  -> { r0 = minDim * 0.30f; r1 = minDim * 0.10f; a0 = 0f; a1 = 0f }
-            "pinch-out" -> { r0 = minDim * 0.10f; r1 = minDim * 0.30f; a0 = 0f; a1 = 0f }
-            else        -> { r0 = minDim * 0.22f; r1 = minDim * 0.22f; a0 = 0f
+            "pinch-in"  -> { r0 = minDim * 0.30f; r1 = minDim * (0.30f - 0.20f * frac); a0 = 0f; a1 = 0f }
+            "pinch-out" -> { r0 = minDim * 0.10f; r1 = minDim * (0.10f + 0.20f * frac); a0 = 0f; a1 = 0f }
+            else        -> { val r = minDim * 0.22f * radiusFrac.coerceIn(0.05f, 2f)
+                             r0 = r; r1 = r; a0 = 0f
                              a1 = Math.toRadians(amount.toDouble()).toFloat() } // twist
         }
         val downTime = SystemClock.uptimeMillis()

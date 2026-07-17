@@ -468,10 +468,13 @@ switch (cmd) {
   case 'pinch':
   case 'twist': {
     // pinch <in|out> [frac]  ·  twist <deg> [radiusFrac]
+    // bug 39 — аргументы клеим ЗАПЯТОЙ, как весь CMD-протокол (am --es рвёт значение по пробелам;
+    // раньше слали "in 0.5" → на устройстве оставалось "in", а с запятой без фикса ресивера
+    // "in,0.5" не матчился и щипок шёл в ОБРАТНУЮ сторону).
     const action = cmd === 'pinch' ? 'gesture-pinch' : 'gesture-twist';
     const arg = cmd === 'pinch'
-      ? `${(rest[0] || 'out').toLowerCase()} ${rest[1] || ''}`.trim()
-      : `${rest[0] || '45'} ${rest[1] || ''}`.trim();
+      ? [(rest[0] || 'out').toLowerCase(), rest[1]].filter(Boolean).join(',')
+      : [rest[0] || '45', rest[1]].filter(Boolean).join(',');
     const deviceFlag = ADB_DEVICE ? ['-s', ADB_DEVICE] : [];
     const out = execFileSync('adb', [...deviceFlag, 'shell', 'am', 'broadcast',
       '-a', 'com.kriniks.kcam.CMD', '--es', 'action', action, '--es', 'arg', arg],
@@ -621,7 +624,7 @@ switch (cmd) {
     // на устройстве расщепит значение по пробелам). Приёмник в MainActivity парсит по [,\s]+.
     const arg = rest.length > 1 ? rest.slice(1).join(',') : undefined;
     if (!action) {
-      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|stop|photo|set-rotation|add-overlay|rotation-mode|device-camera|toggle-layer|layer-up|layer-down|set-transform)');
+      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|go-live-rtmp|stop|photo|set-rotation|add-overlay|rotation-mode|device-camera|select-source|toggle-layer|layer-up|layer-down|set-transform|gesture-drag|gesture-scale|gesture-rotate|gesture-pinch|gesture-twist)');
       process.exit(1);
     }
     const pkg = PKG_DEBUG; // CMD-receiver только в debug
