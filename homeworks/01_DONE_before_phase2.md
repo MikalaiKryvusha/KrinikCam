@@ -145,3 +145,5 @@
 > Скриншоты в портретной и в пейзажной ориентации закинул в /Users/kryvusha/ai_sandbox/KrinikCam/tools/screenshots, это я, привет тебе от меня! 
 /Users/kryvusha/ai_sandbox/KrinikCam/tools/screenshots/Screenshot_20260627-144831.png
 /Users/kryvusha/ai_sandbox/KrinikCam/tools/screenshots/Screenshot_20260627-144839.png
+## ✅ СТАТУС: DONE (эпоха закрыта; помечено ночной ревизией 2026-07-18)
+ДЗ относилось к давно завершённым фазам (Phase 2/3, мультисорс, композитор-дефолт) — выполнено и поглощено историей проекта.
