@@ -39,5 +39,13 @@ StreamPlatformsOverlay (целиком), снэкбары StreamViewModel (RU/EN
 smoke PASS.
 
 ## Статус
-📋 План готов (2026-07-12, по решению interview_009 Q2). В автономный пул (после критикалов
-plans/09/10 по приоритету Q1=A).
+🔄 **S1+S2+S4 СДЕЛАНЫ (2026-07-18, ночной цикл, коммиты 2a4c171+1560876):**
+- app-модуль: FloatingRadialMenu, MainScreen, SettingsScreen (вкл. plurals для «N платформ»),
+  values-ru со всеми переводами. feature:streaming: свой res (≈40 ключей EN+RU), оба оверлея
+  целиком, снэкбары VM → **UiText** (Res+args, резолв в UI — Context из VM изгнан).
+- **S4-приёмка наблюдением:** per-app locale en → dump 0 русских («Rotate video/Menu/Layers»);
+  locale ru → «Повернуть видео/Меню/Слои», оверлей платформ по-русски целиком; override сброшен
+  (система планшета ru → UI русский); smoke PASS.
+**Остаток:** S3 — User Manual (11 секций, этап B, большой отдельный заход) + хвост: displayName
+ИСТОЧНИКОВ приходят из данных `:feature:capture` (DeviceCameraEnumerator: «Селфи-камера (id 1)» —
+русский хардкод в данных, нужен отдельный заход по модели SourceOption).
