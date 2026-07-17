@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- User Manual (plans/06 + plans/13 S3) — EN default. RU: values-ru/um_strings.xml.
+     Академичный энциклопедический стиль (указание Криника 2026-07-07). Новая секция/абзац —
+     добавляется В ОБА файла; порядок пар title/body сшивается в UserManualScreen. -->
+<resources>
+    <string name="um_screen_title">Manual</string>
+    <string name="um_toc">CONTENTS</string>
+    <string name="um_intro">The KrinikCam user manual — how to use the application and how it is built. The section “How it works under the hood” is for the curious.</string>
+
+    <string name="um_title_1">1. What is KrinikCam</string>
+    <string-array name="um_body_1">
+        <item>KrinikCam is an application for running live video broadcasts from a mobile device. In purpose it is close to programs such as OBS Studio, but it runs on a tablet or phone.</item>
+        <item>Image sources (cameras, images and others) are represented as layers that are stacked on top of each other and combined into a single frame.</item>
+        <item>The resulting frame is simultaneously broadcast to the selected platform (for example, YouTube or Twitch) and shown in the preview window.</item>
+    </string-array>
+
+    <string name="um_title_2">2. Quick start</string>
+    <string-array name="um_body_2">
+        <item>The image source can be a USB camera (connected via an OTG adapter) or the built-in camera of the device.</item>
+        <item>The source is selected on the “Layers” panel (button in the lower left corner): the desired device is specified for the “Video capture device” layer.</item>
+        <item>After checking the image in the preview window, the frame orientation is set if necessary (button in the upper right corner), after which the broadcast is started with the “Go Live” button.</item>
+    </string-array>
+
+    <string name="um_title_3">3. Video sources</string>
+    <string-array name="um_body_3">
+        <item>All cameras are represented by a single layer type — “Video capture device”.</item>
+        <item>The specific device is selected in the layer properties: the built-in camera of the device (front, main, wide-angle and others), a USB camera, a virtual camera (for testing), or no source.</item>
+        <item>Several such layers can be used simultaneously — for example, a USB camera and the front camera in a corner of the frame.</item>
+    </string-array>
+
+    <string name="um_title_4">4. Layers and the scene</string>
+    <string-array name="um_body_4">
+        <item>A layer is a separate source in the frame (a camera or an image; later also video, text, a web page).</item>
+        <item>The order of layers in the list defines the stacking order: the top layer is displayed above the others.</item>
+        <item>Each layer offers visibility control, transformation (position, size, rotation) and deletion.</item>
+        <item>The “Layers” panel contains the list of layers and a button for adding a new layer; deletion is confirmed by a separate prompt.</item>
+    </string-array>
+
+    <string name="um_title_5">5. Arranging layers with gestures</string>
+    <string-array name="um_body_5">
+        <item>A layer is selected by tapping it in the preview window or by tapping its row in the list; a frame is shown around the selected layer.</item>
+        <item>Moving is done with one finger, scaling — by pinching two fingers together or apart, rotation — by rotating two fingers around the point between them.</item>
+        <item>Snapping is provided: the layer is gently attracted to the frame center, its edges and corners, and to angles that are multiples of 90 degrees, with guide lines shown and a light vibration. A stronger displacement cancels the snap.</item>
+        <item>A long press on a layer opens an action menu: expand to the full frame, duplicate, delete.</item>
+    </string-array>
+
+    <string name="um_title_6">6. Rotation</string>
+    <string-array name="um_body_6">
+        <item>Rotating the whole frame (button in the upper right corner) by 0, 90, 180 or 270 degrees sets the final orientation — portrait or landscape.</item>
+        <item>Rotation of the content of an individual layer is done with a gesture and does not depend on the frame rotation (similar to a graphics editor).</item>
+        <item>Cameras output their image without rotation; the rotation is performed by the application itself.</item>
+    </string-array>
+
+    <string name="um_title_7">7. Recording and broadcasting</string>
+    <string-array name="um_body_7">
+        <item>The “Go Live” button starts the broadcast to the selected platform over the RTMP protocol.</item>
+        <item>A record-to-file mode is provided — for checking operation without an internet connection.</item>
+        <item>The output resolution is 1080p or 2160p; changing the resolution during an active broadcast is not available.</item>
+        <item>The broadcast continues when the screen is turned off and when the application is minimized: a system foreground service is started for the duration of the broadcast, and a “LIVE” indicator with a stop button is shown in the notification area. The screen also does not turn off automatically during a broadcast.</item>
+        <item>To show the broadcast indicator, the application requests permission to display notifications (Android 13 and newer).</item>
+    </string-array>
+
+    <string name="um_title_8">8. Platforms</string>
+    <string-array name="um_body_8">
+        <item>A platform profile is defined by the server address and the stream key; profiles are saved and switched.</item>
+        <item>Profiles can be exported and imported, which allows backup copies of the configuration.</item>
+        <item>Simultaneous broadcasting to several platforms is built on the same profile system.</item>
+    </string-array>
+
+    <string name="um_title_9">9. Settings and the developer section</string>
+    <string-array name="um_body_9">
+        <item>The settings section includes platform selection, camera and microphone permissions, this manual and information about the application.</item>
+        <item>The hidden “Developer” section is opened by a long press on the “KrinikCam” row in the application information.</item>
+        <item>It contains a virtual camera (for testing without hardware), diagnostic tools and a log file sharing function.</item>
+    </string-array>
+
+    <string name="um_title_10">10. How it works under the hood</string>
+    <string-array name="um_body_10">
+        <item>The application is built on a layered (multi-level) architecture: the user interface does not access the hardware directly, but passes commands through a sequence of software levels. Each level interacts only with its neighbor, which simplifies testing and replacement of individual parts.</item>
+        <item>The video processing levels form the chain “source → presentation → domain → streaming module → compositor”:</item>
+        <item>• The source opener is the component responsible for receiving frames from one specific source: a USB camera (via the AndroidUSBCamera library), the built-in camera of the device (via the Camera2 programming interface), or a virtual test camera. The opener also reports device characteristics — the aspect ratio and the orientation of the image sensor.</item>
+        <item>• The ViewModel is the intermediate level between the interface and the logic; it stores the scene state (the set of layers, the selected source) and accepts user commands.</item>
+        <item>• The repository is the single point of access to the broadcasting functions, hiding implementation details from the level above.</item>
+        <item>• The streamer is the controlling component of the video path: it holds the encoder (the RootEncoder library), opens and closes sources, switches profiles and starts the broadcast.</item>
+        <item>• The compositor is the final frame builder based on OpenGL ES. It is the only video path of the application: it assembles the frame from layers bottom-up, drawing each layer as a rectangle with a given transformation (position, scale, rotation, opacity).</item>
+        <item>For example, when a built-in camera is selected, the opener determines the orientation of its sensor and passes this value up the chain (ViewModel → repository → streamer → compositor), after which the compositor rotates the image to the upright position.</item>
+        <item>Rendering is done in two passes through a framebuffer (FBO): the camera is drawn into a buffer with a fixed 16:9 aspect ratio, and the rotation of the whole frame is applied at the final stage, so the camera image keeps correct proportions at any rotation angle.</item>
+        <item>Built-in cameras (Camera2) output their image in the coordinate system of their sensor (taking into account its mounting angle and the mirror reflection of the front camera); the compositor brings such an image to the correct orientation. USB cameras output the frame already upright.</item>
+        <item>The layer type defines how it is displayed (all cameras are displayed the same way), while the specific device defines only how frames are obtained. That is why all cameras are represented by a single layer type with a source selector.</item>
+    </string-array>
+
+    <string name="um_title_11">11. Notes and FAQ</string>
+    <string-array name="um_body_11">
+        <item>Certain USB cameras have limitations when negotiating the resolution (for example, some 2K models output high resolution only in the MJPEG format). In such cases a mode supported by the camera should be selected.</item>
+        <item>Built-in cameras may have a different aspect ratio than the final frame; in that case the image is fitted into the frame preserving proportions (bars at the edges are possible).</item>
+        <item>A USB camera is connected via an OTG adapter. On first connection the operating system asks for permission to access the device.</item>
+    </string-array>
+</resources>
