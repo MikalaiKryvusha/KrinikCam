@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- feature:streaming — user-facing строки модуля (plans/13, EN дефолт). RU: values-ru/strings.xml.
+     Новый ключ добавляется В ОБА файла. Технические строки (KLog, CMD-actions) сюда НЕ кладём. -->
+<resources>
+    <!-- Platforms overlay -->
+    <string name="platforms_title">Platforms</string>
+    <string name="platforms_add_desc">Add platform</string>
+    <string name="platforms_export">Export</string>
+    <string name="platforms_import">Import</string>
+    <string name="platforms_keys_warning">Export file contains your secret stream keys — store it safely</string>
+    <string name="platforms_empty">No platforms configured.\nTap + to add YouTube, Twitch, etc.</string>
+
+    <!-- Profile editor / delete -->
+    <string name="profile_delete_title">Delete profile?</string>
+    <string name="profile_delete_text">“%1$s” and its stream key will be deleted permanently.</string>
+    <string name="profile_new_title">New platform</string>
+    <string name="profile_edit_title">Edit %1$s</string>
+    <string name="profile_edit_desc">Edit</string>
+    <string name="profile_delete_desc">Delete</string>
+    <string name="field_name">Name</string>
+    <string name="field_rtmp_url">RTMP URL</string>
+    <string name="field_stream_key">Stream key</string>
+    <string name="field_fps">FPS</string>
+    <string name="field_platform">Platform</string>
+    <string name="field_resolution">Resolution (16:9)</string>
+
+    <!-- Common actions -->
+    <string name="common_delete">Delete</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_done">Done</string>
+
+    <!-- Layers overlay -->
+    <string name="layers_add">Add layer</string>
+    <string name="layers_add_image">Image</string>
+    <string name="layers_add_test_overlay">Test overlay</string>
+    <string name="layer_delete_title">Delete layer?</string>
+    <string name="layer_delete_text">“%1$s” will be removed from the scene.</string>
+    <string name="layer_visibility_desc">Visibility</string>
+    <string name="layer_up_desc">Move up</string>
+    <string name="layer_down_desc">Move down</string>
+    <string name="layer_settings_desc">Settings</string>
+    <string name="layer_settings_title">Layer settings: %1$s</string>
+    <string name="layer_source_video">Video source</string>
+    <string name="layer_image_settings_hint">More image settings (opacity, file replacement) will appear here.</string>
+    <string name="layer_settings_hint">Settings for this layer will appear later.</string>
+    <string name="layer_image_fallback">Image</string>
+
+    <!-- Snackbars (StreamViewModel → UiText) -->
+    <string name="snack_stop_to_rotate">Stop the stream to change rotation</string>
+    <string name="snack_record_to_file">Virtual stream → file: %1$s</string>
+    <string name="snack_record_failed">Record failed</string>
+    <string name="snack_no_platforms">No platforms enabled for streaming</string>
+    <string name="snack_encoder_failed">Failed to start encoder — check device support</string>
+    <string name="snack_import_failed">Import failed — no valid profiles in file</string>
+    <string name="snack_imported">Imported profiles: %1$d</string>
+    <string name="snack_imported_skipped">Imported profiles: %1$d, skipped duplicates: %2$d</string>
+</resources>

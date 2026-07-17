@@ -46,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kriniks.kcam.feature.streaming.scene.ImageOverlayLoader
 import com.kriniks.kcam.feature.streaming.scene.Layer
+import androidx.compose.ui.res.stringResource
+import com.kriniks.kcam.feature.streaming.R
 import com.kriniks.kcam.feature.streaming.scene.Scene
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -99,6 +101,8 @@ fun StreamLayersOverlay(
     // Раскрыто ли меню кнопки «＋ Добавить слой».
     var addMenuOpen by remember { mutableStateOf(false) }
 
+    // plans/13 — фолбэк-имя слоя резолвим ЗАРАНЕЕ: коллбэк лаунчера не composable-скоуп.
+    val imageFallbackName = stringResource(R.string.layer_image_fallback)
     // SAF «open document» для картинок: пользователь выбирает файл, читаем и декодируем off-main,
     // вписываем в кадр (ImageOverlayLoader) и добавляем слой. Имя слоя = имя файла.
     val imagePicker = rememberLauncherForActivityResult(
@@ -116,7 +120,7 @@ fun StreamLayersOverlay(
             val name = runCatching {
                 context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                     ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
-            }.getOrNull() ?: "Image"
+            }.getOrNull() ?: imageFallbackName
             if (bitmap != null) onAddImage(name, bitmap)
         }
     }
@@ -186,17 +190,17 @@ fun StreamLayersOverlay(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
                         Spacer(Modifier.width(8.dp))
-                        Text("Добавить слой", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.layers_add), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
                 DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("Изображение") },
+                        text = { Text(stringResource(R.string.layers_add_image)) },
                         leadingIcon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = null) },
                         onClick = { addMenuOpen = false; imagePicker.launch(arrayOf("image/*")) },
                     )
                     DropdownMenuItem(
-                        text = { Text("Тестовый оверлей") },
+                        text = { Text(stringResource(R.string.layers_add_test_overlay)) },
                         leadingIcon = { Icon(Icons.Default.BugReport, contentDescription = null) },
                         onClick = { addMenuOpen = false; onAddTestOverlay() },
                     )
@@ -209,16 +213,16 @@ fun StreamLayersOverlay(
             AlertDialog(
                 onDismissRequest = { pendingDelete = null },
                 containerColor = DarkSurface,
-                title = { Text("Удалить слой?", color = Color.White) },
-                text = { Text("«$name» будет удалён из сцены.", color = Color(0xFFCCCCCC)) },
+                title = { Text(stringResource(R.string.layer_delete_title), color = Color.White) },
+                text = { Text(stringResource(R.string.layer_delete_text, name), color = Color(0xFFCCCCCC)) },
                 confirmButton = {
                     TextButton(onClick = { onRemove(id); pendingDelete = null }) {
-                        Text("Удалить", color = Color(0xFFCC5555))
+                        Text(stringResource(R.string.common_delete), color = Color(0xFFCC5555))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { pendingDelete = null }) {
-                        Text("Отмена", color = Color(0xFF999999))
+                        Text(stringResource(R.string.common_cancel), color = Color(0xFF999999))
                     }
                 },
             )
@@ -325,28 +329,28 @@ private fun LayerItem(
                     IconButton(onClick = onToggleVisible) {
                         Icon(
                             if (layer.visible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                            contentDescription = "Видимость",
+                            contentDescription = stringResource(R.string.layer_visibility_desc),
                             tint = if (layer.visible) AcidPink else Color(0xFF888888),
                         )
                     }
                     // Z-порядок: вверх/вниз (interview_008 Q4=B — две стрелки).
                     IconButton(onClick = onMoveUp, enabled = !isTop) {
-                        Icon(Icons.Default.KeyboardArrowUp, "Выше",
+                        Icon(Icons.Default.KeyboardArrowUp, stringResource(R.string.layer_up_desc),
                             tint = if (isTop) Color(0xFF555555) else Color.White)
                     }
                     IconButton(onClick = onMoveDown, enabled = !isBottom) {
-                        Icon(Icons.Default.KeyboardArrowDown, "Ниже",
+                        Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.layer_down_desc),
                             tint = if (isBottom) Color(0xFF555555) else Color.White)
                     }
                     Spacer(Modifier.weight(1f))
                     // Настройки (⚙) → модалка per-type.
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, "Настройки", tint = Color.White)
+                        Icon(Icons.Default.Settings, stringResource(R.string.layer_settings_desc), tint = Color.White)
                     }
                     // Удаление — только для НЕ-камеры (камеру-базу в первом заходе не убираем).
                     if (!isCamera) {
                         IconButton(onClick = onRemove) {
-                            Icon(Icons.Default.Delete, "Удалить", tint = Color(0xFFCC5555))
+                            Icon(Icons.Default.Delete, stringResource(R.string.common_delete), tint = Color(0xFFCC5555))
                         }
                     }
                 }
@@ -370,12 +374,12 @@ private fun LayerSettingsDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = DarkSurface,
-        title = { Text("Настройки: ${layer.name}", color = Color.White, fontSize = 17.sp) },
+        title = { Text(stringResource(R.string.layer_settings_title, layer.name), color = Color.White, fontSize = 17.sp) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 when (layer) {
                     is Layer.VideoCapture -> {
-                        Text("Источник видео", color = Color(0xFF999999), fontSize = 13.sp)
+                        Text(stringResource(R.string.layer_source_video), color = Color(0xFF999999), fontSize = 13.sp)
                         Spacer(Modifier.height(8.dp))
                         // Список доступных источников — выбор подсвечивает текущий.
                         sourceOptions.forEach { opt ->
@@ -405,18 +409,18 @@ private fun LayerSettingsDialog(
                     }
                     is Layer.Image -> {
                         Text(
-                            "Дополнительные настройки картинки (прозрачность, замена файла) появятся здесь.",
+                            stringResource(R.string.layer_image_settings_hint),
                             color = Color(0xFFAAAAAA), fontSize = 13.sp,
                         )
                     }
                     else -> {
-                        Text("Настройки этого слоя появятся позже.", color = Color(0xFFAAAAAA), fontSize = 13.sp)
+                        Text(stringResource(R.string.layer_settings_hint), color = Color(0xFFAAAAAA), fontSize = 13.sp)
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Готово", color = AcidPink) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_done), color = AcidPink) }
         },
     )
 }

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- feature:streaming — русская локаль (plans/13). Зеркало values/strings.xml. -->
+<resources>
+    <!-- Platforms overlay -->
+    <string name="platforms_title">Платформы</string>
+    <string name="platforms_add_desc">Добавить платформу</string>
+    <string name="platforms_export">Экспорт</string>
+    <string name="platforms_import">Импорт</string>
+    <string name="platforms_keys_warning">Файл экспорта содержит секретные ключи трансляций — храните его надёжно</string>
+    <string name="platforms_empty">Платформы не настроены.\nНажмите +, чтобы добавить YouTube, Twitch и другие.</string>
+
+    <!-- Profile editor / delete -->
+    <string name="profile_delete_title">Удалить профиль?</string>
+    <string name="profile_delete_text">«%1$s» и его ключ трансляции будут удалены безвозвратно.</string>
+    <string name="profile_new_title">Новая платформа</string>
+    <string name="profile_edit_title">Изменить %1$s</string>
+    <string name="profile_edit_desc">Изменить</string>
+    <string name="profile_delete_desc">Удалить</string>
+    <string name="field_name">Название</string>
+    <string name="field_rtmp_url">RTMP URL</string>
+    <string name="field_stream_key">Ключ трансляции</string>
+    <string name="field_fps">FPS</string>
+    <string name="field_platform">Платформа</string>
+    <string name="field_resolution">Разрешение (16:9)</string>
+
+    <!-- Common actions -->
+    <string name="common_delete">Удалить</string>
+    <string name="common_cancel">Отмена</string>
+    <string name="common_save">Сохранить</string>
+    <string name="common_done">Готово</string>
+
+    <!-- Layers overlay -->
+    <string name="layers_add">Добавить слой</string>
+    <string name="layers_add_image">Изображение</string>
+    <string name="layers_add_test_overlay">Тестовый оверлей</string>
+    <string name="layer_delete_title">Удалить слой?</string>
+    <string name="layer_delete_text">«%1$s» будет удалён из сцены.</string>
+    <string name="layer_visibility_desc">Видимость</string>
+    <string name="layer_up_desc">Выше</string>
+    <string name="layer_down_desc">Ниже</string>
+    <string name="layer_settings_desc">Настройки</string>
+    <string name="layer_settings_title">Настройки слоя: %1$s</string>
+    <string name="layer_source_video">Источник видео</string>
+    <string name="layer_image_settings_hint">Дополнительные настройки картинки (прозрачность, замена файла) появятся здесь.</string>
+    <string name="layer_settings_hint">Настройки этого слоя появятся позже.</string>
+    <string name="layer_image_fallback">Изображение</string>
+
+    <!-- Snackbars (StreamViewModel → UiText) -->
+    <string name="snack_stop_to_rotate">Остановите эфир, чтобы сменить поворот</string>
+    <string name="snack_record_to_file">Виртуальный стрим → файл: %1$s</string>
+    <string name="snack_record_failed">Запись не удалась</string>
+    <string name="snack_no_platforms">Не выбрано ни одной платформы для эфира</string>
+    <string name="snack_encoder_failed">Не удалось запустить энкодер — проверьте поддержку устройства</string>
+    <string name="snack_import_failed">Импорт не удался — в файле нет валидных профилей</string>
+    <string name="snack_imported">Импортировано профилей: %1$d</string>
+    <string name="snack_imported_skipped">Импортировано профилей: %1$d, пропущено дублей: %2$d</string>
+</resources>

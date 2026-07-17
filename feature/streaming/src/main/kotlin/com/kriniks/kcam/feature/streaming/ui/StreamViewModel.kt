@@ -22,6 +22,7 @@ import androidx.lifecycle.viewModelScope
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.data.profiles.model.ProfilesBackupCodec
 import com.kriniks.kcam.data.profiles.model.StreamProfile
+import com.kriniks.kcam.feature.streaming.R
 import com.kriniks.kcam.feature.streaming.domain.StreamingRepository
 import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isActive
@@ -212,7 +213,7 @@ class StreamViewModel @Inject constructor(
 
     /** Tell the user why rotation is unavailable (tapped the locked rotation control while live). */
     fun rotationLockedHint() {
-        viewModelScope.launch { _snackbar.emit("Stop the stream to change rotation") }
+        viewModelScope.launch { _snackbar.emit(UiText.Res(R.string.snack_stop_to_rotate)) }
     }
 
     val profiles: StateFlow<List<StreamProfile>> = repository.allProfiles
@@ -221,8 +222,9 @@ class StreamViewModel @Inject constructor(
     private val _activeProfile = MutableStateFlow<StreamProfile?>(null)
     val activeProfile: StateFlow<StreamProfile?> = _activeProfile.asStateFlow()
 
-    private val _snackbar = MutableSharedFlow<String>(extraBufferCapacity = 4)
-    val snackbar: SharedFlow<String> = _snackbar.asSharedFlow()
+    // plans/13 S2 — снэкбары как UiText (ресурс+аргументы): VM без Context, резолвит UI-слой.
+    private val _snackbar = MutableSharedFlow<UiText>(extraBufferCapacity = 4)
+    val snackbar: SharedFlow<UiText> = _snackbar.asSharedFlow()
 
     init {
         viewModelScope.launch {
@@ -292,18 +294,21 @@ class StreamViewModel @Inject constructor(
             val p = primary ?: StreamProfile()
             val path = repository.startRecordToFile(p)
             viewModelScope.launch {
-                _snackbar.emit(if (path != null) "Virtual stream → file: $path" else "Record failed")
+                _snackbar.emit(
+                    if (path != null) UiText.Res(R.string.snack_record_to_file, listOf(path))
+                    else UiText.Res(R.string.snack_record_failed)
+                )
             }
             return
         }
         if (targets.isEmpty()) {
-            viewModelScope.launch { _snackbar.emit("Не выбрано ни одной платформы для эфира") }
+            viewModelScope.launch { _snackbar.emit(UiText.Res(R.string.snack_no_platforms)) }
             return
         }
         KLog.i(TAG, "Starting MULTISTREAM on ${targets.size} platform(s): ${targets.joinToString { it.name }}")
         val ok = repository.startStream(targets)
         if (!ok) {
-            viewModelScope.launch { _snackbar.emit("Failed to start encoder — check device support") }
+            viewModelScope.launch { _snackbar.emit(UiText.Res(R.string.snack_encoder_failed)) }
         }
     }
 
@@ -343,7 +348,7 @@ class StreamViewModel @Inject constructor(
     fun importProfilesFromJson(json: String) {
         val imported = ProfilesBackupCodec.decode(json)
         if (imported.isEmpty()) {
-            viewModelScope.launch { _snackbar.emit("Import failed — no valid profiles in file") }
+            viewModelScope.launch { _snackbar.emit(UiText.Res(R.string.snack_import_failed)) }
             return
         }
         viewModelScope.launch {
@@ -353,8 +358,8 @@ class StreamViewModel @Inject constructor(
             fresh.forEach { repository.saveProfile(it.copy(id = 0)) } // insert as new
             KLog.i(TAG, "Imported ${fresh.size} profile(s), skipped $skipped duplicate(s)")
             _snackbar.emit(
-                if (skipped == 0) "Imported ${fresh.size} profile(s)"
-                else "Imported ${fresh.size} profile(s), skipped $skipped duplicate(s)"
+                if (skipped == 0) UiText.Res(R.string.snack_imported, listOf(fresh.size))
+                else UiText.Res(R.string.snack_imported_skipped, listOf(fresh.size, skipped))
             )
         }
     }

@@ -39,8 +39,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.res.stringResource
 import com.kriniks.kcam.data.profiles.model.StreamPlatform
 import com.kriniks.kcam.data.profiles.model.StreamProfile
+import com.kriniks.kcam.feature.streaming.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -117,13 +119,13 @@ fun StreamPlatformsOverlay(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Platforms",
+                    text = stringResource(R.string.platforms_title),
                     color = Color.White,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 IconButton(onClick = { showAddNew = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add platform", tint = AcidPink)
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.platforms_add_desc), tint = AcidPink)
                 }
             }
 
@@ -136,15 +138,15 @@ fun StreamPlatformsOverlay(
                     onClick = { exportLauncher.launch("krinikcam_profiles.json") },
                     enabled = profiles.isNotEmpty(),
                     modifier = Modifier.weight(1f),
-                ) { Text("Export", color = AcidPink) }
+                ) { Text(stringResource(R.string.platforms_export), color = AcidPink) }
                 OutlinedButton(
                     onClick = { importLauncher.launch(arrayOf("application/json", "text/*", "application/octet-stream")) },
                     modifier = Modifier.weight(1f),
-                ) { Text("Import", color = AcidPink) }
+                ) { Text(stringResource(R.string.platforms_import), color = AcidPink) }
             }
             // plans/12 S5 — честное предупреждение: экспорт-файл несёт секретные stream-ключи.
             Text(
-                text = "Export file contains your secret stream keys — store it safely",
+                text = stringResource(R.string.platforms_keys_warning),
                 color = Color.Gray,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(top = 4.dp),
@@ -161,7 +163,7 @@ fun StreamPlatformsOverlay(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "No platforms configured.\nTap + to add YouTube, Twitch, etc.",
+                        text = stringResource(R.string.platforms_empty),
                         color = Color(0xFF888888),
                         fontSize = 14.sp,
                     )
@@ -215,10 +217,10 @@ fun StreamPlatformsOverlay(
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             containerColor = DarkSurface,
-            title = { Text("Delete profile?", color = Color.White) },
+            title = { Text(stringResource(R.string.profile_delete_title), color = Color.White) },
             text = {
                 Text(
-                    "“${doomed.name}” and its stream key will be deleted permanently.",
+                    stringResource(R.string.profile_delete_text, doomed.name),
                     color = Color.Gray,
                 )
             },
@@ -226,10 +228,10 @@ fun StreamPlatformsOverlay(
                 TextButton(onClick = {
                     onDeleteProfile(doomed)
                     confirmDelete = null
-                }) { Text("Delete", color = AcidPink) }
+                }) { Text(stringResource(R.string.common_delete), color = AcidPink) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("Cancel", color = Color.Gray) }
+                TextButton(onClick = { confirmDelete = null }) { Text(stringResource(R.string.common_cancel), color = Color.Gray) }
             },
         )
     }
@@ -274,10 +276,10 @@ private fun PlatformCard(
                 colors = SwitchDefaults.colors(checkedThumbColor = AcidPink, checkedTrackColor = AcidPink.copy(alpha = 0.4f)),
             )
             IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color(0xFF888888))
+                Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.profile_edit_desc), tint = Color(0xFF888888))
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFF555555))
+                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.profile_delete_desc), tint = Color(0xFF555555))
             }
         }
     }
@@ -310,7 +312,7 @@ private fun ProfileEditDialog(
         properties = DialogProperties(dismissOnClickOutside = false),
         containerColor = DarkSurface,
         title = {
-            Text(if (initial.id == 0L) "New platform" else "Edit ${initial.name}",
+            Text(if (initial.id == 0L) stringResource(R.string.profile_new_title) else stringResource(R.string.profile_edit_title, initial.name),
                 color = Color.White, fontWeight = FontWeight.Bold)
         },
         text = {
@@ -337,14 +339,14 @@ private fun ProfileEditDialog(
                     if (isDefaultName) name = p.displayName
                 })
 
-                KcamTextField("Name", name) { name = it }
-                KcamTextField("RTMP URL", rtmpUrl) { rtmpUrl = it }
+                KcamTextField(stringResource(R.string.field_name), name) { name = it }
+                KcamTextField(stringResource(R.string.field_rtmp_url), rtmpUrl) { rtmpUrl = it }
 
                 // Stream key with show/hide toggle
                 OutlinedTextField(
                     value = streamKey,
                     onValueChange = { streamKey = it },
-                    label = { Text("Stream key", color = Color(0xFF888888)) },
+                    label = { Text(stringResource(R.string.field_stream_key), color = Color(0xFF888888)) },
                     singleLine = true,
                     visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -366,7 +368,7 @@ private fun ProfileEditDialog(
                         width = resW, height = resH,
                         modifier = Modifier.weight(2f),
                     ) { w, h -> resW = w; resH = h }
-                    KcamTextField("FPS", fps, Modifier.weight(1f)) { fps = it }
+                    KcamTextField(stringResource(R.string.field_fps), fps, Modifier.weight(1f)) { fps = it }
                 }
             }
         },
@@ -384,10 +386,10 @@ private fun ProfileEditDialog(
                     ))
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = AcidPink),
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.common_save)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = Color(0xFF888888)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color(0xFF888888)) }
         },
     )
 }
@@ -401,7 +403,7 @@ private fun PlatformDropdown(selected: StreamPlatform, onSelect: (StreamPlatform
             value = selected.displayName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Platform", color = Color(0xFF888888)) },
+            label = { Text(stringResource(R.string.field_platform), color = Color(0xFF888888)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             colors = kcamTextFieldColors(),
             modifier = Modifier.fillMaxWidth().menuAnchor(),
@@ -442,7 +444,7 @@ private fun ResolutionDropdown(width: Int, height: Int, modifier: Modifier = Mod
             value = "${width}×${height}",
             onValueChange = {},
             readOnly = true,
-            label = { Text("Resolution (16:9)", color = Color(0xFF888888)) },
+            label = { Text(stringResource(R.string.field_resolution), color = Color(0xFF888888)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             colors = kcamTextFieldColors(),
             modifier = Modifier.fillMaxWidth().menuAnchor(),

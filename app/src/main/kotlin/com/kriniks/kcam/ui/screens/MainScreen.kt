@@ -479,9 +479,11 @@ fun MainScreen(
 
         // ── Layer 3: Snackbar for stream errors / warnings ───────────
         val snackbarHostState = remember { SnackbarHostState() }
+        // plans/13 — VM эмитит UiText (ресурс+аргументы), резолвим здесь (у UI есть Context).
+        val snackbarContext = LocalContext.current
         LaunchedEffect(Unit) {
             streamViewModel.snackbar.collect { msg ->
-                snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short)
+                snackbarHostState.showSnackbar(msg.resolve(snackbarContext), duration = SnackbarDuration.Short)
             }
         }
         SnackbarHost(
