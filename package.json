@@ -1,0 +1,8 @@
+{
+  "name": "krinikcam",
+  "scripts": {
+    "kaif:version": "node .kaif/kaif-core.mjs version",
+    "kaif:check": "node .kaif/kaif-core.mjs check",
+    "kaif:update": "node .kaif/kaif-core.mjs update"
+  }
+}

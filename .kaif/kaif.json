@@ -1,9 +1,16 @@
 {
   "framework": "KAIF",
-  "version": "1.4",
-  "released": "2026-07-08",
+  "version": "1.5",
+  "released": "2026-07-17",
   "origin": "https://github.com/MikalaiKryvusha/KAIF",
   "tracking": "origin",
   "sphere": "programming",
-  "agent": "claude-code"
+  "agents": [
+    "claude-code",
+    "codex",
+    "grok-build",
+    "cline",
+    "zoo-code"
+  ],
+  "language": "ru"
 }

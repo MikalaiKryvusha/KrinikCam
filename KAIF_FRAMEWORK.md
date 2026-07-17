@@ -37,21 +37,24 @@ KAIF (Krinik AI Framework) — **устойчивый к потере конте
 |-------|---------------------|
 | `AGENT_GUIDE.md` | Канон, который агент читает перед каждой задачей. |
 | `PHILOSOPHY.md` | Как агент мыслит (KISS + Оккам + набор принципов). |
-| `BUG_FIXING_FRAMEWORK.md` | Как агент чинит баги. |
+| `BUG_FIXING_FRAMEWORK.md` | Как агент чинит баги (1.5: + гейт намерения INTENT и чек близнецов TWINS). |
+| `TESTING_FRAMEWORK.md` | Канон тестирования (1.5): 7 принципов + маркеры доверия `[NOT-TESTED]`/`[TESTED: …]` на всём, что генерирует агент. |
 | `GOAL.md` / `MASTER_PLAN.md` | Видение Криника и фазовый путь к нему. |
 | `STATUS.md` | Живое состояние — обновляется после каждой значимой задачи. |
 | `PROJECT_STRUCTURE_EXTERNAL_MAP.md` / `PROJECT_ARCHITECTURE_INTERNAL_MAP.md` | Внешняя и внутренняя карты. |
 | `EXPERIENCE.md` | Журнал уроков агента (1.4): вспомнить до задачи, зафиксировать после (навык `/experience`). |
 | `plans/ ideas/ bugs/ researches/ interviews/ homeworks/` | Директории знаний (в каждой свой README). |
-| `.claude/skills/` | Повторяемые ритуалы (`/resume`, `/pause`, лупы, …) — 22 навыка (в 1.2 добавлены `/fix-vision`, `/what-next`; в 1.4 — `/experience`). |
-| `.kaif/kaif.json` | Маркер развёртывания: версия, sphere, agent, tracking. |
-| `tools/kaif.mjs` + `npm run kaif:*` | Ручки жизненного цикла (version/check/update/fork/remove). |
+| `.claude/skills/` | Повторяемые ритуалы (`/resume`, `/pause`, лупы, …) — 26 навыков (в 1.2 добавлены `/fix-vision`, `/what-next`; в 1.4 — `/experience`; в 1.5 — fable-семейство `/fable-method` `/fable-loop` `/fable-judge` `/fable-domain`: задачи исполняются по fable-циклу, judge-проход обязателен в лупах и `/release`). |
+| `.kaif/spheres/` | Библиотека сфер (1.5) с дисциплиной исполнения сферы `programming`: минимальный набор свидетельств, порядок авторитетов, верификация наблюдением, таблица фродов. |
+| `.agents/` `.grok/` `.cline/` `.roo/` + `AGENTS.md` | Навыки для пяти агентских систем сразу (1.5): Claude Code, Codex, Grok Build, Cline, Zoo Code. |
+| `.kaif/kaif.json` | Маркер развёртывания: версия, sphere, agents, language, tracking. |
+| `.kaif/kaif-core.mjs` + корневой `npm run kaif:*` | Ручки жизненного цикла 1.5 (version/check/update); fork/switch-origin/remove — через навыки (легаси-ручки остаются в `tools/`). |
 
 ## Запись о развёртывании
 
 | Поле | Значение |
 |------|----------|
-| **Версия KAIF** | `1.4` (обновлено 2026-07-12 навыком `/kaif-update` с 1.2: +`EXPERIENCE.md` и навык `/experience`, +контекст-роутер в AGENT_GUIDE, +принцип «Учись один раз» в PHILOSOPHY, вшивки опыта в чеклист/лупы/resume/refresh-context/BUG_FIXING; 1.3 «Slim» для полной распаковки нейтрален; фикс «лупы не обрываются по контексту» уже был соблюдён локально) |
+| **Версия KAIF** | `1.5 — Tested KAIF` (обновлено 2026-07-17 навыком `/kaif-update` через thin-install бутстрап из `KAIF.md`: машинерия KAIF-CORE сама распознала легаси 1.4 и провела update-by-bootstrap — существующие кастомизации сохранены, новое добавлено. Новое в 1.5: `TESTING_FRAMEWORK.md` (7 принципов + маркеры `[NOT-TESTED]`/`[TESTED]`); fable-семейство навыков `/fable-method` `/fable-loop` `/fable-judge` `/fable-domain` — judge-проход ОБЯЗАТЕЛЕН в лупах и `/release`; гейт намерения + чек близнецов в BUG_FIXING; сферы `.kaif/spheres/` с дисциплиной исполнения; навыки для 5 агентских систем; ручки `kaif:*` → `.kaif/kaif-core.mjs`. Предыдущее: `1.4` от 2026-07-12 — +`EXPERIENCE.md`/`/experience`, контекст-роутер, «Учись один раз») |
 | **Инжектирован** | `2026-07-02` |
 | **Как прошла инжекция** | Миграция «родины» KAIF: структуры существовали в сыром до-KAIF виде (AGENT_GUIDE/STATUS/bugs/interviews/12 навыков уже были); выполнена реструктуризация под канон 1.1 (GOAL/MASTER_PLAN/карты в корень, ideas/researches/homeworks, README директорий), добавлены 7 навыков и жизненный цикл. Существующие KrinikCam-навыки сохранены как локальные кастомизации. |
 | **Sphere** | `programming` (Android-приложение, Kotlin + Compose) |
@@ -63,8 +66,8 @@ KAIF (Krinik AI Framework) — **устойчивый к потере конте
 
 `/kaif-version` (проверить обновления) · `/kaif-update` (уважительная миграция из origin) ·
 `/kaif-fork` (развивать собственную линию) · `/kaif-switch-origin` · `/kaif-remove` (частичное
-сохраняет артефакты, или полное — всегда уважительно). Ручки: `node tools/kaif.mjs <cmd>` или
-`cd tools && npm run kaif:*`.
+сохраняет артефакты, или полное — всегда уважительно). Ручки (1.5): `node .kaif/kaif-core.mjs
+<version|check|update>` или `npm run kaif:*` из корня.
 
 ---
 

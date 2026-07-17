@@ -5,7 +5,16 @@
 > Историю сессий уноси в `researches/status_archive.md` (append в конец), форензику — в `bugs/`,
 > детали идей — в `ideas/`. Канон — `AGENT_GUIDE.md`; мышление — `PHILOSOPHY.md` (ПРОСТОТА).
 
-_Обновлено: 2026-07-12 (дневной цикл — plans/09 S1-S4 + хвост + РЕЛИЗ) · версия приложения 0.7 (0) · релиз **v0.7**_
+_Обновлено: 2026-07-17 (KAIF 1.4 → 1.5 «Tested KAIF») · версия приложения 0.7 · релиз **v0.7**_
+
+## 🧰 2026-07-17 — KAIF обновлён до 1.5 «Tested KAIF» (бутстрап из KAIF.md)
+Update-by-bootstrap: машинерия KAIF-CORE (sha256 ✓) сама распознала легаси 1.4; кастомизации и
+артефакты сохранены, гейты пройдены (check зелёный, judge VERIFIED), установщик самоочистился.
+Новое в проекте: `TESTING_FRAMEWORK.md` (7 принципов + маркеры `[NOT-TESTED]`/`[TESTED: …]`);
+fable-навыки `/fable-method` `/fable-loop` `/fable-judge` `/fable-domain` — **judge-проход теперь
+ОБЯЗАТЕЛЕН в лупах и `/release`**; intent gate + twin check в `BUG_FIXING_FRAMEWORK.md`; сферы
+`.kaif/spheres/`; навыки для 5 агентских систем (`.agents/` `.grok/` `.cline/` `.roo/`); ручки
+`kaif:*` → `.kaif/kaif-core.mjs` (корневой `npm run kaif:*`).
 
 ## 🚀 РЕЛИЗ v0.7 (2026-07-12, дневной цикл, добро Криника)
 Выпущен: https://github.com/MikalaiKryvusha/KrinikCam/releases/tag/v0.7 (`KrinikCam-v0.7.apk`).
