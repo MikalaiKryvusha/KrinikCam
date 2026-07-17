@@ -20,6 +20,7 @@
 package com.kriniks.kcam.feature.usb.data
 
 import android.content.Context
+import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import com.jiangdg.ausbc.MultiCameraClient
 import com.jiangdg.ausbc.callback.ICameraStateCallBack
@@ -36,6 +37,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -44,6 +46,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "UsbDeviceRepository"
+
+// bug 33 — подкласс 2 у класса Miscellaneous (239) = Interface Association Descriptor (IAD):
+// так энумерируются современные композитные UVC-вебки (видео-интерфейсы class 14 внутри).
+// Константы для подкласса в UsbConstants нет — заводим свою (зеркало res/xml/device_filter.xml).
+private const val USB_MISC_SUBCLASS_IAD = 2
+
+// bug 33 — окно ожидания автогранта после attach: система применяет персистентный грант
+// (галочка «всегда открывать» + intent-filter USB_DEVICE_ATTACHED) асинхронно и может успеть
+// ПОЗЖЕ, чем AUSBC доставит onAttachDev. Поллим грант шагами, диалог показываем только по таймауту.
+private const val GRANT_POLL_STEP_MS = 150L
+private const val GRANT_POLL_TIMEOUT_MS = 900L
 
 @Singleton
 class UsbDeviceRepositoryImpl @Inject constructor(
@@ -67,6 +80,22 @@ class UsbDeviceRepositoryImpl @Inject constructor(
 
             override fun onAttachDev(device: UsbDevice?) {
                 device ?: return
+                // bug 33 [NOT-TESTED] — класс-фильтр: дальше по конвейеру (UI-список → авто-
+                // requestPermission → системный диалог) пропускаем ТОЛЬКО UVC-камеры. Раньше attach
+                // ЛЮБОГО USB-устройства (мышь, флешка, хаб, ethernet) доходил до requestPermission →
+                // модальный диалог «разрешить доступ к устройству?» на каждое подключение чего угодно
+                // (жалоба Криника 2026-07-18). Не-камеры игнорируем целиком: ни диалога, ни фантома
+                // в списке источников (смежно bug 35). USB-микрофоны не страдают: аудио-класс
+                // обслуживает сама ОС, приложению USB-разрешение для них не нужно.
+                if (!isUvcCamera(device)) {
+                    KLog.i(
+                        TAG,
+                        "USB attached — не UVC, игнорируем: ${device.deviceName} " +
+                            "class=${device.deviceClass}/${device.deviceSubclass} " +
+                            "VID=${device.vendorId} PID=${device.productId} (bug 33)",
+                    )
+                    return
+                }
                 KLog.i(TAG, "USB attached: ${device.deviceName} VID=${device.vendorId}")
                 emit(UsbEvent.DeviceAttached(device))
             }
@@ -126,13 +155,42 @@ class UsbDeviceRepositoryImpl @Inject constructor(
         }
         lastPermDeviceId = device.deviceId
         lastPermTime = now
-        // bug 33 — диагностика навязчивого диалога: логируем, ЕСТЬ ли уже разрешение на устройство.
-        // Если hasPermission=true → системного диалога быть НЕ должно (грант персистит); если диалог
-        // всё равно лезет — проблема в AUSBC (тогда S1: открывать напрямую, минуя requestPermission).
-        // Если hasPermission=false на каждом hot-plug → грант не персистит (нужен intent-filter/«всегда»).
-        val has = runCatching { usbManager.hasPermission(device) }.getOrDefault(false)
-        KLog.i(TAG, "requestPermission: device ${device.deviceId} vid=${device.vendorId} pid=${device.productId} hasPermission=$has (bug 33 diag)")
-        multiCameraClient?.requestPermission(device)
+        // bug 33 [NOT-TESTED] — лечение гонки автогранта. По байткоду AUSBC 3.2.7:
+        // USBMonitor.requestPermission САМ проверяет hasPermission и при true идёт сразу в
+        // processConnect БЕЗ диалога. Значит наша задача — НЕ звать его раньше, чем система успела
+        // применить персистентный грант от манифест-интента USB_DEVICE_ATTACHED (галочка «всегда
+        // открывать», bug 09). Поэтому: грант уже есть → просим сразу (диалога не будет); гранта нет →
+        // поллим до GRANT_POLL_TIMEOUT_MS и только по таймауту зовём requestPermission с диалогом —
+        // один, легитимный (первое знакомство с устройством или галочку не ставили).
+        scope.launch {
+            var has = runCatching { usbManager.hasPermission(device) }.getOrDefault(false)
+            var waitedMs = 0L
+            while (!has && waitedMs < GRANT_POLL_TIMEOUT_MS) {
+                delay(GRANT_POLL_STEP_MS)
+                waitedMs += GRANT_POLL_STEP_MS
+                has = runCatching { usbManager.hasPermission(device) }.getOrDefault(false)
+            }
+            KLog.i(
+                TAG,
+                "requestPermission: device ${device.deviceId} vid=${device.vendorId} " +
+                    "pid=${device.productId} hasPermission=$has ожидание=${waitedMs}мс " +
+                    "(bug 33: true → без диалога, false → диалог)",
+            )
+            multiCameraClient?.requestPermission(device)
+        }
+    }
+
+    // bug 33 — «это UVC-камера?» по USB-дескрипторам; зеркало res/xml/device_filter.xml.
+    // Уровень устройства: Miscellaneous/IAD-композит (239/2 — так видятся современные вебки,
+    // вкл. EMEET Piko+) или class 14 (Video прямо на девайсе). Композиты с deviceClass=0
+    // объявляют видео только на интерфейсах — сканируем и их.
+    private fun isUvcCamera(device: UsbDevice): Boolean {
+        if (device.deviceClass == UsbConstants.USB_CLASS_MISC && device.deviceSubclass == USB_MISC_SUBCLASS_IAD) return true
+        if (device.deviceClass == UsbConstants.USB_CLASS_VIDEO) return true
+        for (i in 0 until device.interfaceCount) {
+            if (device.getInterface(i).interfaceClass == UsbConstants.USB_CLASS_VIDEO) return true
+        }
+        return false
     }
 
     // ── Camera initialisation ───────────────────────────────────────────
