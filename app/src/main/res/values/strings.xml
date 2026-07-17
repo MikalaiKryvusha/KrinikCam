@@ -74,6 +74,16 @@
     <string name="main_standby_hint">Connect a USB webcam via OTG,\nor check Settings for help</string>
     <string name="main_layers_desc">Layers</string>
     <string name="source_none">No source</string>
+    <string name="source_virtual">Virtual camera (debug)</string>
+
+    <!-- Device camera names (DeviceCameraEnumerator, plans/13) -->
+    <string name="camera_front">Selfie camera</string>
+    <string name="camera_main">Main camera</string>
+    <string name="camera_ultrawide">Ultra-wide</string>
+    <string name="camera_tele">Telephoto</string>
+    <string name="camera_external">External camera</string>
+    <string name="camera_generic">Camera</string>
+    <string name="camera_named">%1$s (id %2$s)</string>
     <string name="layer_menu_fullscreen">Fullscreen</string>
     <string name="layer_menu_duplicate">Duplicate</string>
     <string name="layer_delete_title">Delete layer?</string>

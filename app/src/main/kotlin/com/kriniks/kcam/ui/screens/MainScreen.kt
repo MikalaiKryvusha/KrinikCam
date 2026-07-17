@@ -543,8 +543,14 @@ fun MainScreen(
             selectedLayerId = selectedLayerId,
             onSelect = { streamViewModel.selectLayer(it) },
             // plans/05 S4 — источники: все доступные + «Нет источника»; текущий = activeSource.
-            sourceOptions = availableSources.map { SourceOption(it.id, it.displayName) } +
-                SourceOption("none", stringResource(R.string.source_none)),
+            // plans/13 — «модельные» источники (Virtual/None — объекты без Context) локализуем на
+            // UI-слое по известным id; остальные displayName рождаются локализованными (enumerator).
+            sourceOptions = availableSources.map {
+                SourceOption(
+                    it.id,
+                    if (it.id == "virtual") stringResource(R.string.source_virtual) else it.displayName,
+                )
+            } + SourceOption("none", stringResource(R.string.source_none)),
             currentSourceId = activeSource.id,
             onSelectSource = { id ->
                 val src = availableSources.firstOrNull { it.id == id }

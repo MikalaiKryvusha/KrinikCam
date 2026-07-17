@@ -24,6 +24,7 @@ import android.hardware.camera2.CameraManager
 import android.os.Handler
 import android.os.HandlerThread
 import android.view.Surface
+import com.kriniks.kcam.R
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.feature.capture.model.VideoSource
 import com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer
@@ -57,21 +58,26 @@ object DeviceCameraEnumerator {
 
             raws.map { r ->
                 val isFront = r.facing == CameraCharacteristics.LENS_FACING_FRONT
-                val name = when (r.facing) {
-                    CameraCharacteristics.LENS_FACING_FRONT -> "Селфи-камера"
-                    CameraCharacteristics.LENS_FACING_BACK -> when {
-                        backCount <= 1 -> "Основная камера"
-                        // Несколько тыловых: самая широкоугольная = сверхширик, самая длинная = телефото.
-                        r.id == backSorted.first().id -> "Сверхширокоугольная"
-                        r.id == backSorted.last().id -> "Телефото"
-                        else -> "Основная камера"
-                    }
-                    CameraCharacteristics.LENS_FACING_EXTERNAL -> "Внешняя камера"
-                    else -> "Камера"
-                }
+                // plans/13 — имена из РЕСУРСОВ (EN/RU по локали): у enumerate есть Context, данные
+                // рождаются локализованными. Нюанс: enumerate зовётся на старте — смена локали
+                // отразится на именах после перезапуска приложения (пересоздание источников).
+                val name = context.getString(
+                    when (r.facing) {
+                        CameraCharacteristics.LENS_FACING_FRONT -> R.string.camera_front
+                        CameraCharacteristics.LENS_FACING_BACK -> when {
+                            backCount <= 1 -> R.string.camera_main
+                            // Несколько тыловых: самая широкоугольная = сверхширик, длинная = телефото.
+                            r.id == backSorted.first().id -> R.string.camera_ultrawide
+                            r.id == backSorted.last().id -> R.string.camera_tele
+                            else -> R.string.camera_main
+                        }
+                        CameraCharacteristics.LENS_FACING_EXTERNAL -> R.string.camera_external
+                        else -> R.string.camera_generic
+                    },
+                )
                 VideoSource.PhoneCamera(
                     id = "phone_${r.id}",
-                    displayName = "$name (id ${r.id})",
+                    displayName = context.getString(R.string.camera_named, name, r.id),
                     cameraId = r.id,
                     isFront = isFront,
                 )

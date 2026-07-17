@@ -68,6 +68,16 @@
     <string name="main_standby_hint">Подключите USB-вебкамеру через OTG\nили загляните в Настройки за подсказкой</string>
     <string name="main_layers_desc">Слои</string>
     <string name="source_none">Нет источника</string>
+    <string name="source_virtual">Виртуальная камера (отладка)</string>
+
+    <!-- Device camera names (DeviceCameraEnumerator, plans/13) -->
+    <string name="camera_front">Селфи-камера</string>
+    <string name="camera_main">Основная камера</string>
+    <string name="camera_ultrawide">Сверхширокоугольная</string>
+    <string name="camera_tele">Телефото</string>
+    <string name="camera_external">Внешняя камера</string>
+    <string name="camera_generic">Камера</string>
+    <string name="camera_named">%1$s (id %2$s)</string>
     <string name="layer_menu_fullscreen">На весь экран</string>
     <string name="layer_menu_duplicate">Дублировать</string>
     <string name="layer_delete_title">Удалить слой?</string>
