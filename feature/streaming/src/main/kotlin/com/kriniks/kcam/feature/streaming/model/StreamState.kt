@@ -44,6 +44,9 @@ data class OutputStatus(
     val bitrateKbps: Int = 0,
     val reason: String? = null,
     val attempt: Int = 0,
+    // idea 37 — затык КАНАЛА этого выхода (StreamClient.hasCongestion): очередь отправки пухнет,
+    // сеть не вывозит. Жёлтый индикатор health и триггер адаптивного битрейта. Аддитивно (дефолт false).
+    val congested: Boolean = false,
 )
 
 val StreamState.isLive: Boolean get() = this is StreamState.Live

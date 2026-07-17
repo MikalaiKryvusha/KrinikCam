@@ -107,6 +107,7 @@ function main() {
     ['select-source', 'virtual'],
     ['rotation-mode', 'on'],
     ['rotation-mode', 'off'],
+    ['simulate-congestion', 'off'], // idea 37 — контракт протокола; off = безопасный no-op
     ['toggle-layer', 'contract_ov'], // спрятать контрактный оверлей, чтобы не влиял на запись
   ];
   for (const c of CONTRACT) ui('cmd', ...c);

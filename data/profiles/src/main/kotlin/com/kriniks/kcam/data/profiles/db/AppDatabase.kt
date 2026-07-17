@@ -17,7 +17,8 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [StreamProfileEntity::class],
-    version = 1,
+    // v2 (idea 37): +adaptiveBitrate INTEGER NOT NULL DEFAULT 1 — см. MIGRATION_1_2 в ProfilesModule.
+    version = 2,
     // bug 37 №1 — схема экспортируется (schemas/ в git): фундамент для честных миграций.
     // Меняешь entity → бампни version И напиши Migration(N,N+1) в ProfilesModule; destructive-
     // фолбэка больше НЕТ, забытая миграция уронит сборку/старт, а не данные Криника.

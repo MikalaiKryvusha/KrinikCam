@@ -624,7 +624,7 @@ switch (cmd) {
     // на устройстве расщепит значение по пробелам). Приёмник в MainActivity парсит по [,\s]+.
     const arg = rest.length > 1 ? rest.slice(1).join(',') : undefined;
     if (!action) {
-      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|go-live-rtmp|stop|photo|set-rotation|add-overlay|rotation-mode|device-camera|select-source|toggle-layer|layer-up|layer-down|set-transform|gesture-drag|gesture-scale|gesture-rotate|gesture-pinch|gesture-twist)');
+      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|go-live-rtmp|stop|photo|set-rotation|add-overlay|rotation-mode|device-camera|select-source|toggle-layer|layer-up|layer-down|set-transform|gesture-drag|gesture-scale|gesture-rotate|gesture-pinch|gesture-twist|simulate-congestion)');
       process.exit(1);
     }
     const pkg = PKG_DEBUG; // CMD-receiver только в debug

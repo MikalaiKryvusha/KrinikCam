@@ -22,6 +22,8 @@
     <string name="field_fps">FPS</string>
     <string name="field_platform">Платформа</string>
     <string name="field_resolution">Разрешение (16:9)</string>
+    <string name="field_adaptive_bitrate">Адаптивный битрейт</string>
+    <string name="field_adaptive_bitrate_hint">На слабой сети снижать качество вместо фризов</string>
 
     <!-- Common actions -->
     <string name="common_delete">Удалить</string>

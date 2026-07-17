@@ -23,6 +23,8 @@
     <string name="field_fps">FPS</string>
     <string name="field_platform">Platform</string>
     <string name="field_resolution">Resolution (16:9)</string>
+    <string name="field_adaptive_bitrate">Adaptive bitrate</string>
+    <string name="field_adaptive_bitrate_hint">Lower quality instead of freezing on a weak network</string>
 
     <!-- Common actions -->
     <string name="common_delete">Delete</string>

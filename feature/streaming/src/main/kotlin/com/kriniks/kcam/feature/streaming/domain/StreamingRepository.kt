@@ -37,6 +37,9 @@ class StreamingRepository @Inject constructor(
     /** Set the manual video rotation (preview + stream aspect). No-op while streaming. */
     fun setVideoRotation(degrees: Int): Boolean = rtmpStreamer.setVideoRotation(degrees)
 
+    // idea 37 — debug-харнес: симулировать затык канала для наблюдаемой приёмки адаптера битрейта.
+    fun setSimulatedCongestion(on: Boolean) = rtmpStreamer.setSimulatedCongestion(on)
+
     // ── Мульти-источники (Idea 19) ──────────────────────────────────────────
     /** Текущая сцена (список слоёв) — для панели «Слои». */
     val scene: StateFlow<com.kriniks.kcam.feature.streaming.scene.Scene> = rtmpStreamer.scene

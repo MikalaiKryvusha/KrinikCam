@@ -60,6 +60,7 @@ import com.kriniks.kcam.feature.streaming.scene.Scene
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -70,6 +71,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "RtmpStreamer"
+
+// idea 37 — адаптивный битрейт: пол деградации (ниже не опускаемся — картинка теряет смысл),
+// шаг снижения при затыке канала и шаг плавного восстановления к целевому (проценты от значения).
+private const val ADAPTIVE_FLOOR_BPS = 1_000_000
+private const val ADAPTIVE_DECREASE_PERCENT = 20
+private const val ADAPTIVE_RECOVER_PERCENT = 10
+// Период тикера телеметрии эфира; шаг адаптера — каждый второй тик (2с), чтобы не дёргать энкодер.
+private const val LIVE_TICK_MS = 1000L
 
 @Singleton
 class RtmpStreamer @Inject constructor(
@@ -89,6 +98,22 @@ class RtmpStreamer @Inject constructor(
     // Индексы РТМП-выходов, реально запущенных сейчас (живые ИЛИ реконнектящиеся) — для корректной
     // остановки и решения «упал последний выход → гасим энкодер». Failed-выход отсюда убирается (S3).
     private val activeRtmpOutputs = mutableSetOf<Int>()
+
+    // ── idea 37 — телеметрия эфира + адаптивный битрейт ─────────────────
+    // Тикер раз в секунду ПОКА эфир жив (самозавершается на Idle/Error): тикает durationMs,
+    // поллит hasCongestion() по живым выходам, каждый второй тик — шаг адаптера битрейта.
+    private var liveTicker: Job? = null
+    private var streamStartedAtMs = 0L
+    // Текущий/целевой битрейт видео (бит/с). target = из профиля; current ходит вниз при затыке
+    // канала и плавно восстанавливается к target на свободном канале (setVideoBitrateOnFly).
+    private var currentVideoBitrateBps = 0
+    private var targetVideoBitrateBps = 0
+    // Адаптив включён, если ВСЕ активные профили эфира просят его (энкодер один на все выходы —
+    // консервативно: выключил у одного = выключен весь; контроль у стримера).
+    private var adaptiveBitrateEnabled = true
+    // Debug-харнес (CMD simulate-congestion): заставить адаптер видеть затык без реальной плохой
+    // сети — единственный способ наблюдаемо принять петлю деградации/восстановления на полигоне.
+    @Volatile private var simulatedCongestion = false
 
     // plans/09 S2 — статус КАЖДОГО RTMP-выхода по индексу (имя платформы, фаза, битрейт, попытки
     // реконнекта). Источник правды для агрегата StreamState и для per-output UI («Twitch упал, YouTube
@@ -238,11 +263,12 @@ class RtmpStreamer @Inject constructor(
             val kbps = (bitrate / 1000).toInt()
             updateOutput(index) { it.copy(bitrateKbps = kbps) }
             // Дёшево обновляем агрегат без полного пересчёта фаз: если в эфире — освежаем список выходов.
+            // idea 37 — битрейт агрегата = СУММА живых выходов (честный суммарный аплинк стримера).
             val current = _state.value
             if (current is StreamState.Live) {
                 val outs = outputStates.values.sortedBy { it.index }
                 _state.value = current.copy(
-                    bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.maxOfOrNull { it.bitrateKbps } ?: kbps,
+                    bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.sumOf { it.bitrateKbps },
                     outputs = outs,
                 )
             }
@@ -282,7 +308,10 @@ class RtmpStreamer @Inject constructor(
         val anyPending = outs.any { it.phase == OutputPhase.Connecting || it.phase == OutputPhase.Reconnecting }
         _state.value = when {
             anyLive -> StreamState.Live(
-                bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.maxOfOrNull { it.bitrateKbps } ?: 0,
+                // idea 37 — durationMs ПЕРЕНОСИМ из текущего Live (иначе каждый пересчёт обнулял бы
+                // таймер эфира); битрейт = сумма живых выходов.
+                durationMs = (_state.value as? StreamState.Live)?.durationMs ?: 0,
+                bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.sumOf { it.bitrateKbps },
                 outputs = outs,
             )
             anyPending -> StreamState.Connecting
@@ -290,6 +319,84 @@ class RtmpStreamer @Inject constructor(
                 StreamState.Error(outs.firstOrNull { it.reason != null }?.reason ?: "All outputs failed")
             else -> _state.value
         }
+    }
+
+    // ── idea 37 — тикер телеметрии + адаптер битрейта ───────────────────
+
+    /**
+     * Запустить секундный тикер эфира. Самозавершается, когда стрим кончился (Idle/Error/Stopping) —
+     * поэтому его НЕ нужно глушить из каждого stop-пути. Каждый тик: durationMs++, поллинг
+     * hasCongestion() по живым выходам (или симуляция с харнеса), каждый второй тик — шаг адаптера.
+     */
+    private fun startLiveTicker() {
+        liveTicker?.cancel()
+        streamStartedAtMs = android.os.SystemClock.elapsedRealtime()
+        liveTicker = scope.launch {
+            var tick = 0
+            while (true) {
+                delay(LIVE_TICK_MS)
+                val st = _state.value
+                if (st !is StreamState.Live && st !is StreamState.Connecting) break // эфир кончился
+                tick++
+                // Поллинг затыка канала по каждому ЖИВОМУ выходу (клиент индексный, plans/09).
+                val stream = rtmpStream
+                if (stream != null) {
+                    outputStates.keys.toList().forEach { i ->
+                        val live = outputStates[i]?.phase == OutputPhase.Live
+                        if (live) {
+                            val congested = simulatedCongestion ||
+                                runCatching { stream.getStreamClient(MultiType.RTMP, i).hasCongestion() }
+                                    .getOrDefault(false)
+                            updateOutput(i) { it.copy(congested = congested) }
+                        }
+                    }
+                }
+                if (st is StreamState.Live) {
+                    val outs = outputStates.values.sortedBy { it.index }
+                    _state.value = st.copy(
+                        durationMs = android.os.SystemClock.elapsedRealtime() - streamStartedAtMs,
+                        bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.sumOf { it.bitrateKbps },
+                        outputs = outs,
+                    )
+                }
+                if (tick % 2 == 0) adaptiveBitrateStep()
+            }
+            KLog.d(TAG, "liveTicker: эфир завершён, тикер остановлен (idea 37)")
+        }
+    }
+
+    /**
+     * Шаг адаптера битрейта (idea 37): затык ЛЮБОГО живого выхода → минус
+     * [ADAPTIVE_DECREASE_PERCENT]% (пол [ADAPTIVE_FLOOR_BPS]); канал чист и current < target →
+     * плюс [ADAPTIVE_RECOVER_PERCENT]% от target (потолок target). Энкодер ОДИН на все выходы →
+     * правим глобально setVideoBitrateOnFly. Деградируем КАЧЕСТВОМ, а не плавностью.
+     */
+    private fun adaptiveBitrateStep() {
+        if (!adaptiveBitrateEnabled || targetVideoBitrateBps <= 0) return
+        val stream = rtmpStream ?: return
+        val anyCongested = outputStates.values.any { it.phase == OutputPhase.Live && it.congested }
+        val next = when {
+            anyCongested ->
+                (currentVideoBitrateBps * (100 - ADAPTIVE_DECREASE_PERCENT) / 100)
+                    .coerceAtLeast(ADAPTIVE_FLOOR_BPS)
+            currentVideoBitrateBps < targetVideoBitrateBps ->
+                (currentVideoBitrateBps + targetVideoBitrateBps * ADAPTIVE_RECOVER_PERCENT / 100)
+                    .coerceAtMost(targetVideoBitrateBps)
+            else -> currentVideoBitrateBps
+        }
+        if (next != currentVideoBitrateBps) {
+            KLog.i(TAG, "adaptive: битрейт ${currentVideoBitrateBps / 1000}→${next / 1000} kbps " +
+                "(${if (anyCongested) "затык канала — снижаем" else "канал чист — восстанавливаем"})")
+            currentVideoBitrateBps = next
+            runCatching { stream.setVideoBitrateOnFly(next) }
+                .onFailure { KLog.w(TAG, "adaptive: setVideoBitrateOnFly не прошёл: ${it.message}") }
+        }
+    }
+
+    /** Debug-харнес (CMD simulate-congestion, idea 37): наблюдаемая приёмка петли без плохой сети. */
+    fun setSimulatedCongestion(on: Boolean) {
+        simulatedCongestion = on
+        KLog.i(TAG, "simulate-congestion: ${if (on) "ON — адаптер увидит затык" else "OFF — канал «чист»"}")
     }
 
     // plans/09 S4 — экспоненциальный бэкофф реконнекта: 1с→2с→4с→8с (потолок 8с).
@@ -686,6 +793,14 @@ class RtmpStreamer @Inject constructor(
                 activeRtmpOutputs.add(i)
             }
             KLog.d(TAG, "startStream: запущено выходов=${outputs.size} — ждём GL + ConnectChecker")
+
+            // idea 37 — телеметрия + адаптер: цель = битрейт профиля (энкодер один на все выходы),
+            // адаптив включён, только если ВСЕ профили эфира его просят; тикер сам умрёт по концу эфира.
+            targetVideoBitrateBps = outputs.first().videoBitrateBps
+            currentVideoBitrateBps = targetVideoBitrateBps
+            adaptiveBitrateEnabled = outputs.all { it.adaptiveBitrate }
+            KLog.i(TAG, "idea37: target=${targetVideoBitrateBps / 1000}kbps adaptive=$adaptiveBitrateEnabled")
+            startLiveTicker()
 
             // Wait for GL to start, re-attach preview TextureView
             schedulePreviewRestoreAfterStream(stream)

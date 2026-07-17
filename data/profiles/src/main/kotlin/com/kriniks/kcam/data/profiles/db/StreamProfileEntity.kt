@@ -23,6 +23,8 @@ data class StreamProfileEntity(
     val videoHeight: Int,
     val videoFps: Int,
     val videoBitrateBps: Int,
+    // idea 37 — версия схемы 2 (MIGRATION_1_2): адаптивный битрейт, дефолт ВКЛ.
+    val adaptiveBitrate: Boolean = true,
 ) {
     fun toProfile() = StreamProfile(
         id             = id,
@@ -38,6 +40,7 @@ data class StreamProfileEntity(
         videoHeight    = videoHeight,
         videoFps       = videoFps,
         videoBitrateBps = videoBitrateBps,
+        adaptiveBitrate = adaptiveBitrate,
     )
 }
 
@@ -52,4 +55,5 @@ fun StreamProfile.toEntity() = StreamProfileEntity(
     videoHeight     = videoHeight,
     videoFps        = videoFps,
     videoBitrateBps = videoBitrateBps,
+    adaptiveBitrate = adaptiveBitrate,
 )

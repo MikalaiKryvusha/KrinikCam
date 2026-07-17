@@ -58,6 +58,7 @@
         <item>The output resolution is 1080p or 2160p; changing the resolution during an active broadcast is not available.</item>
         <item>The broadcast continues when the screen is turned off and when the application is minimized: a system foreground service is started for the duration of the broadcast, and a “LIVE” indicator with a stop button is shown in the notification area. The screen also does not turn off automatically during a broadcast.</item>
         <item>To show the broadcast indicator, the application requests permission to display notifications (Android 13 and newer).</item>
+        <item>If the network cannot keep up, the application gradually lowers the stream bitrate instead of freezing, and restores it when the channel recovers; the LIVE indicator shows the broadcast timer, the total bitrate and a channel health dot (green, yellow or red).</item>
     </string-array>
 
     <string name="um_title_8">8. Platforms</string>

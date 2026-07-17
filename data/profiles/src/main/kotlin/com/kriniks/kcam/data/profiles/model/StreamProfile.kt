@@ -25,6 +25,9 @@ data class StreamProfile(
     val videoHeight: Int = 1080,
     val videoFps: Int = 30,
     val videoBitrateBps: Int = 4_000_000,
+    // idea 37 — адаптивный битрейт: при затыке канала плавно снижать битрейт (деградация качеством,
+    // а не фризами), на чистом канале — восстанавливать к videoBitrateBps. Дефолт ВКЛ (Q5=A).
+    val adaptiveBitrate: Boolean = true,
 )
 
 enum class StreamPlatform(

@@ -301,6 +301,8 @@ private fun ProfileEditDialog(
     var resW by remember { mutableStateOf(initial.videoWidth) }
     var resH by remember { mutableStateOf(initial.videoHeight) }
     var fps by remember { mutableStateOf(initial.videoFps.toString()) }
+    // idea 37 — тумблер адаптивного битрейта профиля (дефолт ВКЛ, Q5=A).
+    var adaptive by remember { mutableStateOf(initial.adaptiveBitrate) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -370,6 +372,24 @@ private fun ProfileEditDialog(
                     ) { w, h -> resW = w; resH = h }
                     KcamTextField(stringResource(R.string.field_fps), fps, Modifier.weight(1f)) { fps = it }
                 }
+                // idea 37 — адаптивный битрейт: при затыке канала снижаем битрейт вместо фризов.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Checkbox(
+                        checked = adaptive,
+                        onCheckedChange = { adaptive = it },
+                        colors = CheckboxDefaults.colors(checkedColor = AcidPink),
+                    )
+                    Column {
+                        Text(stringResource(R.string.field_adaptive_bitrate), color = Color.White, fontSize = 14.sp)
+                        Text(
+                            stringResource(R.string.field_adaptive_bitrate_hint),
+                            color = Color(0xFF888888), fontSize = 11.sp,
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -383,6 +403,7 @@ private fun ProfileEditDialog(
                         videoWidth = resW,
                         videoHeight = resH,
                         videoFps = fps.toIntOrNull() ?: 30,
+                        adaptiveBitrate = adaptive,
                     ))
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = AcidPink),

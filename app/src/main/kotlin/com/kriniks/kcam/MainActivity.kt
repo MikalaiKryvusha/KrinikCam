@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
      *   gesture-rotate  arg=<id>,<deg> — кадр жеста над слоем (путь пальцев, plans/03 S8)
      *   gesture-pinch   arg=in|out[,frac] · gesture-twist arg=<deg>[,radiusFrac] — синтетический
      *                    двухпальцевый мультитач в decorView над ВЫБРАННЫМ слоем
+     *   simulate-congestion arg=on|off — idea 37: симулировать затык канала (приёмка адаптера битрейта)
      *   rotation-mode   arg=on|off     — режим «вращение по ADB» (для SET_ORIENTATION)
      * (Phase 3: команда `compositor` УДАЛЕНА — композитор всегда включён, второго пайплайна нет.)
      */
@@ -224,6 +225,9 @@ class MainActivity : ComponentActivity() {
                         id = arg?.trim()?.takeIf { it.isNotEmpty() } ?: "overlay_cmd_${System.currentTimeMillis()}",
                         name = "Overlay",
                     )
+                    // idea 37 — симуляция затыка канала: адаптер битрейта видит congestion без
+                    // реальной плохой сети (единственный способ принять петлю деградации на полигоне).
+                    "simulate-congestion" -> streamingRepository.setSimulatedCongestion(arg == "on")
                     "rotation-mode" -> setAdbRotationEnabled(arg == "on")
                     // Phase 3: команда `compositor` удалена — композитор ВСЕГДА единственный пайплайн.
                     "compositor" -> KLog.w("MainActivity", "CMD compositor: DEPRECATED — композитор всегда включён (Phase 3), команда игнорируется")

@@ -26,6 +26,7 @@ package com.kriniks.kcam.ui.screens
 import android.view.TextureView
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -57,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.feature.capture.model.VideoSource
 import com.kriniks.kcam.feature.streaming.scene.Layer
+import com.kriniks.kcam.feature.streaming.model.OutputPhase
 import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.model.isLive
@@ -563,8 +565,23 @@ fun MainScreen(
 
 @Composable
 private fun LiveBadge(state: StreamState) {
-    val bitrateText = if (state is StreamState.Live && state.bitrateKbps > 0)
-        "  ${state.bitrateKbps} kbps" else ""
+    // idea 37 — health-строка эфира: «LIVE 12:34 · 4.2 Mbps», цвет ТОЧКИ = здоровье канала:
+    // зелёный — все выходы живы, канал чист; жёлтый — затык (адаптер снижает битрейт);
+    // красный — выход реконнектится/упал. Белая обводка — чтобы точка читалась на красной пилюле.
+    val live = state as? StreamState.Live
+    val durationText = live?.let {
+        val totalSec = it.durationMs / 1000
+        "  %d:%02d".format(totalSec / 60, totalSec % 60)
+    } ?: ""
+    val bitrateText = live?.takeIf { it.bitrateKbps > 0 }
+        ?.let { " · %.1f Mbps".format(it.bitrateKbps / 1000f) } ?: ""
+    val healthColor = when {
+        live == null -> Color.White
+        live.outputs.any { it.phase == OutputPhase.Reconnecting || it.phase == OutputPhase.Failed } ->
+            Color(0xFFFF1744) // красный — деградация выхода
+        live.outputs.any { it.congested } -> Color(0xFFFFD600) // жёлтый — затык канала
+        else -> Color(0xFF00E676) // зелёный — здоров
+    }
 
     Surface(
         color = LiveRed,
@@ -577,11 +594,13 @@ private fun LiveBadge(state: StreamState) {
         ) {
             Box(
                 Modifier
-                    .size(8.dp)
-                    .background(Color.White, shape = androidx.compose.foundation.shape.CircleShape),
+                    .size(9.dp)
+                    .border(1.dp, Color.White, androidx.compose.foundation.shape.CircleShape)
+                    .padding(1.dp)
+                    .background(healthColor, shape = androidx.compose.foundation.shape.CircleShape),
             )
             Text(
-                text = "LIVE$bitrateText",
+                text = stringResource(R.string.fab_live_badge) + durationText + bitrateText,
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
