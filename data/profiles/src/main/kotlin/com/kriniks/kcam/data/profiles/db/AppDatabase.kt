@@ -18,7 +18,10 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [StreamProfileEntity::class],
     version = 1,
-    exportSchema = false,
+    // bug 37 №1 — схема экспортируется (schemas/ в git): фундамент для честных миграций.
+    // Меняешь entity → бампни version И напиши Migration(N,N+1) в ProfilesModule; destructive-
+    // фолбэка больше НЕТ, забытая миграция уронит сборку/старт, а не данные Криника.
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun streamProfileDao(): StreamProfileDao

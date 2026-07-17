@@ -35,9 +35,11 @@ android {
         applicationId = "com.kriniks.kcam"
         minSdk = 33
         targetSdk = 35
-        // versionCode must be >= 1; formula: major*10000 + minor*100 + build + 1
-        // ensures monotonic increase across all version bumps
-        versionCode = vMajor * 10000 + vMinor * 100 + vBuild + 1
+        // versionCode must be >= 1; formula: major*1_000_000 + minor*10_000 + build + 1.
+        // bug 37 №4: старая формула major*10000+minor*100+build давала переполнение разряда build
+        // на сотом коммите (0.7 (100) == 0.8 (0) → «даунгрейд», обновление не встаёт). Новая даёт
+        // 10 000 билдов на minor; скачок versionCode вверх (710 → 70010) безопасен для обновлений.
+        versionCode = vMajor * 1_000_000 + vMinor * 10_000 + vBuild + 1
         versionName = "$vMajor.$vMinor ($vBuild)"
 
         // BUILD_TIME (see top-level `buildTime`) — shown in Settings → About so the user and bug

@@ -213,7 +213,8 @@ class RtmpStreamer @Inject constructor(
      */
     private fun makeConnectChecker(index: Int) = object : ConnectChecker {
         override fun onConnectionStarted(url: String) {
-            KLog.i(TAG, "RTMP[$index] connecting → $url")
+            // bug 37 №3 — URL в лог только с редакцией ключа (полный уходил в logcat + FileLogger).
+            KLog.i(TAG, "RTMP[$index] connecting → ${redactRtmpUrl(url)}")
             updateOutput(index) { it.copy(phase = OutputPhase.Connecting) }
             recomputeAggregateState()
         }
@@ -678,7 +679,8 @@ class RtmpStreamer @Inject constructor(
             // plans/09 S2 — сразу заводим статус выхода (имя платформы + фаза Connecting) для UI.
             outputs.forEachIndexed { i, p ->
                 val url = "${p.rtmpUrl}/${p.streamKey}"
-                KLog.i(TAG, "startStream: RTMP out[$i] '${p.name}' → $url")
+                // bug 37 №3 — в лог редактированный URL; полный (с ключом) идёт ТОЛЬКО в библиотеку.
+                KLog.i(TAG, "startStream: RTMP out[$i] '${p.name}' → ${redactRtmpUrl(url)}")
                 outputStates[i] = OutputStatus(index = i, name = p.name, phase = OutputPhase.Connecting)
                 stream.startStream(MultiType.RTMP, i, url)
                 activeRtmpOutputs.add(i)

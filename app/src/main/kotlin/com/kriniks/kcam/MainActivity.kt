@@ -28,6 +28,7 @@ import com.kriniks.kcam.streaming.DeviceCameraEnumerator
 import com.kriniks.kcam.streaming.StreamForegroundService
 import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.feature.streaming.model.isActive
+import com.kriniks.kcam.feature.streaming.rtmp.redactRtmpUrl
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
@@ -167,7 +168,13 @@ class MainActivity : ComponentActivity() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val action = intent?.getStringExtra("action") ?: return
                 val arg = intent.getStringExtra("arg")
-                KLog.i("MainActivity", "CMD: action=$action arg=$arg")
+                // bug 37 №3 — go-live-rtmp несёт URL со stream-ключами: в лог только с редакцией
+                // (лог-файл пуллится к баг-репортам; утечка ключа = угон эфира).
+                val safeArg = if (action == "go-live-rtmp" && arg != null) {
+                    arg.split(Regex("[,\\s]+")).filter { it.isNotBlank() }
+                        .joinToString(",") { redactRtmpUrl(it) }
+                } else arg
+                KLog.i("MainActivity", "CMD: action=$action arg=$safeArg")
                 when (action) {
                     "virtual-camera" -> {
                         // ПЕРСИСТ (гипотеза Криника): CMD-переключение виртуалки должно ПЕРЕЖИВАТЬ

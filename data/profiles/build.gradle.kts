@@ -26,6 +26,13 @@ android {
 
 kotlin { jvmToolchain(17) }
 
+// bug 37 №1 — Room экспортирует JSON-схемы БД в schemas/ (коммитятся в git): это база для настоящих
+// Migration(N,N+1) вместо fallbackToDestructiveMigration, который молча стирал бы профили Криника
+// (stream-ключи!) при первом же бампе версии БД.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:logging"))

@@ -24,7 +24,10 @@ object ProfilesModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "kcam_db")
-            .fallbackToDestructiveMigration()   // dev only — replace with migrations before v1.0
+            // bug 37 №1 — fallbackToDestructiveMigration УБРАН: он молча стирал бы все профили
+            // (включая stream-ключи) при первом же бампе версии БД. Теперь при изменении схемы
+            // ОБЯЗАТЕЛЬНА явная Migration(N,N+1) через .addMigrations(...) — забытая миграция
+            // даст IllegalStateException на старте (заметно в первом же тесте), а не потерю данных.
             .build()
 
     @Provides
