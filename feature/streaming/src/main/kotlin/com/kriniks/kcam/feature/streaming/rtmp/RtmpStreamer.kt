@@ -266,7 +266,9 @@ class RtmpStreamer @Inject constructor(
         override fun onNewBitrate(bitrate: Long) {
             // Битрейт КОНКРЕТНОГО выхода. Аудио-only (нет видеокадров) ≈132 kbps; полное видео 2-6 Mbps.
             val kbps = (bitrate / 1000).toInt()
-            updateOutput(index) { it.copy(bitrateKbps = kbps) }
+            // bug 53 — сглаживаем ПОКАЗАНИЕ (EMA), чтобы плашка не мерцала/не «плясала» шириной от
+            // посекундных скачков. На реальное кодирование не влияет — только на отображаемое число.
+            updateOutput(index) { it.copy(bitrateKbps = if (it.bitrateKbps == 0) kbps else (it.bitrateKbps * 3 + kbps) / 4) }
             // Дёшево обновляем агрегат без полного пересчёта фаз: если в эфире — освежаем список выходов.
             // idea 37 — битрейт агрегата = СУММА живых выходов (честный суммарный аплинк стримера).
             val current = _state.value
@@ -903,8 +905,13 @@ class RtmpStreamer @Inject constructor(
             }
         }
         override fun onNewBitrate(bitrate: Long) {
+            val raw = (bitrate / 1000).toInt()
             val current = _state.value
-            if (current is StreamState.Live) _state.value = current.copy(bitrateKbps = (bitrate / 1000).toInt())
+            // bug 53 — сглаживаем показание записи (EMA), чтобы плашка не дёргалась.
+            if (current is StreamState.Live) {
+                val smoothed = if (current.bitrateKbps == 0) raw else (current.bitrateKbps * 3 + raw) / 4
+                _state.value = current.copy(bitrateKbps = smoothed)
+            }
         }
     }
 

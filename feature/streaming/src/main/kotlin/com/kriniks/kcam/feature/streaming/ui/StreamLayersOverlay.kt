@@ -267,7 +267,9 @@ private fun LayerItem(
         shape = shape,
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (selected) Modifier.border(1.5.dp, AcidPink, shape) else Modifier)
+            // bug 52 — рамка выбранного слоя: тоньше (1 dp) и полупрозрачная (кислый розовый мягче,
+            // не кричит). Выбор всё ещё очевиден, но не бьёт по глазам.
+            .then(if (selected) Modifier.border(1.dp, AcidPink.copy(alpha = 0.5f), shape) else Modifier)
             .clickable(onClick = onTap),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp)) {

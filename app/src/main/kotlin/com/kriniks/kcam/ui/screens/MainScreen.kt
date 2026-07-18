@@ -627,6 +627,8 @@ private fun LiveBadge(state: StreamState) {
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
+                // bug 53 — табличные (моноширинные) цифры: ширина не скачет при смене цифр таймера/битрейта.
+                style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
             )
         }
     }
