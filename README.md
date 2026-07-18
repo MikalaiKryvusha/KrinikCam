@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Android%2013%2B-3DDC84.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
 [![Version](https://img.shields.io/badge/Version-0.8-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
-[![Framework: KAIF 1.5](https://img.shields.io/badge/Framework-KAIF%201.5%20%C2%B7%20Tested-6E56CF.svg)](https://github.com/MikalaiKryvusha/KAIF)
+[![Framework: KAIF 1.5](https://img.shields.io/badge/Framework-KAIF%201.5-6E56CF.svg)](https://github.com/MikalaiKryvusha/KAIF)
 
 <a name="english"></a>
 **English** · [Русский](#русский)
