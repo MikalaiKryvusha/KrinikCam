@@ -259,6 +259,9 @@ class MainActivity : ComponentActivity() {
                     "rotation-mode" -> setAdbRotationEnabled(arg == "on")
                     // Phase 3: команда `compositor` удалена — композитор ВСЕГДА единственный пайплайн.
                     "compositor" -> KLog.w("MainActivity", "CMD compositor: DEPRECATED — композитор всегда включён (Phase 3), команда игнорируется")
+                    // Мульти-источники (idea 21 Фаза B, Idea 22): добавить ещё слой видеозахвата / удалить слой по id.
+                    "add-video-capture" -> streamingRepository.addVideoCaptureLayer()
+                    "remove-layer" -> arg?.trim()?.takeIf { it.isNotEmpty() }?.let { streamingRepository.removeLayer(it) }
                     // Тонкая команда: переключить видимость слоя по id (напр. camera) — для тестов OBS-поведения.
                     "toggle-layer" -> arg?.let { streamingRepository.toggleLayerVisible(it) }
                     "layer-up" -> arg?.let { streamingRepository.moveLayerUp(it) }

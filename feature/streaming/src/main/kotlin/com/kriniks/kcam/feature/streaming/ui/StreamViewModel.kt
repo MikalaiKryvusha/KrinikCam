@@ -168,6 +168,9 @@ class StreamViewModel @Inject constructor(
         KLog.i(TAG, "Added image overlay '$displayName' (id #$overlayIdCounter)")
     }
 
+    /** Мульти-источники (idea 21 Фаза B): добавить ещё один слой «Устройство захвата видео». */
+    fun addVideoCaptureLayer() = repository.addVideoCaptureLayer()
+
     fun removeLayer(id: String) {
         if (_selectedLayerId.value == id) _selectedLayerId.value = null // снять выбор с удаляемого слоя
         repository.removeLayer(id)

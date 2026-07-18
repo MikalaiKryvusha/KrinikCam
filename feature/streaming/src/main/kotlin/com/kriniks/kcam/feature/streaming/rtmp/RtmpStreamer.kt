@@ -1114,6 +1114,22 @@ class RtmpStreamer @Inject constructor(
         applySceneLayers()
     }
 
+    // Мульти-источники (idea 21 Фаза B): счётчик для УНИКАЛЬНЫХ id слоёв видеозахвата. Дефолтная
+    // камера сцены — id "camera"; добавляемые — "camera_1", "camera_2", … (не коллизят).
+    private var videoCaptureLayerCounter = 0
+
+    /**
+     * Добавить ещё один слой «Устройство захвата видео» НА ВЕРХ сцены (мульти-источники). Источник по
+     * умолчанию — None (пользователь выберет в настройках слоя). id уникален. Полноценно независимые
+     * камеры заработают после per-слойного ресурса камеры в компоновщике (Фаза B GL); пока новый слой
+     * рисуется той же камерой (общая OES) — это груновка модели/UI.
+     */
+    fun addVideoCaptureLayer() {
+        val id = "camera_${++videoCaptureLayerCounter}"
+        mutateScene { it.addOnTop(Layer.VideoCapture(id = id)) }
+        KLog.i(TAG, "Scene: added video-capture layer id=$id (мульти-источники, груновка)")
+    }
+
     /**
      * Добавить слой-картинку (PNG-оверлей) НА ВЕРХ сцены. [bitmap] уже готов (из файла или
      * сгенерирован). [id] должен быть уникальным (для toggle/remove/reorder).

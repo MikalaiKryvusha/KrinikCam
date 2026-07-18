@@ -58,6 +58,9 @@ class StreamingRepository @Inject constructor(
     fun addImageOverlay(id: String, name: String, bitmap: android.graphics.Bitmap) =
         rtmpStreamer.addImageOverlay(id, name, bitmap)
 
+    /** Мульти-источники (idea 21 Фаза B): добавить ещё один слой «Устройство захвата видео». */
+    fun addVideoCaptureLayer() = rtmpStreamer.addVideoCaptureLayer()
+
     fun removeLayer(id: String) = rtmpStreamer.removeLayer(id)
     fun toggleLayerVisible(id: String) = rtmpStreamer.toggleLayerVisible(id)
     fun moveLayerUp(id: String) = rtmpStreamer.moveLayerUp(id)

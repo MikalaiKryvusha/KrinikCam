@@ -74,6 +74,8 @@ fun StreamLayersOverlay(
     scene: Scene,
     onDismiss: () -> Unit,
     onAddTestOverlay: () -> Unit,
+    // Мульти-источники (idea 21 Фаза B): добавить ещё один слой «Устройство захвата видео».
+    onAddVideoCapture: () -> Unit = {},
     // Фаза 1: добавить слой-картинку из файла. [bitmap] уже декодирован и вписан в кадр.
     onAddImage: (name: String, bitmap: android.graphics.Bitmap) -> Unit,
     onToggleVisible: (String) -> Unit,
@@ -198,6 +200,12 @@ fun StreamLayersOverlay(
                     }
                 }
                 DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
+                    // Мульти-источники (idea 21 Фаза B): ещё один слой «Устройство захвата видео».
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.layers_add_video_capture)) },
+                        leadingIcon = { Icon(Icons.Default.Videocam, contentDescription = null) },
+                        onClick = { addMenuOpen = false; onAddVideoCapture() },
+                    )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.layers_add_image)) },
                         leadingIcon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = null) },
@@ -264,7 +272,6 @@ private fun LayerItem(
     onRemove: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val isCamera = layer is Layer.VideoCapture
     val shape = RoundedCornerShape(10.dp)
     Surface(
         color = if (expanded) ItemBgExpanded else ItemBg,
@@ -353,11 +360,10 @@ private fun LayerItem(
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, stringResource(R.string.layer_settings_desc), tint = Color.White)
                     }
-                    // Удаление — только для НЕ-камеры (камеру-базу в первом заходе не убираем).
-                    if (!isCamera) {
-                        IconButton(onClick = onRemove) {
-                            Icon(Icons.Default.Delete, stringResource(R.string.common_delete), tint = Color(0xFFCC5555))
-                        }
+                    // Удаление — для ЛЮБОГО слоя, включая камеру (bug 16: Криник — «удалять можно ВСЕ
+                    // слои без исключений»). Камера теперь равноправный слой (idea 21), не «база».
+                    IconButton(onClick = onRemove) {
+                        Icon(Icons.Default.Delete, stringResource(R.string.common_delete), tint = Color(0xFFCC5555))
                     }
                 }
             }
