@@ -8,7 +8,7 @@
 [![Framework: KAIF 1.5](https://img.shields.io/badge/Framework-KAIF%201.5%20%C2%B7%20Tested-6E56CF.svg)](https://github.com/MikalaiKryvusha/KAIF)
 
 <a name="english"></a>
-**🇬🇧 English** · [🇷🇺 Русский](#русский)
+**English** · [Русский](#русский)
 
 **An open-source Android app for streamers and bloggers — a mobile OBS.**  
 Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose a scene from layers → go live on YouTube, Instagram, Twitch, or TikTok.
@@ -156,7 +156,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 <a name="русский"></a>
 # KrinikCam
 
-[🇬🇧 English](#english) · **🇷🇺 Русский**
+[English](#english) · **Русский**
 
 **Открытое Android-приложение для стримеров и блогеров — мобильный OBS.**  
 Подключи USB-вебкамеру через OTG (или используй встроенные камеры устройства) → собери сцену из слоёв → выходи в эфир на YouTube, Instagram, Twitch или TikTok.
