@@ -113,6 +113,22 @@ class UsbViewModel @Inject constructor(
         }
     }
 
+    /**
+     * bug 47 (харнес/Idea 22) — эмулировать ОТВАЛ АКТИВНОЙ камеры нагорячую БЕЗ физического отключения:
+     * применяет то же изменение стейта, что реальный [UsbEvent.DeviceDetached] активного устройства
+     * (зануляет activeCamera/activeCameraId, убирает из списка). Нужно для приёмки заглушки
+     * (StandbyPlaceholder) на hot-detach: source остаётся UvcCamera, но живого кадра нет → должна
+     * появиться заглушка. Вызывается CMD-ресивером на debug-сборке.
+     */
+    fun simulateActiveDetach() {
+        val id = _uiState.value.activeCameraId
+        if (id == null) { KLog.w(TAG, "simulateActiveDetach: нет активной камеры"); return }
+        // Гоним через РЕПОЗИТОРИЙ (SharedFlow), а не правим стейт напрямую: так синтетический отвал
+        // получат ОБА экземпляра UsbViewModel (bug 35 #6), как при реальном физическом отключении.
+        KLog.i(TAG, "simulateActiveDetach: эмит DeviceDetached(id=$id) через репозиторий (bug 47, харнес)")
+        repository.simulateDetach(id)
+    }
+
     override fun onCleared() {
         super.onCleared()
         repository.stopMonitoring()

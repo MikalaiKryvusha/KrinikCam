@@ -164,6 +164,7 @@ class MainActivity : ComponentActivity() {
      *   gesture-pinch   arg=in|out[,frac] · gesture-twist arg=<deg>[,radiusFrac] — синтетический
      *                    двухпальцевый мультитач в decorView над ВЫБРАННЫМ слоем
      *   simulate-congestion arg=on|off — idea 37: симулировать затык канала (приёмка адаптера битрейта)
+     *   simulate-detach — bug 47: эмулировать отвал активной UVC нагорячую (приёмка заглушки без физ. отключения)
      *   rotation-mode   arg=on|off     — режим «вращение по ADB» (для SET_ORIENTATION)
      * (Phase 3: команда `compositor` УДАЛЕНА — композитор всегда включён, второго пайплайна нет.)
      */
@@ -252,6 +253,9 @@ class MainActivity : ComponentActivity() {
                     // idea 37 — симуляция затыка канала: адаптер битрейта видит congestion без
                     // реальной плохой сети (единственный способ принять петлю деградации на полигоне).
                     "simulate-congestion" -> streamingRepository.setSimulatedCongestion(arg == "on")
+                    // bug 47 (Idea 22) — эмулировать отвал активной UVC нагорячую (без физ. отключения):
+                    // зануляет activeCamera → должна появиться заглушка StandbyPlaceholder.
+                    "simulate-detach" -> usbViewModel.simulateActiveDetach()
                     "rotation-mode" -> setAdbRotationEnabled(arg == "on")
                     // Phase 3: команда `compositor` удалена — композитор ВСЕГДА единственный пайплайн.
                     "compositor" -> KLog.w("MainActivity", "CMD compositor: DEPRECATED — композитор всегда включён (Phase 3), команда игнорируется")

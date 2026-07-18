@@ -236,8 +236,15 @@ fun MainScreen(
 
         // ── Layer 0.5: подсказка «нет источника» ПОВЕРХ живого превью ────────
         // Раньше StandbyPlaceholder ЗАМЕНЯЛ превью (рушил TextureView — bug 20/23); теперь это
-        // просто оверлей поверх живого чёрного холста, пока нет ни одного источника камеры.
-        if (activeSource is VideoSource.None && !streamState.isActive) {
+        // просто оверлей поверх живого чёрного холста, пока нет живого источника камеры.
+        // bug 47 — заглушка появляется и при HOT-DETACH: выбрана UVC, но объекта камеры нет
+        // (usbState.activeCamera == null — камера отвалилась нагорячую или ещё не открылась). Раньше
+        // при отвале источник оставался UvcCamera (bug 35), объект камеры пропадал → чёрный холст без
+        // подсказки. Теперь заглушка показывается, пока живого кадра нет. Во время эфира/записи —
+        // подавляется (isActive), чтобы не мигать при пере-открытии камеры на старте.
+        val noLiveCamera = activeSource is VideoSource.None ||
+            (activeSource is VideoSource.UvcCamera && usbState.activeCamera == null)
+        if (noLiveCamera && !streamState.isActive) {
             StandbyPlaceholder(
                 message = stringResource(R.string.main_standby_hint),
                 modifier = Modifier.fillMaxSize(),

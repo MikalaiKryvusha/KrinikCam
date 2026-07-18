@@ -236,6 +236,13 @@ class UsbDeviceRepositoryImpl @Inject constructor(
     override fun getCameraForDevice(deviceId: Int): MultiCameraClient.Camera? =
         openCameras[deviceId]
 
+    // bug 47 (харнес/Idea 22) — синтетический отвал: эмит DeviceDetached в общий SharedFlow, так что
+    // ОБА подписчика (activity- и route-scoped UsbViewModel) обработают его как реальное событие.
+    override fun simulateDetach(deviceId: Int) {
+        KLog.i(TAG, "simulateDetach: эмулирую отвал устройства id=$deviceId (харнес)")
+        emit(UsbEvent.DeviceDetached(deviceId))
+    }
+
     private fun emit(event: UsbEvent) {
         scope.launch { _events.emit(event) }
     }
