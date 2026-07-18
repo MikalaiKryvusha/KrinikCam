@@ -63,6 +63,8 @@
     <string name="fab_settings">Настройки</string>
     <string name="fab_live_badge">ЭФИР</string>
     <string name="fab_menu_desc">Меню</string>
+    <string name="fab_record">Запись</string>
+    <string name="fab_photo">Фото</string>
 
     <!-- Main screen (plans/13) -->
     <string name="main_standby_hint">Подключите USB-вебкамеру через OTG\nили загляните в Настройки за подсказкой</string>

@@ -498,6 +498,9 @@ fun MainScreen(
             streamState = streamState,
             onStartStream = { streamViewModel.startStream() },
             onStopStream = { streamViewModel.stopStream() },
+            // idea 17 — юзер-кнопки записи/фото (механика давно готова, это только UI-обвязка).
+            onRecord = { streamViewModel.startRecording() },
+            onPhoto = { streamViewModel.capturePhoto() },
             onOpenPlatforms = { showPlatformsOverlay = true },
             onOpenSettings = onNavigateToSettings,
             modifier = Modifier.fillMaxSize(),

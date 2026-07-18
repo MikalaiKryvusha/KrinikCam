@@ -55,5 +55,8 @@
     <string name="snack_encoder_failed">Не удалось запустить энкодер — проверьте поддержку устройства</string>
     <string name="snack_import_failed">Импорт не удался — в файле нет валидных профилей</string>
     <string name="snack_imported">Импортировано профилей: %1$d</string>
+    <string name="snack_recording_started">Идёт запись — видео сохранится в галерею</string>
+    <string name="snack_recording_failed">Не удалось начать запись</string>
+    <string name="snack_photo_saved">Фото сохранено в DCIM/KrinikCam</string>
     <string name="snack_imported_skipped">Импортировано профилей: %1$d, пропущено дублей: %2$d</string>
 </resources>

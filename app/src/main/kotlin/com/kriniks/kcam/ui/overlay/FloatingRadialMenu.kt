@@ -58,6 +58,10 @@ fun FloatingRadialMenu(
     onStopStream: () -> Unit,
     onOpenPlatforms: () -> Unit,
     onOpenSettings: () -> Unit,
+    // idea 17 — юзер-фичи записи: Record (вне эфира; запись и эфир взаимоисключающи) и Photo
+    // (всегда — снимок композита можно и во время эфира).
+    onRecord: () -> Unit = {},
+    onPhoto: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -68,7 +72,11 @@ fun FloatingRadialMenu(
             add(RadialAction(Icons.Default.StopCircle, stringResource(R.string.fab_stop), LiveRed, onStopStream))
         } else {
             add(RadialAction(Icons.Default.RadioButtonChecked, stringResource(R.string.fab_go_live), AcidPink, onStartStream))
+            // idea 17 — запись в галерею доступна, когда НЕТ эфира (Stop гасит и запись — state Live).
+            add(RadialAction(Icons.Default.FiberManualRecord, stringResource(R.string.fab_record), LiveRed, onRecord))
         }
+        // idea 17 — фото композита в галерею; работает и в эфире.
+        add(RadialAction(Icons.Default.PhotoCamera, stringResource(R.string.fab_photo), Color.White, onPhoto))
         // Слои вынесены в ОТДЕЛЬНЫЙ FAB внизу-слева (Криник 2026-07-06) — здесь их больше нет.
         add(RadialAction(Icons.Default.Wifi, stringResource(R.string.fab_platforms), Color.White, onOpenPlatforms))
         add(RadialAction(Icons.Default.Settings, stringResource(R.string.fab_settings), Color.White, onOpenSettings))

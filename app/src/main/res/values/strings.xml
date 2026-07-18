@@ -69,6 +69,8 @@
     <string name="fab_settings">Settings</string>
     <string name="fab_live_badge">LIVE</string>
     <string name="fab_menu_desc">Menu</string>
+    <string name="fab_record">Record</string>
+    <string name="fab_photo">Photo</string>
 
     <!-- Main screen (plans/13) -->
     <string name="main_standby_hint">Connect a USB webcam via OTG,\nor check Settings for help</string>

@@ -312,6 +312,26 @@ class StreamViewModel @Inject constructor(
         }
     }
 
+    // idea 17 — ЮЗЕР-фича «Запись»: пишем композит в файл и публикуем в галерею DCIM/KrinikCam
+    // (механика и переживание отрыва камеры давно проверены; запись и эфир взаимоисключающи).
+    fun startRecording() {
+        val profile = _activeProfile.value ?: StreamProfile()
+        val path = repository.startRecordToFile(profile)
+        KLog.i(TAG, "startRecording → ${path ?: "FAILED"}")
+        viewModelScope.launch {
+            _snackbar.emit(
+                if (path != null) UiText.Res(R.string.snack_recording_started)
+                else UiText.Res(R.string.snack_recording_failed)
+            )
+        }
+    }
+
+    // idea 17 — фото-кнопка: снимок КОМПОЗИТА (то, что видит зритель) в галерею DCIM/KrinikCam.
+    fun capturePhoto() {
+        repository.capturePhoto()
+        viewModelScope.launch { _snackbar.emit(UiText.Res(R.string.snack_photo_saved)) }
+    }
+
     fun stopStream() {
         if (repository.isRecording) {
             KLog.i(TAG, "Stopping virtual stream (record)")

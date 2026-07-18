@@ -56,5 +56,8 @@
     <string name="snack_encoder_failed">Failed to start encoder — check device support</string>
     <string name="snack_import_failed">Import failed — no valid profiles in file</string>
     <string name="snack_imported">Imported profiles: %1$d</string>
+    <string name="snack_recording_started">Recording — the video will be saved to the gallery</string>
+    <string name="snack_recording_failed">Recording failed to start</string>
+    <string name="snack_photo_saved">Photo saved to DCIM/KrinikCam</string>
     <string name="snack_imported_skipped">Imported profiles: %1$d, skipped duplicates: %2$d</string>
 </resources>

@@ -989,6 +989,12 @@ class RtmpStreamer @Inject constructor(
             }
             _state.value = StreamState.Live()  // reuse Live state so the UI shows the LIVE badge
             lastRecordPath = path              // Idea 11: published to DCIM on STOPPED
+            // idea 37/17 — тикер эфира нужен и ЗАПИСИ (таймер на бейдже; пойман приёмкой кнопки
+            // Record: стоял 0:00). Адаптер битрейта при записи ВЫКЛЮЧЕН (target=0 → no-op: канала
+            // нет, RTMP-клиентов нет — congestion-поллинг по пустым outputStates безопасен).
+            targetVideoBitrateBps = 0
+            adaptiveBitrateEnabled = false
+            startLiveTicker()
             stream.startRecord(path, recordListener)
             KLog.i(TAG, "startRecordToFile → $path (canvas=${_videoRotation.value}°)")
             schedulePreviewRestoreAfterStream(stream)

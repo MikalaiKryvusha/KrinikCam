@@ -54,7 +54,7 @@
     <string name="um_title_7">7. Recording and broadcasting</string>
     <string-array name="um_body_7">
         <item>The “Go Live” button starts the broadcast to the selected platform over the RTMP protocol.</item>
-        <item>A record-to-file mode is provided — for checking operation without an internet connection.</item>
+        <item>The Record and Photo buttons in the main menu save a video or a snapshot of the composed frame to the device gallery (DCIM/KrinikCam); recording and broadcasting are mutually exclusive.</item>
         <item>The output resolution is 1080p or 2160p; changing the resolution during an active broadcast is not available.</item>
         <item>The broadcast continues when the screen is turned off and when the application is minimized: a system foreground service is started for the duration of the broadcast, and a “LIVE” indicator with a stop button is shown in the notification area. The screen also does not turn off automatically during a broadcast.</item>
         <item>To show the broadcast indicator, the application requests permission to display notifications (Android 13 and newer).</item>
