@@ -35,9 +35,9 @@
 | `DeviceManager` | `:feature:capture` | реестр видео/аудио-источников, приоритет UVC → задняя → фронт → None |
 | `CodecScanner` | `:feature:codec` | скан MediaCodecList → `DeviceProfile` (HW/SW кодеки устройства) |
 | `RtmpStreamer` | `:feature:streaming` | RootEncoder `RtmpStream` + кастомные источники; RTMP + запись в файл |
-| `CompositorVideoSource` | `:feature:streaming/gl` | **ЕДИНСТВЕННЫЙ** базовый VideoSource (Phase 3): наш GL-композитор рисует ВСЮ сцену (чёрная база + слои) в кадр энкодера/превью; глобальный поворот холста 0/90/180/270 (interview_006) |
-| `Scene` / `Layer` / `LayerTransform` | `:feature:streaming/scene` | доменная модель сцены «мобильный OBS»: упорядоченные слои (z-order), трансформа слоя = позиция/масштаб/альфа/поворот содержимого |
-| `CameraOpener`-семейство | `:app/streaming` | `UvcCameraOpener` (AUSBC), `DeviceCameraOpener` (Camera2), `VirtualCameraOpener` (тест-паттерн) — открывают продюсера в SurfaceTexture слоя-камеры; отдают СЫРОЙ 16:9 поток без поворотов |
+| `CompositorVideoSource` | `:feature:streaming/gl` | **ЕДИНСТВЕННЫЙ** базовый VideoSource (Phase 3): наш GL-композитор рисует ВСЮ сцену (чёрная база + слои) в кадр энкодера/превью; глобальный поворот холста 0/90/180/270 (interview_006). Мульти-источники: `CameraSlot` per первичный слой (OES/продюсер/снапшот/заглушка); `CompositorLayer.Camera.mirrorOf` — слой-ЗЕРКАЛО рисует слот первичного (шаринг фида, bug 58) |
+| `Scene` / `Layer` / `LayerTransform` | `:feature:streaming/scene` | доменная модель сцены «мобильный OBS»: упорядоченные слои (z-order), трансформа слоя = позиция/масштаб/альфа/поворот содержимого; `Layer.VideoCapture.source` (`CaptureSource`: Uvc/Builtin/Virtual/None) — какой источник питает слой |
+| `CameraOpener`-семейство | `:app/streaming` | `UvcCameraOpener` (AUSBC), `DeviceCameraOpener` (Camera2), `VirtualCameraOpener` (тест-паттерн) — открывают продюсера в SurfaceTexture слоя-камеры; отдают СЫРОЙ 16:9 поток без поворотов. `sourceKey` (физ-ключ устройства) — RtmpStreamer группирует слои: один источник = один open, остальные слои зеркалят (`openedLayers`/`cameraLayerMirrors`; закрывает только владелец, EXP-0019) |
 | `Egl`/`GlQuadRenderer` | `:feature:streaming/gl` | GL-инфраструктура композитора (EGL-контекст, текстурированные квады с матрицами) |
 | `StreamViewModel` | `:feature:streaming/ui` | состояние стрима (`StreamState`), профили, активная платформа |
 | `ProfilesRepository` | `:data:profiles` | фасад Room DAO + DataStore (StreamProfile CRUD, DeviceProfile, backup/restore) |
