@@ -91,10 +91,11 @@ private fun hitTestLayer(px: Float, py: Float, w: Float, h: Float, rotation: Int
     val left = (w - cW) / 2f; val top = (h - cH) / 2f
     val fx = (px - left) / cW; val fy = (py - top) / cH
     if (fx !in 0f..1f || fy !in 0f..1f) return null
+    // CW-поворот холста (композитор +deg): screen→scene. 90↔270 относительно старого CCW-варианта.
     val (sx, sy) = when (rotation) {
-        90 -> (1f - fy) to fx
+        90 -> fy to (1f - fx)
         180 -> (1f - fx) to (1f - fy)
-        270 -> fy to (1f - fx)
+        270 -> (1f - fy) to fx
         else -> fx to fy
     }
     return layers.asReversed().firstOrNull { l ->
@@ -127,6 +128,7 @@ fun MainScreen(
     val selectedLayerId by streamViewModel.selectedLayerId.collectAsStateWithLifecycle()
     // idea 35 — аспект источника камеры для АДАПТИВНОЙ рамки выделения камера-слоя (картинки — по bitmap).
     val cameraAspect by streamViewModel.cameraAspect.collectAsStateWithLifecycle()
+    val cameraAspects by streamViewModel.cameraAspects.collectAsStateWithLifecycle()  // мульти-источники: аспект per-слой
     // plans/05 S4 — доступные источники для пикера в панели «Слои» (все встроенные + UVC + виртуалка).
     val availableSources by deviceManager.availableSources.collectAsStateWithLifecycle()
 
@@ -294,9 +296,9 @@ fun MainScreen(
                             // S4 — экранный pan → координаты НЕПОВЁРНУТОЙ сцены (двухпроходный FBO;
                             // знаки подтверждены live-свайпом, учтён Y-флип текстур прохода 2).
                             val (dCx, dCy) = when (gestureRotation) {
-                                90 -> -fy to fx
+                                90 -> fy to -fx
                                 180 -> -fx to -fy
-                                270 -> fy to -fx
+                                270 -> -fy to fx
                                 else -> fx to fy
                             }
                             // ПИВОТ (центроид пальцев) экран→scene (как хиттест S5) — чтобы масштаб/поворот
@@ -304,9 +306,9 @@ fun MainScreen(
                             val gfx = ((centroid.x - left) / contentW).coerceIn(0f, 1f)
                             val gfy = ((centroid.y - top) / contentH).coerceIn(0f, 1f)
                             val (pvx, pvy) = when (gestureRotation) {
-                                90 -> (1f - gfy) to gfx
+                                90 -> gfy to (1f - gfx)
                                 180 -> (1f - gfx) to (1f - gfy)
-                                270 -> gfy to (1f - gfx)
+                                270 -> (1f - gfy) to gfx
                                 else -> gfx to gfy
                             }
                             // rotation как есть: проверено инъекцией на tear-off сборке — пальцы по
@@ -355,7 +357,9 @@ fun MainScreen(
                 val selAspect = when (sel) {
                     is com.kriniks.kcam.feature.streaming.scene.Layer.Image ->
                         if (sel.bitmap.height > 0) sel.bitmap.width.toFloat() / sel.bitmap.height else 16f / 9f
-                    else -> cameraAspect
+                    // Мульти-источники: аспект ИМЕННО этого слоя-камеры (не глобальный — иначе рамка UVC
+                    // берёт аспект селфи). Фолбэк на глобальный/16:9, пока опенер слоя не сообщил свой.
+                    else -> cameraAspects[sel.id] ?: cameraAspect
                 }
                 val aFit = selAspect / (16f / 9f)
                 val halfW = if (aFit <= 1f) sel.transform.scale * aFit / 2f else sel.transform.scale / 2f
@@ -403,9 +407,9 @@ fun MainScreen(
                     // scene → доля экранного контента (обратно к S5-развороту точки), затем → пиксели.
                     fun toScreen(sx: Float, sy: Float): Offset {
                         val (fx, fy) = when (gestureRotation) {
-                            90 -> sy to (1f - sx)
+                            90 -> (1f - sy) to sx
                             180 -> (1f - sx) to (1f - sy)
-                            270 -> (1f - sy) to sx
+                            270 -> sy to (1f - sx)
                             else -> sx to sy
                         }
                         return Offset(left + fx * cW, top + fy * cH)

@@ -309,13 +309,21 @@ class StreamViewModel @Inject constructor(
 
     /** bug 32 — аспект источника слоя [layerId] (ширина/высота); зовёт опенер, чтобы не растягивать. */
     fun setCameraAspect(layerId: String, aspect: Float) {
-        if (aspect > 0f) _cameraAspect.value = aspect   // idea 35 — для адаптивной рамки/снапа камера-слоя
+        if (aspect > 0f) {
+            _cameraAspect.value = aspect   // idea 35 — глобальный (совместимость)
+            // Мульти-источники: аспект PER-СЛОЙ (рамка выделения UVC-слоя не должна брать аспект селфи).
+            _cameraAspects.value = _cameraAspects.value.toMutableMap().apply { put(layerId, aspect) }
+        }
         repository.setCameraAspect(layerId, aspect)
     }
 
     // idea 35 — аспект текущего источника камеры, наблюдаемый UI (адаптивная рамка выделения камера-слоя).
     private val _cameraAspect = MutableStateFlow(16f / 9f)
     val cameraAspect: StateFlow<Float> = _cameraAspect.asStateFlow()
+
+    // Мульти-источники: аспект КАЖДОГО слоя-камеры по id (для рамки выделения per-слой).
+    private val _cameraAspects = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val cameraAspects: StateFlow<Map<String, Float>> = _cameraAspects.asStateFlow()
 
     // idea 35 — аспект (ширина/высота) слоя: картинка = аспект bitmap, камера = аспект источника.
     private fun layerAspect(layer: com.kriniks.kcam.feature.streaming.scene.Layer): Float = when (layer) {
