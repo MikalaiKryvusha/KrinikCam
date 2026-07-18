@@ -187,6 +187,10 @@ class RtmpStreamer @Inject constructor(
     // null = слой ПЕРВИЧНЫЙ, держит своего продюсера). Обновляются в setCameraOpener/applySceneLayers.
     private val layerSourceKeys = HashMap<String, String>()
     private val cameraLayerMirrors = HashMap<String, String?>()
+    // bug 58/UVC-шаринг — layerId, чей опенер РЕАЛЬНО открыл продюсера (owns). Закрывать (opener.close())
+    // разрешаем ТОЛЬКО их: опенер ЗЕРКАЛА продюсера не открывал, а для UVC он делит ФИЗ-объект камеры с
+    // первичным — его close() убил бы первичного (гас весь фид). Так гасим только настоящего владельца.
+    private val openedLayers = HashSet<String>()
 
     /** bug 32 — опенер слоя [layerId] сообщает аспект источника; композитор рисует камеру без растяга. */
     fun setCameraAspect(layerId: String, aspect: Float) = compositorSource.setCameraAspect(layerId, aspect)
@@ -212,8 +216,10 @@ class RtmpStreamer @Inject constructor(
         // plans/sourses_timeout — заморозка/разморозка последнего кадра ЭТОГО слоя при удалении/возврате источника.
         if (opener == null) compositorSource.enterCameraStandby(layerId) else compositorSource.exitCameraStandby(layerId)
         scope.launch {
-            // Закрываем старого продюсера этого слоя перед открытием нового (иначе «побеждает» старый).
-            runCatching { old?.close() }
+            // Закрываем СТАРОГО продюсера этого слоя, ТОЛЬКО если он был реально ОТКРЫТ (owned): опенер
+            // зеркала продюсера не открывал, а для UVC делит ФИЗ-объект с первичным → его close() убил бы
+            // первичного. Гасим только настоящего владельца (openedLayers).
+            if (openedLayers.remove(layerId)) runCatching { old?.close() }
             // Открываем ТОЛЬКО если слой ПЕРВИЧНЫЙ (не зеркало): зеркало своего продюсера не держит — его
             // слот рисует первичный (шаринг). Первичный слот открывается ещё и по колбэку onCameraSurfaceReady
             // (создание слота композитором); здесь — для СМЕНЫ источника на уже существующем слоте (без нового колбэка).
@@ -225,9 +231,9 @@ class RtmpStreamer @Inject constructor(
                 val reopen = lastOpenedKinds[layerId] != null
                 lastOpenedKinds[layerId] = kind
                 if (reopen) {
-                    compositorSource.recreateCameraSurface(layerId) // reopen из onCameraSurfaceReady
+                    compositorSource.recreateCameraSurface(layerId) // reopen из onCameraSurfaceReady (там пометим owned)
                 } else {
-                    cameraLayerSurfaces[layerId]?.let { opener.open(it) }
+                    cameraLayerSurfaces[layerId]?.let { openedLayers.add(layerId); opener.open(it) }
                 }
             }
         }
@@ -237,7 +243,14 @@ class RtmpStreamer @Inject constructor(
     private fun onCameraLayerSurfaceReady(layerId: String, st: SurfaceTexture?) {
         if (st != null) cameraLayerSurfaces[layerId] = st else cameraLayerSurfaces.remove(layerId)
         val opener = cameraOpeners[layerId] ?: return
-        scope.launch { if (st != null) opener.open(st) else opener.close() }
+        // Зеркало продюсера не держит — его опенер НЕ открываем и НЕ закрываем (для UVC он делит ФИЗ-объект
+        // с первичным; close() зеркала при переходе первичный→зеркало убил бы первичного — фид гас). Слот
+        // зеркала композитор и так удаляет; сюда с null приходит именно этот случай.
+        if (cameraLayerMirrors[layerId] != null) return
+        scope.launch {
+            if (st != null) { openedLayers.add(layerId); opener.open(st) }
+            else if (openedLayers.remove(layerId)) opener.close()
+        }
     }
 
     // Гарантировать, что базой энкодера выставлен композитор (единственный режим, Phase 3).
