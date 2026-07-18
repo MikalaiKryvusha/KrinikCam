@@ -162,8 +162,12 @@ function main() {
   const check = (ok, label) => { results.push({ ok, label }); return ok; };
 
   check(width === expW && height === expH, `размер кадра ${width}×${height} == ожидаемый ${expW}×${expH} (поворот ${ROTATION}°)`);
-  const minFrames = Math.floor(DURATION * 30 * 0.5);
-  check(frames >= minFrames, `кадров ${frames} ≥ порог ${minFrames} (энкодер получал кадры)`);
+  // Idea 28 — `--min-fps N` (дефолт 15 = половина от 30fps): на ЭМУЛЯТОРЕ софт-GPU рендерит ~4-5
+  // fps — там смоук проверяет ФУНКЦИОНАЛЬНУЮ корректность пайплайна, не перфоманс (порог задаёт
+  // вызывающий, см. tools/avd.mjs). На физическом девайсе дефолт остаётся строгим.
+  const minFps = parseInt(val('--min-fps', '15'), 10);
+  const minFrames = Math.floor(DURATION * minFps);
+  check(frames >= minFrames, `кадров ${frames} ≥ порог ${minFrames} (${minFps} fps × ${DURATION}с)`);
 
   // WARN на вероятно-чёрный (камера не кормит): для ~6с 1080p контент > ~300 КБ, чёрное < ~150 КБ.
   const perSec = bytes / Math.max(DURATION, 1);

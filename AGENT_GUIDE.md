@@ -305,6 +305,7 @@ git push origin main # дальше пушит без интерактива, т
 | `node tools/adb.mjs screen` | скриншот → `tools/screenshots/adb_screen.jpg` (тоже JPEG q80, через `sharp`) |
 | `node tools/adb.mjs tap <x> <y>` | тап по координатам (устарело — используй ui.mjs tap) |
 | `node tools/adb.mjs logcat [tag] [lines]` | дамп logcat с устройства |
+| `node tools/avd.mjs create\|start\|stop\|status\|smoke` | **эмулятор как тест-девайс (Idea 28)**: планшет недоступен → headless AVD (Pixel_7_Pro_Android_15; KCAM_AVD=<имя> для другого) + smoke на нём (функциональный порог --min-fps 3; софт-GPU медленный). Харнес: `ADB_DEVICE=emulator-5554 node tools/ui.mjs …` |
 | `node tools/adb.mjs install` | установить debug APK |
 | `node tools/adb.mjs start` | запустить MainActivity |
 | `node tools/adb.mjs stop` | force-stop приложения |
