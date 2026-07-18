@@ -312,13 +312,20 @@ class CompositorVideoSource : VideoSource() {
      * физическим переворотом холста на 180. Поворот аспект-корректный (сцена 16:9) — как у layer.rotation.
      * Кадр камеры/снапшот крутится с холстом как видео (finalM); контр-поворот — ТОЛЬКО у текста заглушки.
      */
-    private fun buildStandbyMatrix() {
+    private fun buildStandbyMatrix(cx: Float, cy: Float) {
         val counter = if (canvasRotation == 90 || canvasRotation == 270) 90 else 0
         if (counter == 0) { System.arraycopy(finalM, 0, standbyM, 0, 16); return }
+        // Контр-поворот вокруг ЦЕНТРА СЛОЯ (а не сцены): T(P)·[S(1/a)·R·S(a)]·T(-P)·finalM, P — центр
+        // слоя в clip. Иначе (rotate вокруг origin) у PiP-слоя смещается позиция заглушки и инвертируется
+        // направление её перетаскивания относительно рамки/видео (Криник: заглушка едет не за пальцем).
+        val px = 2f * cx - 1f
+        val py = 1f - 2f * cy
         android.opengl.Matrix.setIdentityM(standbyM, 0)
+        android.opengl.Matrix.translateM(standbyM, 0, px, py, 0f)
         android.opengl.Matrix.scaleM(standbyM, 0, 1f / SCENE_ASPECT, 1f, 1f)
         android.opengl.Matrix.rotateM(standbyM, 0, counter.toFloat(), 0f, 0f, 1f)
         android.opengl.Matrix.scaleM(standbyM, 0, SCENE_ASPECT, 1f, 1f)
+        android.opengl.Matrix.translateM(standbyM, 0, -px, -py, 0f)
         android.opengl.Matrix.multiplyMM(standbyM, 0, standbyM, 0, finalM, 0)
     }
 
@@ -530,7 +537,7 @@ class CompositorVideoSource : VideoSource() {
                         // вертикально правильным и в портрете. Заголовок пульсирует альфой (per-слой standbyPulse).
                         val sa = slot?.standbyAlpha ?: 0f
                         if (sa > 0.001f) {
-                            buildStandbyMatrix()
+                            buildStandbyMatrix(layer.cx, layer.cy)
                             val base = sa * layer.alpha
                             if (standbyBodyTex != 0)
                                 r.draw(standbyBodyTex, oes = false, posMatrix = standbyM, alpha = base)

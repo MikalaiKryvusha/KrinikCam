@@ -85,10 +85,11 @@ fun StreamLayersOverlay(
     // plans/03 S1 — выбор слоя для жестов: id выбранного (null = ничего) и колбэк тапа по строке.
     selectedLayerId: String? = null,
     onSelect: (String) -> Unit = {},
-    // plans/05 S4 — выбор источника камера-слоя: доступные источники, текущий id, колбэк выбора.
+    // Мульти-источники: выбор источника PER-СЛОЙ. currentSourceIdOf(слой) — текущий источник ЭТОГО слоя
+    // (для подсветки/подписи); onSelectSource(layerId, sourceId) — назначить источник ИМЕННО этому слою.
     sourceOptions: List<SourceOption> = emptyList(),
-    currentSourceId: String? = null,
-    onSelectSource: (String) -> Unit = {},
+    currentSourceIdOf: (Layer) -> String? = { null },
+    onSelectSource: (layerId: String, sourceId: String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -162,7 +163,7 @@ fun StreamLayersOverlay(
                 // Вторая строка-подпись: КРАТКО что настроено в слое (указание Криника). Для камера-слоя
                 // — текущий выбранный источник (напр. «2K USB Camera»), чтобы с ходу понимать содержимое.
                 val subtitle = if (layer is Layer.VideoCapture)
-                    sourceOptions.firstOrNull { it.id == currentSourceId }?.label else null
+                    sourceOptions.firstOrNull { it.id == currentSourceIdOf(layer) }?.label else null
                 LayerItem(
                     layer = layer,
                     subtitle = subtitle,
@@ -246,8 +247,8 @@ fun StreamLayersOverlay(
                 layer = layer,
                 onDismiss = { settingsFor = null },
                 sourceOptions = sourceOptions,
-                currentSourceId = currentSourceId,
-                onSelectSource = onSelectSource,
+                currentSourceId = currentSourceIdOf(layer),          // текущий источник ИМЕННО этого слоя
+                onSelectSource = { optId -> onSelectSource(layer.id, optId) },  // назначить этому слою
             )
         }
     }

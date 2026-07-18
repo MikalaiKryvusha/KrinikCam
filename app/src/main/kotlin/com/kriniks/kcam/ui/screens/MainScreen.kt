@@ -609,11 +609,38 @@ fun MainScreen(
                     if (it.id == "virtual") stringResource(R.string.source_virtual) else it.displayName,
                 )
             } + SourceOption("none", stringResource(R.string.source_none)),
-            currentSourceId = activeSource.id,
-            onSelectSource = { id ->
-                val src = availableSources.firstOrNull { it.id == id }
-                    ?: com.kriniks.kcam.feature.capture.model.VideoSource.None
-                deviceManager.selectVideoSource(src)
+            // Мульти-источники: подсветка источника PER-СЛОЙ. Дефолтная 'camera' — по глобальному
+            // activeSource (гибрид, backward-compat); доп. слои — по их CaptureSource из сцены.
+            currentSourceIdOf = { layer ->
+                if (layer.id == "camera") activeSource.id
+                else when (val cs = (layer as? com.kriniks.kcam.feature.streaming.scene.Layer.VideoCapture)?.source) {
+                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Uvc -> cs.deviceId
+                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin ->
+                        availableSources.filterIsInstance<com.kriniks.kcam.feature.capture.model.VideoSource.PhoneCamera>()
+                            .firstOrNull { it.cameraId == cs.cameraId }?.id
+                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Virtual -> "virtual"
+                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.None -> "none"
+                    else -> null
+                }
+            },
+            // Выбор источника ИМЕННО этому слою. 'camera' → глобальный (гибрид); доп. слои → CaptureSource слоя.
+            onSelectSource = { layerId, optId ->
+                if (layerId == "camera") {
+                    val src = availableSources.firstOrNull { it.id == optId }
+                        ?: com.kriniks.kcam.feature.capture.model.VideoSource.None
+                    deviceManager.selectVideoSource(src)
+                } else {
+                    val cs = when (val vs = availableSources.firstOrNull { it.id == optId }) {
+                        is com.kriniks.kcam.feature.capture.model.VideoSource.UvcCamera ->
+                            com.kriniks.kcam.feature.streaming.scene.CaptureSource.Uvc(vs.id, vs.displayName)
+                        is com.kriniks.kcam.feature.capture.model.VideoSource.PhoneCamera ->
+                            com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin(vs.cameraId, vs.displayName)
+                        is com.kriniks.kcam.feature.capture.model.VideoSource.Virtual ->
+                            com.kriniks.kcam.feature.streaming.scene.CaptureSource.Virtual
+                        else -> com.kriniks.kcam.feature.streaming.scene.CaptureSource.None
+                    }
+                    streamViewModel.setCameraLayerSource(layerId, cs)
+                }
             },
         )
     }
