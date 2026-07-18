@@ -148,7 +148,11 @@ fun StreamLayersOverlay(
                 .align(Alignment.BottomStart)
                 // отступ снизу оставляет место для самого FAB «Слои» (внизу-слева).
                 .padding(start = 12.dp, end = 12.dp, bottom = 84.dp, top = 40.dp)
-                .widthIn(min = 200.dp, max = 340.dp)
+                // Ширина ПО КОНТЕНТУ (Криник: не растягивать сверх нужного): IntrinsicSize.Max = ширина
+                // самого широкого ряда (имя типа слоя / ряд кнопок), с потолком 340dp. Ряды fillMaxWidth
+                // выравниваются по ней. Раньше widthIn(min=200) + fillMaxWidth заставляли брать МАКСИМУМ.
+                .width(IntrinsicSize.Max)
+                .widthIn(max = 340.dp)
                 .heightIn(max = 560.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
