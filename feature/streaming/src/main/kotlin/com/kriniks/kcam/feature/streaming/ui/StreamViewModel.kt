@@ -291,18 +291,26 @@ class StreamViewModel @Inject constructor(
         KLog.d(TAG, "Preview size changed → ${w}x$h")
     }
 
-    /** Phase 3 — задать/снять источник камеры-слоя (USB/встроенная/виртуальная); null = отключена. */
-    fun setCameraOpener(opener: com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer.CameraOpener?) {
-        repository.setCameraOpener(opener)
-        KLog.d(TAG, "CameraOpener set: ${opener != null}")
+    /** Мульти-источники: задать/снять продюсера КОНКРЕТНОГО слоя-камеры [layerId]; null = источника нет. */
+    fun setCameraOpener(layerId: String, opener: com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer.CameraOpener?) {
+        repository.setCameraOpener(layerId, opener)
+        KLog.d(TAG, "CameraOpener[$layerId] set: ${opener != null}")
     }
+
+    /** Мульти-источники: задать источник (CaptureSource) слоя [layerId] в сцене. */
+    fun setCameraLayerSource(layerId: String, source: com.kriniks.kcam.feature.streaming.scene.CaptureSource) =
+        repository.setCameraLayerSource(layerId, source)
+
+    /** bug 19 — ориентация сенсора источника слоя [layerId] (+ зеркало) для выпрямления в композиторе. */
+    fun setCameraOrientation(layerId: String, degrees: Int, mirror: Boolean) =
+        repository.setCameraOrientation(layerId, degrees, mirror)
 
     fun stopPreview() = repository.stopPreview()
 
-    /** bug 32 — аспект текущего источника камеры (ширина/высота); зовёт опенер, чтобы не растягивать. */
-    fun setCameraAspect(aspect: Float) {
+    /** bug 32 — аспект источника слоя [layerId] (ширина/высота); зовёт опенер, чтобы не растягивать. */
+    fun setCameraAspect(layerId: String, aspect: Float) {
         if (aspect > 0f) _cameraAspect.value = aspect   // idea 35 — для адаптивной рамки/снапа камера-слоя
-        repository.setCameraAspect(aspect)
+        repository.setCameraAspect(layerId, aspect)
     }
 
     // idea 35 — аспект текущего источника камеры, наблюдаемый UI (адаптивная рамка выделения камера-слоя).
@@ -315,9 +323,6 @@ class StreamViewModel @Inject constructor(
             if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else 16f / 9f
         else -> _cameraAspect.value
     }
-
-    /** bug 19 — ориентация сенсора камеры (+ зеркало фронталки); композитор выпрямляет кадр. */
-    fun setCameraOrientation(degrees: Int, mirror: Boolean) = repository.setCameraOrientation(degrees, mirror)
 
     fun startStream() {
         // plans/07 S2/S4 — МУЛЬТИСТРИМ: стримим на ВСЕ включённые (isEnabled) платформы разом. Каждая

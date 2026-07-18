@@ -243,43 +243,20 @@ class CompositorVideoSource : VideoSource() {
     // Слоты камер по id слоя (мульти-источники). Живут строго на GL-потоке (создание/удаление/рендер).
     private val cameraSlots = LinkedHashMap<String, CameraSlot>()
 
-    // bug 32 / указание Криника — АСПЕКТ камеры-источника (ширина/высота). Камеру рисуем в её РОДНОМ
-    // аспекте, без искажения: если он ≠ аспекту сцены (16:9), вписываем камеру-квад с полосами
-    // (пилларбокс/леттербокс). UVC 16:9 → 16/9 → без изменений. Ставит опенер через setCameraAspect.
-    @Volatile private var cameraAspect = SCENE_ASPECT
-
-    /** bug 32 — сообщить аспект текущего источника камеры (ширина/высота). Опенер зовёт при open(). */
-    fun setCameraAspect(aspect: Float) {
-        if (aspect > 0f) cameraAspect = aspect
+    /** bug 32 — аспект источника КОНКРЕТНОГО слоя-камеры [layerId] (ширина/высота). Опенер зовёт при open(). */
+    fun setCameraAspect(layerId: String, aspect: Float) {
+        if (aspect > 0f) handler?.post { cameraSlots[layerId]?.aspect = aspect }
     }
 
-    // bug 19 (Криник: «камеру вращаем сами» → композитор знает ориентацию сенсора) — базовый поворот
-    // КОНТЕНТА камеры до вертикали + зеркало фронталки. Встроенные Camera2-камеры отдают буфер в
-    // координатах сенсора (SENSOR_ORIENTATION, у фронталки + зеркало). Приводим к «прямому» виду ЗДЕСЬ,
-    // поворачивая ТЕКСТУРНЫЕ координаты OES вокруг центра (0.5,0.5). UVC/виртуалка: deg=0, mirror=false.
-    @Volatile private var cameraSensorRotation = 0
-    @Volatile private var cameraMirror = false
-
-    /** bug 19 — ориентация сенсора камеры-источника (CW, чтобы выпрямить) + зеркало (фронталка). */
-    fun setCameraOrientation(degrees: Int, mirror: Boolean) {
-        cameraSensorRotation = ((degrees % 360) + 360) % 360
-        cameraMirror = mirror
-        KLog.i(TAG, "cameraSensorRotation=$cameraSensorRotation° mirror=$mirror")
-    }
-
-    // Эффективная tex-матрица камеры = базовая (от SurfaceTexture) с поворотом на sensorRotation и
-    // зеркалом вокруг центра texcoord (0.5,0.5). Пересобирается на GL-потоке каждый кадр.
-    private val cameraDrawTexMatrix = FloatArray(16)
-    private val texRot = FloatArray(16)
-    private fun buildCameraDrawTexMatrix() {
-        android.opengl.Matrix.setIdentityM(texRot, 0)
-        android.opengl.Matrix.translateM(texRot, 0, 0.5f, 0.5f, 0f)
-        if (cameraSensorRotation != 0)
-            android.opengl.Matrix.rotateM(texRot, 0, cameraSensorRotation.toFloat(), 0f, 0f, 1f)
-        if (cameraMirror) android.opengl.Matrix.scaleM(texRot, 0, -1f, 1f, 1f)
-        android.opengl.Matrix.translateM(texRot, 0, -0.5f, -0.5f, 0f)
-        // Сначала базовая tex-матрица SurfaceTexture, затем наш поворот/зеркало вокруг центра.
-        android.opengl.Matrix.multiplyMM(cameraDrawTexMatrix, 0, cameraTexMatrix, 0, texRot, 0)
+    /** bug 19 — ориентация сенсора + зеркало КОНКРЕТНОГО слоя-камеры [layerId] (опенер при open). */
+    fun setCameraOrientation(layerId: String, degrees: Int, mirror: Boolean) {
+        handler?.post {
+            cameraSlots[layerId]?.let {
+                it.sensorRotation = ((degrees % 360) + 360) % 360
+                it.mirror = mirror
+            }
+        }
+        KLog.i(TAG, "cameraSlot[$layerId] sensor=$degrees° mirror=$mirror")
     }
 
     /** Задать глобальный поворот холста (0/90/180/270, CW). Применяется со следующего кадра. */
@@ -345,67 +322,27 @@ class CompositorVideoSource : VideoSource() {
         android.opengl.Matrix.multiplyMM(standbyM, 0, standbyM, 0, finalM, 0)
     }
 
-    // ── Слой-камера (OES) ────────────────────────────────────────────────────
-    // Компоновщик САМ создаёт OES-текстуру + SurfaceTexture; в неё пишет камера-продюсер (Camera2/USB/
-    // виртуалка) через CameraOpener. Каждый кадр: updateTexImage + рисуем OES-квад на позиции слоя камеры.
-    private var cameraOesTex = 0
-    private var cameraSurfaceTexture: SurfaceTexture? = null
-    @Volatile private var newCameraFrame = false
-    private val cameraTexMatrix = FloatArray(16)
-
-    // ── Пинг-понг снапшот кадра камеры (требования Криника а/б/в — стрим-заглушка без косяков) ──────────
-    // Держим ДВА последних кадра камеры в 2D-текстурах и меняем read↔write на каждый живой кадр так, что
-    // READ = ПРЕДПОСЛЕДНИЙ кадр. Слой-камеры ВСЕГДА рисует READ-снапшот (не сырой OES):
-    //   • живое — кадр с лагом в 1 фрейм (незаметно);
-    //   • отвал вебки (б) — держим ХОРОШИЙ кадр; битый/чёрный ПОСЛЕДНИЙ кадр закрытия всегда попадает в
-    //     WRITE и на экран НЕ выходит (показываем предпоследний хороший);
-    //   • реконнект ≤3с (а) — во время прогрева новой (чёрной) OES показываем снапшот, не чёрную склейку;
-    //   • выход из заглушки (в) — снапшот обновляется ПЕРВЫМ свежим кадром вебки ДО того, как заглушка
-    //     погаснет, поэтому заглушка фейдит именно в свежий поток, а не в старый кадр буфера.
-    private var freezeFbo = 0
-    private var freezeReadTex = 0
-    private var freezeWriteTex = 0
-    private var hasSnapshot = false
+    // Матрица без флипа для рисования снапшота-камеры (2D FBO-текстура read) — как sceneTex. Глобальна.
     private val snapIdentity = FloatArray(16).also { android.opengl.Matrix.setIdentityM(it, 0) }
 
-    // ── Заглушка слоя-камеры «нет сигнала» (plans/sourses_timeout) ───────────────────────────────
-    // Рисуется ВНУТРИ квадрата слоя-камеры (двигается/масштабируется со слоем, попадает в эфир/запись),
-    // когда у камеры нет свежих кадров. Логика по СВЕЖЕСТИ КАДРОВ (source-агностично, без плюмбинга сцены):
-    //   • НИКОГДА не было кадра → заглушка сразу (холодный старт без камеры / явный «Нет источника»);
-    //   • кадры были и пропали (hot-detach UVC) → держим последний кадр STANDBY_HOLD_MS (бесшовно, если
-    //     камера вернулась быстро — зритель заглушку не увидит), затем плавно фейдим заглушку;
-    //   • кадры вернулись → плавно фейдим заглушку обратно к живому видео.
-    // Всё — плавным STANDBY_FADE_MS. Битмап задаёт RtmpStreamer через setStandbyBitmap (StandbyImage).
-    // Два текстур-слоя заглушки: ЗАГОЛОВОК (пульсирует альфой — Криник) + ПОДПИСЬ (статична).
+    // ── Заглушка «нет сигнала» — ОБЩИЙ бренд-битмап для ВСЕХ слоёв-камер (текстуры глобальные; альфа/пульс
+    // per-слой в CameraSlot). Рисуется ВНУТРИ квадрата каждого слоя, когда у ЕГО камеры нет свежих кадров.
+    // Два текстур-слоя: ЗАГОЛОВОК (пульсирует альфой — Криник) + ПОДПИСЬ (статична). plans/sourses_timeout.
     @Volatile private var standbyTitleBitmap: Bitmap? = null
     @Volatile private var standbyBodyBitmap: Bitmap? = null
     private var standbyTitleTex = 0
     private var standbyBodyTex = 0
-    private var lastCameraFrameAtMs = 0L     // elapsedRealtime последнего забранного кадра камеры
-    private var hasEverHadFrame = false      // был ли ХОТЬ ОДИН кадр (иначе — заглушка сразу, без hold)
-    private var standbyAlpha = 0f            // текущая (сглаженная) прозрачность заглушки 0..1
-    private var standbyPulse = 1f            // множитель альфы заголовка (пульс «дыхания») 0.55..1.0
-    private var lastFadeClockMs = 0L         // для dt фейда, независимого от джиттера рендер-цикла
 
-    // Заморозка кадра при УДАЛЕНИИ источника (Криник: «держать последний кадр, а не черноту»). Плавное
-    // закрытие продюсера (select None / смена источника) при closeCamera ПУШИТ чёрный кадр в OES — если
-    // его забрать, «замёрзнет» чернота. Поэтому при удалении источника приложение зовёт enterCameraStandby:
-    // перестаём ЗАБИРАТЬ кадры (updateTexImage) → OES держит ПОСЛЕДНИЙ ХОРОШИЙ кадр, а чёрный кадр
-    // закрытия остаётся в очереди непрочитанным. exitCameraStandby (источник вернулся) — снова забираем.
-    @Volatile private var cameraFrozen = false
-
-    /** Источник камеры-слоя удалён — заморозить OES на последнем хорошем кадре (не забирать чёрный кадр закрытия). */
-    fun enterCameraStandby() {
-        handler?.post { cameraFrozen = true } ?: run { cameraFrozen = true }
-        KLog.i(TAG, "enterCameraStandby — держим последний кадр слоя-камеры (plans/sourses_timeout)")
+    /** Источник слоя [layerId] удалён — заморозить его OES на последнем хорошем кадре (Криник: держать кадр). */
+    fun enterCameraStandby(layerId: String) {
+        handler?.post { cameraSlots[layerId]?.frozen = true }
+        KLog.i(TAG, "enterCameraStandby[$layerId] — держим последний кадр слоя")
     }
 
-    /** Источник камеры-слоя вернулся — снова забираем кадры (заглушка плавно уйдёт по свежести). */
-    fun exitCameraStandby() {
-        // Сбрасываем флаг «есть новый кадр»: в очереди мог остаться непрочитанный чёрный кадр закрытия —
-        // не забираем его, ждём первый ЖИВОЙ кадр нового продюсера (иначе мелькнёт чернота при возврате).
-        handler?.post { cameraFrozen = false; newCameraFrame = false } ?: run { cameraFrozen = false }
-        KLog.i(TAG, "exitCameraStandby — возобновляем живые кадры слоя-камеры")
+    /** Источник слоя [layerId] вернулся — снова забираем кадры (сбрасываем stale-кадр, ждём живой). */
+    fun exitCameraStandby(layerId: String) {
+        handler?.post { cameraSlots[layerId]?.let { it.frozen = false; it.newFrame = false } }
+        KLog.i(TAG, "exitCameraStandby[$layerId] — возобновляем живые кадры слоя")
     }
 
     /** plans/sourses_timeout — задать битмапы заглушки: [title] пульсирует, [body] статична. RtmpStreamer при init. */
@@ -421,8 +358,12 @@ class CompositorVideoSource : VideoSource() {
         standbyTitleBitmap?.let { if (standbyTitleTex != 0) r.deleteTexture(standbyTitleTex); standbyTitleTex = r.uploadBitmap(it) }
         standbyBodyBitmap?.let { if (standbyBodyTex != 0) r.deleteTexture(standbyBodyTex); standbyBodyTex = r.uploadBitmap(it) }
     }
-    // Вызывается, когда у слоя-камеры готова/исчезла SurfaceTexture (RtmpStreamer → откроет камеру).
-    @Volatile var onCameraSurfaceReady: ((SurfaceTexture?) -> Unit)? = null
+
+    /**
+     * Вызывается, когда у КОНКРЕТНОГО слоя-камеры [layerId] готова/исчезла SurfaceTexture. RtmpStreamer
+     * откроет продюсера ЭТОГО слоя в эту поверхность (st != null), либо закроет (st == null). Мульти-источники.
+     */
+    @Volatile var onCameraSurfaceReady: ((layerId: String, SurfaceTexture?) -> Unit)? = null
 
     // Idea 17 — отложенный захват фото: callback выполняется на GL-потоке после отрисовки кадра.
     @Volatile private var pendingCapture: ((Bitmap?) -> Unit)? = null
@@ -443,41 +384,51 @@ class CompositorVideoSource : VideoSource() {
      */
     fun setLayers(layers: List<CompositorLayer>) {
         requestedLayers = layers
-        handler?.post { syncTextures() }
+        handler?.post { syncTextures(); syncCameraSlots() }
+    }
+
+    // GL-поток: привести набор CameraSlot к слоям-камерам в requestedLayers. Новый Camera(id) → создать
+    // слот (OES/ST/снапшот) + onCameraSurfaceReady(id, surface) (RtmpStreamer откроет продюсера этого слоя).
+    // Слой-камера ушёл → освободить слот + onCameraSurfaceReady(id, null) (закрыть продюсера). Мульти-источники.
+    private fun syncCameraSlots() {
+        val r = renderer ?: return
+        val wantIds = requestedLayers.filterIsInstance<CompositorLayer.Camera>().map { it.id }.toSet()
+        // Удалить слоты слоёв, которых больше нет.
+        val it = cameraSlots.iterator()
+        while (it.hasNext()) {
+            val (id, slot) = it.next()
+            if (id !in wantIds) {
+                runCatching { onCameraSurfaceReady?.invoke(id, null) } // закрыть продюсера слоя
+                slot.release(r)
+                it.remove()
+            }
+        }
+        // Создать слоты для новых слоёв-камер.
+        for (id in wantIds) {
+            if (cameraSlots[id] == null) {
+                val slot = CameraSlot(id).also { s -> s.initGl(r) }
+                cameraSlots[id] = slot
+                onCameraSurfaceReady?.invoke(id, slot.surfaceTexture) // откроют продюсера в неё
+            }
+        }
     }
 
     /**
-     * Пересоздать OES+SurfaceTexture слоя-камеры для НОВОГО продюсера (чистый BufferQueue).
-     *
-     * Зачем (bug 31 + реконнект): старый продюсер (AUSBC/HWUI/Camera2) при закрытии/отвале оставляет
-     * BufferQueue поверхности в состоянии, из которого новый продюсер НЕ доставляет кадры до консюмера-OES
-     * (превью мёрзло) либо ловится HWUI-краш «no surface». Свежая OES+ST = чистое окно новому продюсеру.
-     *
-     * Бесшовность обеспечивает НЕ эта функция, а пинг-понг СНАПШОТ (см. поля freeze*): слой рисует не
-     * сырой (свежий чёрный) OES, а снапшот с последним хорошим кадром — пока новый продюсер не отдаст
-     * живой кадр (который обновит снапшот). Поэтому свежую чёрную OES можно смело пересоздавать здесь —
-     * на экран она не попадёт. Таймер свежести НЕ трогаем: если показана заглушка, она держится, пока не
-     * придёт первый живой кадр нового потока (тогда снапшот обновится и заглушка фейдит в свежий поток).
-     * Продюсер должен быть уже ЗАКРЫТ вызывающим.
+     * Пересоздать OES+SurfaceTexture КОНКРЕТНОГО слоя-камеры [layerId] для НОВОГО продюсера (чистый
+     * BufferQueue): при закрытии/отвале старый продюсер оставляет очередь поверхности в состоянии, из
+     * которого новый не доставляет кадры (bug 31/реконнект). Бесшовность держит снапшот слота (свежую
+     * чёрную OES на экран не выводим). Продюсер должен быть уже ЗАКРЫТ вызывающим.
      */
-    fun recreateCameraSurface() {
+    fun recreateCameraSurface(layerId: String) {
         val h = handler ?: return
         h.post {
             if (!running) return@post
             val r = renderer ?: return@post
+            val slot = cameraSlots[layerId] ?: return@post
             runCatching { eglSurface?.let { eglCore?.makeCurrent(it) } }
-            runCatching { cameraSurfaceTexture?.setOnFrameAvailableListener(null) }
-            runCatching { cameraSurfaceTexture?.release() }
-            if (cameraOesTex != 0) runCatching { GLES20.glDeleteTextures(1, intArrayOf(cameraOesTex), 0) }
-            cameraOesTex = r.createOesTexture()
-            val camSt = SurfaceTexture(cameraOesTex)
-            camSt.setDefaultBufferSize(SCENE_W, SCENE_H)
-            camSt.setOnFrameAvailableListener { newCameraFrame = true }
-            cameraSurfaceTexture = camSt
-            newCameraFrame = false
-            cameraFrozen = false
-            KLog.d(TAG, "Camera layer OES/SurfaceTexture RECREATED (чистое окно новому продюсеру; снапшот держит кадр)")
-            onCameraSurfaceReady?.invoke(camSt)
+            slot.recreate(r)
+            KLog.d(TAG, "CameraSlot[$layerId] OES/SurfaceTexture RECREATED (чистое окно; снапшот держит кадр)")
+            onCameraSurfaceReady?.invoke(layerId, slot.surfaceTexture)
         }
     }
 
@@ -518,31 +469,13 @@ class CompositorVideoSource : VideoSource() {
             val (fbo, tex) = r.createFramebuffer(SCENE_W, SCENE_H)
             sceneFbo = fbo
             sceneTex = tex
-            // Пинг-понг снапшот кадра камеры: один FBO + две 2D-текстуры (read/write), обе в чёрный.
-            freezeFbo = r.createFramebuffer(SCENE_W, SCENE_H).let { (ffb, ftx) -> freezeReadTex = ftx; ffb }
-            freezeWriteTex = r.createColorTexture(SCENE_W, SCENE_H)
-            hasSnapshot = false
-            for (ftex in intArrayOf(freezeReadTex, freezeWriteTex)) {
-                r.setFramebufferColor(freezeFbo, ftex)
-                GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
-                GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            }
-            // OES-текстура + SurfaceTexture для камеры (создаём в нашем GL-контексте).
-            cameraOesTex = r.createOesTexture()
-            val camSt = SurfaceTexture(cameraOesTex)
-            camSt.setDefaultBufferSize(SCENE_W, SCENE_H)   // НАТИВНЫЙ 16:9-буфер камеры (не зависит от холста)
-            camSt.setOnFrameAvailableListener { newCameraFrame = true }
-            cameraSurfaceTexture = camSt
             syncTextures() // залить уже запрошенные слои-картинки
-            // Заглушка «нет сигнала»: залить текстуру + сбросить таймеры свежести на старте композитора.
-            uploadStandby()
-            lastCameraFrameAtMs = SystemClock.elapsedRealtime()
-            hasEverHadFrame = false
-            standbyAlpha = 0f
-            lastFadeClockMs = 0L
-            cameraFrozen = false
-            // Сообщить наверх, что поверхность камеры готова → откроют камеру в неё (Camera2/USB/вирт).
-            onCameraSurfaceReady?.invoke(camSt)
+            uploadStandby() // залить текстуры бренд-заглушки (общие для всех слоёв)
+            // Мульти-источники: создать CameraSlot для КАЖДОГО текущего слоя-камеры + сообщить наверх, что
+            // его поверхность готова (RtmpStreamer откроет продюсера ЭТОГО слоя). Слоты пересоздаются на
+            // каждом ре-ините GL (превью-рестарт): старые GL-ресурсы уже недействительны.
+            cameraSlots.clear()
+            syncCameraSlots()
         } catch (e: Exception) {
             // Ожидаемо, если start вызван ДО готовности GL RootEncoder (SurfaceTexture ещё невалидна):
             // RootEncoder ретраит changeVideoSource после готовности GL → следующий start пройдёт.
@@ -559,24 +492,6 @@ class CompositorVideoSource : VideoSource() {
         }
     }
 
-    /**
-     * Пинг-понг снапшот текущего кадра камеры (вызывать на GL-потоке после забора кадра + сборки
-     * cameraDrawTexMatrix). Меняем read↔write, затем рисуем текущий OES в write-текстуру. После вызова:
-     * READ = предыдущий кадр (предпоследний), WRITE = текущий. Слой рисует READ — так последний (возможно
-     * битый/чёрный) кадр не выходит на экран (он в write). Ориентация: рисуем OES с cameraDrawTexMatrix во
-     * весь FBO (posMatrix=null), позже слой рисует read-текстуру с snapIdentity+finalM — как sceneTex.
-     */
-    private fun snapshotCameraFrame(r: GlQuadRenderer) {
-        if (cameraOesTex == 0 || freezeFbo == 0) return
-        val tmp = freezeReadTex; freezeReadTex = freezeWriteTex; freezeWriteTex = tmp
-        r.setFramebufferColor(freezeFbo, freezeWriteTex)
-        GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
-        GLES20.glClearColor(0f, 0f, 0f, 1f)
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-        r.draw(cameraOesTex, oes = true, texMatrix = cameraDrawTexMatrix, posMatrix = null, alpha = 1f)
-        hasSnapshot = true
-    }
-
     private fun drawFrame() {
         val core = eglCore ?: return
         val es = eglSurface ?: return
@@ -584,45 +499,10 @@ class CompositorVideoSource : VideoSource() {
         try {
             core.makeCurrent(es)
 
-            // Забрать свежий кадр камеры (даже если слой камеры скрыт — чтобы не копить очередь).
-            val camSt = cameraSurfaceTexture
-            // cameraFrozen: источник удалён софтом — не забираем кадры (держим последний OES/снапшот/таймер).
-            var consumedFrame = false
-            if (camSt != null && newCameraFrame && !cameraFrozen) {
-                runCatching { camSt.updateTexImage(); camSt.getTransformMatrix(cameraTexMatrix) }
-                newCameraFrame = false
-                // Заглушка: отметить приход живого кадра (сбрасывает hold-таймер, снимает «не было кадра»).
-                lastCameraFrameAtMs = SystemClock.elapsedRealtime()
-                hasEverHadFrame = true
-                consumedFrame = true
-            }
-            // bug 19 — собрать эффективную tex-матрицу камеры (базовая + sensor-поворот + зеркало).
-            buildCameraDrawTexMatrix()
-
-            // Пинг-понг снапшот: на КАЖДЫЙ забранный кадр рисуем текущий OES в write-снапшот и меняем
-            // read↔write, так что READ = ПРЕДПОСЛЕДНИЙ кадр. Слой рисует READ → битый/чёрный последний
-            // кадр (напр. teardown при физическом отвале) остаётся в WRITE и на экран не выходит
-            // (требования Криника а/б/в: держим хороший кадр, реконнект без чёрной склейки).
-            if (consumedFrame) snapshotCameraFrame(r)
-
-            // ── Заглушка «нет сигнала»: цель прозрачности по свежести кадров, плавно едем к ней ──────
-            // wantStandby: не было ни одного кадра (сразу) ИЛИ кадров нет дольше HOLD_MS (после hold).
-            // standbyAlpha сглаживаем с шагом dt/FADE_MS — фейд ровно STANDBY_FADE_MS в обе стороны.
-            run {
-                val nowMs = SystemClock.elapsedRealtime()
-                val wantStandby = !hasEverHadFrame || (nowMs - lastCameraFrameAtMs) >= STANDBY_HOLD_MS
-                val target = if (wantStandby) 1f else 0f
-                val dt = if (lastFadeClockMs == 0L) FRAME_MS.toFloat() else (nowMs - lastFadeClockMs).toFloat()
-                lastFadeClockMs = nowMs
-                val step = (dt / STANDBY_FADE_MS).coerceIn(0f, 1f)
-                standbyAlpha =
-                    if (target > standbyAlpha) (standbyAlpha + step).coerceAtMost(target)
-                    else (standbyAlpha - step).coerceAtLeast(target)
-                // Пульс «дыхания» заголовка: синус по времени, альфа STANDBY_PULSE_MIN..1.0 (как старое превью).
-                val phase = (nowMs % STANDBY_PULSE_MS.toLong()) / STANDBY_PULSE_MS
-                val wave = 0.5f + 0.5f * kotlin.math.sin(phase * 2f * Math.PI.toFloat())
-                standbyPulse = STANDBY_PULSE_MIN + (1f - STANDBY_PULSE_MIN) * wave
-            }
+            // Мульти-источники: подготовить КАЖДЫЙ слот-камеру (забрать свежий кадр, снапшот, tex-матрица,
+            // альфа/пульс заглушки) — независимо, ДО прохода 1. Слоты существуют per слой-камеру (по id).
+            val nowMs = SystemClock.elapsedRealtime()
+            for (slot in cameraSlots.values) slot.prepare(r, nowMs)
 
             // ── ПРОХОД 1: сцена в 16:9 FBO (аспект-корректно, БЕЗ поворота холста) ──────────
             // Камера в нативном 16:9-буфере рисуется в 16:9 FBO → не сжимается. Поворот холста здесь
@@ -636,26 +516,26 @@ class CompositorVideoSource : VideoSource() {
                 layerMatrixOf(layer)                           // T·S·PhysRot слоя (в координатах сцены)
                 when (layer) {
                     is CompositorLayer.Camera -> {
-                        // Рисуем СНАПШОТ (read = предпоследний ХОРОШИЙ кадр), а НЕ сырой OES: при отвале
-                        // держим хороший кадр (битый последний — в write, на экран не выходит), при
-                        // реконнекте показываем его же, пока новый поток не обновит снапшот (без чёрной
-                        // склейки). Кадр ГАСНЕТ под заглушкой (frameAlpha=1−standbyAlpha): hold → кадр виден,
-                        // текста нет; после hold → кадр угасает, остаётся только текст (Криник: «заглушка БЕЗ кадра»).
-                        if (hasSnapshot && freezeReadTex != 0) {
-                            val frameAlpha = layer.alpha * (1f - standbyAlpha)
+                        val slot = cameraSlots[layer.id]
+                        // Рисуем СНАПШОТ ЭТОГО слота (read = предпоследний ХОРОШИЙ кадр), а НЕ сырой OES: при
+                        // отвале держим хороший кадр (битый последний — в write, на экран не выходит), при
+                        // реконнекте показываем его же, пока новый поток не обновит снапшот (без чёрной склейки).
+                        // Кадр ГАСНЕТ под заглушкой (frameAlpha=1−standbyAlpha) — заглушка per-слой (свой альфа/пульс).
+                        if (slot != null && slot.hasSnapshot && slot.freezeReadTex != 0) {
+                            val frameAlpha = layer.alpha * (1f - slot.standbyAlpha)
                             if (frameAlpha > 0.001f)
-                                r.draw(freezeReadTex, oes = false, texMatrix = snapIdentity, posMatrix = finalM, alpha = frameAlpha)
+                                r.draw(slot.freezeReadTex, oes = false, texMatrix = snapIdentity, posMatrix = finalM, alpha = frameAlpha)
                         }
-                        // Заглушка (только текст) В КВАДРАТЕ ЭТОГО слоя — двигается/масштабируется со слоем,
-                        // попадает в эфир/запись. КОНТР-поворот (standbyM) держит текст вертикально правильным
-                        // и в портрете (90/270). Подпись — статична; ЗАГОЛОВОК пульсирует альфой (standbyPulse).
-                        if (standbyAlpha > 0.001f) {
+                        // Заглушка (только текст) В КВАДРАТЕ ЭТОГО слоя. КОНТР-поворот (standbyM) держит текст
+                        // вертикально правильным и в портрете. Заголовок пульсирует альфой (per-слой standbyPulse).
+                        val sa = slot?.standbyAlpha ?: 0f
+                        if (sa > 0.001f) {
                             buildStandbyMatrix()
-                            val base = standbyAlpha * layer.alpha
+                            val base = sa * layer.alpha
                             if (standbyBodyTex != 0)
                                 r.draw(standbyBodyTex, oes = false, posMatrix = standbyM, alpha = base)
                             if (standbyTitleTex != 0)
-                                r.draw(standbyTitleTex, oes = false, posMatrix = standbyM, alpha = base * standbyPulse)
+                                r.draw(standbyTitleTex, oes = false, posMatrix = standbyM, alpha = base * (slot?.standbyPulse ?: 1f))
                         }
                     }
                     is CompositorLayer.Image -> {
@@ -760,7 +640,7 @@ class CompositorVideoSource : VideoSource() {
         // в 16:9, ведём родной аспект). Innermost (к вершине первым): сырой квад → аспект-фит →
         // [поворот] → масштаб → сдвиг. 16:9-слой → фактор 1, no-op.
         val layerAspect = when (layer) {
-            is CompositorLayer.Camera -> cameraAspect
+            is CompositorLayer.Camera -> cameraSlots[layer.id]?.aspect ?: SCENE_ASPECT
             is CompositorLayer.Image ->
                 if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else SCENE_ASPECT
         }
@@ -792,8 +672,8 @@ class CompositorVideoSource : VideoSource() {
     override fun stop() {
         running = false
         handler?.removeCallbacksAndMessages(null)
-        // Освобождаем GL на рендер-потоке, затем гасим поток.
-        runCatching { onCameraSurfaceReady?.invoke(null) } // закрыть камеру-продюсер
+        // Освобождаем GL на рендер-потоке, затем гасим поток. Закрыть продюсеров ВСЕХ слоёв-камер.
+        runCatching { cameraSlots.keys.toList().forEach { onCameraSurfaceReady?.invoke(it, null) } }
         handler?.post {
             runCatching { uploaded.forEach { renderer?.deleteTexture(it.second) } }
             uploaded.clear()
@@ -803,15 +683,9 @@ class CompositorVideoSource : VideoSource() {
             runCatching { if (standbyTitleTex != 0) renderer?.deleteTexture(standbyTitleTex) }
             runCatching { if (standbyBodyTex != 0) renderer?.deleteTexture(standbyBodyTex) }
             standbyTitleTex = 0; standbyBodyTex = 0
-            runCatching { cameraSurfaceTexture?.release() }
-            cameraSurfaceTexture = null
-            runCatching { if (cameraOesTex != 0) renderer?.deleteTexture(cameraOesTex) }
-            cameraOesTex = 0
-            // Пинг-понг снапшот: освободить FBO + обе текстуры.
-            runCatching { if (freezeFbo != 0) renderer?.deleteFramebuffer(freezeFbo) }
-            runCatching { if (freezeReadTex != 0) renderer?.deleteTexture(freezeReadTex) }
-            runCatching { if (freezeWriteTex != 0) renderer?.deleteTexture(freezeWriteTex) }
-            freezeFbo = 0; freezeReadTex = 0; freezeWriteTex = 0; hasSnapshot = false
+            // Мульти-источники: освободить ВСЕ слоты камер (OES/ST/снапшот-FBO).
+            runCatching { cameraSlots.values.forEach { it.release(renderer) } }
+            cameraSlots.clear()
             renderer = null
             runCatching { eglSurface?.let { eglCore?.releaseSurface(it) } }
             runCatching { eglCore?.release() }

@@ -143,10 +143,10 @@ class StreamingRepository @Inject constructor(
     }
     fun capturePhoto() = rtmpStreamer.capturePhoto()
 
-    /** bug 32 — аспект источника камеры (ширина/высота) для рендера без растяга. */
-    fun setCameraAspect(aspect: Float) {
+    /** bug 32 — аспект источника КОНКРЕТНОГО слоя-камеры (ширина/высота) для рендера без растяга. */
+    fun setCameraAspect(layerId: String, aspect: Float) {
         if (aspect > 0f) lastCameraAspect = aspect   // idea 35 — кешируем для адаптивного снапа камера-слоя
-        rtmpStreamer.setCameraAspect(aspect)
+        rtmpStreamer.setCameraAspect(layerId, aspect)
     }
 
     // idea 35 — последний известный аспект камеры-источника (для снапа краёв камера-слоя по его размеру).
@@ -159,8 +159,9 @@ class StreamingRepository @Inject constructor(
         else -> lastCameraAspect
     }
 
-    /** bug 19 — ориентация сенсора камеры (+ зеркало фронталки) для выпрямления в композиторе. */
-    fun setCameraOrientation(degrees: Int, mirror: Boolean) = rtmpStreamer.setCameraOrientation(degrees, mirror)
+    /** bug 19 — ориентация сенсора источника КОНКРЕТНОГО слоя (+ зеркало фронталки) для выпрямления. */
+    fun setCameraOrientation(layerId: String, degrees: Int, mirror: Boolean) =
+        rtmpStreamer.setCameraOrientation(layerId, degrees, mirror)
 
     // ── Idea 10 — virtual stream platform (record to file instead of RTMP) ──
     // Dev toggle: when ON, "Go Live" records the encoder output to a file instead of pushing RTMP.
@@ -204,12 +205,16 @@ class StreamingRepository @Inject constructor(
     fun onPreviewSurfaceResized(w: Int, h: Int) = rtmpStreamer.onPreviewSurfaceResized(w, h)
 
     /**
-     * Phase 3 — задать/снять источник камеры-слоя (USB/встроенная/виртуальная); null = камеры нет.
-     * Отрыв камеры ничего не подменяет: композитор продолжает рисовать сцену (стрим/запись живут).
+     * Мульти-источники: задать/снять продюсера КОНКРЕТНОГО слоя-камеры [layerId] (USB/встроенная/вирт);
+     * null = источника нет. Отрыв ничего не подменяет: композитор продолжает рисовать сцену.
      */
-    fun setCameraOpener(opener: RtmpStreamer.CameraOpener?) {
-        rtmpStreamer.setCameraOpener(opener)
+    fun setCameraOpener(layerId: String, opener: RtmpStreamer.CameraOpener?) {
+        rtmpStreamer.setCameraOpener(layerId, opener)
     }
+
+    /** Мульти-источники: задать источник (CaptureSource) слоя «Устройство захвата видео» [layerId] в сцене. */
+    fun setCameraLayerSource(layerId: String, source: com.kriniks.kcam.feature.streaming.scene.CaptureSource) =
+        rtmpStreamer.setCameraLayerSource(layerId, source)
 
     fun stopPreview() {
         rtmpStreamer.stopPreview()

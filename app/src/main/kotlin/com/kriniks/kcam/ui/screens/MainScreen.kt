@@ -179,31 +179,60 @@ fun MainScreen(
     // Раньше «camera != null → UVC» побеждало всегда → нельзя было выбрать встроенную при воткнутой
     // вебке. Теперь opener выбирается ПО activeSource: пользователь ЯВНО задаёт источник камера-слоя
     // (front/rear/UVC/none), без магии приоритета. Для UVC берём AUSBC-объект камеры из usbState.
+    // ДЕФОЛТНЫЙ слой-камера id="camera": источник по глобальному activeSource (backward-compat: select-source,
+    // авто-UVC на старте). ДОПОЛНИТЕЛЬНЫЕ слои-камеры (id != "camera") — по их СОБСТВЕННОМУ источнику из сцены
+    // (см. LaunchedEffect ниже). Так мульти-источники: разные фиды на разных слоях (idea 21 Фаза B).
     LaunchedEffect(activeSource, usbState.activeCamera) {
+        val lid = "camera"
         when (val src = activeSource) {
             is VideoSource.UvcCamera -> {
                 val camera = usbState.activeCamera
                 if (camera != null) {
                     val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
                     val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
-                    streamViewModel.setCameraOpener(UvcCameraOpener(camera, previewWidth = w, previewHeight = h,
-                        onAspect = { streamViewModel.setCameraAspect(it) },
-                        onOrientation = { d, m -> streamViewModel.setCameraOrientation(d, m) }))
+                    streamViewModel.setCameraOpener(lid, UvcCameraOpener(camera, previewWidth = w, previewHeight = h,
+                        onAspect = { streamViewModel.setCameraAspect(lid, it) },
+                        onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) }))
                 } else {
-                    streamViewModel.setCameraOpener(null) // UVC выбрана, но объект камеры ещё не готов
+                    streamViewModel.setCameraOpener(lid, null) // UVC выбрана, но объект камеры ещё не готов
                 }
             }
-            // Idea 09 — виртуальная дебаг-камера (нет физической): кормим слой тест-паттерном.
-            is VideoSource.Virtual -> streamViewModel.setCameraOpener(
-                VirtualCameraOpener(onAspect = { streamViewModel.setCameraAspect(it) },
-                    onOrientation = { d, m -> streamViewModel.setCameraOrientation(d, m) }))
-            // Idea 24 — встроенная камера устройства (Camera2) как слой-источник (реальный GL-продюсер).
-            // bug 32 — сообщаем нативный аспект, чтобы рисовать без растяга.
-            is VideoSource.PhoneCamera -> streamViewModel.setCameraOpener(
-                DeviceCameraOpener(appContext, src.cameraId, onAspect = { streamViewModel.setCameraAspect(it) },
-                    onOrientation = { d, m -> streamViewModel.setCameraOrientation(d, m) }))
-            // Нет источника → снять opener (камера-слой пуст → видна чёрная база/нижние слои).
-            is VideoSource.None -> streamViewModel.setCameraOpener(null)
+            is VideoSource.Virtual -> streamViewModel.setCameraOpener(lid,
+                VirtualCameraOpener(onAspect = { streamViewModel.setCameraAspect(lid, it) },
+                    onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) }))
+            is VideoSource.PhoneCamera -> streamViewModel.setCameraOpener(lid,
+                DeviceCameraOpener(appContext, src.cameraId, onAspect = { streamViewModel.setCameraAspect(lid, it) },
+                    onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) }))
+            is VideoSource.None -> streamViewModel.setCameraOpener(lid, null)
+        }
+    }
+
+    // Мульти-источники (idea 21 Фаза B): ДОПОЛНИТЕЛЬНЫЕ слои-камеры (id != "camera") — свой источник из
+    // свойства слоя (Layer.VideoCapture.source), маппим CaptureSource → opener независимо для каждого.
+    // Для UVC берём AUSBC-объект из usbState (одно физ. устройство). Тест: вебка + фронталка-селфи.
+    val extraCameraLayers = scene.layers.filterIsInstance<com.kriniks.kcam.feature.streaming.scene.Layer.VideoCapture>()
+        .filter { it.id != "camera" }
+    LaunchedEffect(extraCameraLayers.map { it.id to it.source }, usbState.activeCamera) {
+        for (layer in extraCameraLayers) {
+            val lid = layer.id
+            val opener: com.kriniks.kcam.feature.streaming.rtmp.RtmpStreamer.CameraOpener? =
+                when (val cs = layer.source) {
+                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Uvc -> usbState.activeCamera?.let { cam ->
+                        val w = usbState.activeCameraWidth.takeIf { it > 0 } ?: 1920
+                        val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
+                        UvcCameraOpener(cam, previewWidth = w, previewHeight = h,
+                            onAspect = { streamViewModel.setCameraAspect(lid, it) },
+                            onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) })
+                    }
+                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin -> DeviceCameraOpener(
+                        appContext, cs.cameraId, onAspect = { streamViewModel.setCameraAspect(lid, it) },
+                        onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) })
+                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Virtual -> VirtualCameraOpener(
+                        onAspect = { streamViewModel.setCameraAspect(lid, it) },
+                        onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) })
+                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.None -> null
+                }
+            streamViewModel.setCameraOpener(lid, opener)
         }
     }
 

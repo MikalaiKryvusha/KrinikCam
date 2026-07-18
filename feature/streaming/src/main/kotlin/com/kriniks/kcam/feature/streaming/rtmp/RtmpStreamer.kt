@@ -156,9 +156,9 @@ class RtmpStreamer @Inject constructor(
     private val compositorSource = CompositorVideoSource()
 
     init {
-        // Когда композитор готовит OES-поверхность слоя-камеры — открываем туда текущий продюсер
-        // (Camera2/USB/виртуалка через CameraOpener из :app); null = поверхность ушла, закрыть камеру.
-        compositorSource.onCameraSurfaceReady = { st -> onCameraLayerSurfaceReady(st) }
+        // Когда композитор готовит OES-поверхность КОНКРЕТНОГО слоя-камеры (по id) — открываем туда
+        // продюсера ЭТОГО слоя (Camera2/USB/виртуалка через CameraOpener из :app); null = закрыть его.
+        compositorSource.onCameraSurfaceReady = { layerId, st -> onCameraLayerSurfaceReady(layerId, st) }
         // plans/sourses_timeout — бренд-заглушка «нет сигнала» как СОСТОЯНИЕ слоя-камеры: композитор
         // сам рисует её В КВАДРАТЕ слоя, когда у камеры нет свежих кадров (hold→фейд). Не Compose-оверлей.
         // Два слоя: заголовок (пульсирует) + подпись (статична).
@@ -170,62 +170,53 @@ class RtmpStreamer @Inject constructor(
         fun open(surfaceTexture: SurfaceTexture)
         fun close()
     }
-    @Volatile private var cameraOpener: CameraOpener? = null
-    private var cameraLayerSurface: SurfaceTexture? = null
-    // Bug 31 — тип последнего ОТКРЫТОГО продюсера (класс opener). На смене типа пересоздаём поверхность
-    // камеры (чистый BufferQueue). None (opener=null) НЕ трогает это поле → тип помнится через None.
-    private var lastOpenedKind: String? = null
+    // Мульти-источники (idea 21 Фаза B): продюсер/поверхность/тип — PER СЛОЙ-КАМЕРУ (по id слоя).
+    private val cameraOpeners = HashMap<String, CameraOpener>()
+    private val cameraLayerSurfaces = HashMap<String, SurfaceTexture>()
+    // Bug 31 — тип последнего ОТКРЫТОГО продюсера per слой. На реконнекте пересоздаём поверхность слоя.
+    private val lastOpenedKinds = HashMap<String, String>()
 
-    /** bug 32 — опенер сообщает аспект источника (ширина/высота); композитор рисует камеру без растяга. */
-    fun setCameraAspect(aspect: Float) = compositorSource.setCameraAspect(aspect)
+    /** bug 32 — опенер слоя [layerId] сообщает аспект источника; композитор рисует камеру без растяга. */
+    fun setCameraAspect(layerId: String, aspect: Float) = compositorSource.setCameraAspect(layerId, aspect)
 
-    /** bug 19 — ориентация сенсора камеры-источника (+ зеркало фронталки) для выпрямления в композиторе. */
-    fun setCameraOrientation(degrees: Int, mirror: Boolean) = compositorSource.setCameraOrientation(degrees, mirror)
+    /** bug 19 — ориентация сенсора источника слоя [layerId] (+ зеркало фронталки) для выпрямления. */
+    fun setCameraOrientation(layerId: String, degrees: Int, mirror: Boolean) =
+        compositorSource.setCameraOrientation(layerId, degrees, mirror)
 
     /**
-     * :app сообщает текущий источник камеры (или null при отключении). Если слой-камеры уже отдал
-     * свою SurfaceTexture — сразу открываем туда камеру; при null — закрываем предыдущую.
-     * Отрыв камеры НИЧЕГО не подменяет в пайплайне: композитор продолжает рисовать сцену.
+     * :app сообщает продюсера ДЛЯ КОНКРЕТНОГО слоя-камеры [layerId] (или null при отключении источника
+     * этого слоя). Каждый слой независим: у него своя SurfaceTexture (по id) и свой продюсер.
      */
-    fun setCameraOpener(opener: CameraOpener?) {
-        val old = cameraOpener
+    fun setCameraOpener(layerId: String, opener: CameraOpener?) {
+        val old = cameraOpeners[layerId]
         if (old === opener) return
-        cameraOpener = opener
-        // plans/sourses_timeout — заморозка/разморозка последнего кадра слоя-камеры при удалении/возврате
-        // источника. Удаляем источник (opener==null) → замораживаем OES ПЕРЕД old.close() (иначе закрытие
-        // AUSBC пушит чёрный кадр, и «замёрзнет» чернота, а не последний хороший кадр). Возврат → размораживаем.
-        if (opener == null) compositorSource.enterCameraStandby() else compositorSource.exitCameraStandby()
+        if (opener == null) cameraOpeners.remove(layerId) else cameraOpeners[layerId] = opener
+        // plans/sourses_timeout — заморозка/разморозка последнего кадра ЭТОГО слоя при удалении/возврате
+        // источника (иначе закрытие AUSBC пушит чёрный кадр, и «замёрзнет» чернота).
+        if (opener == null) compositorSource.enterCameraStandby(layerId) else compositorSource.exitCameraStandby(layerId)
         scope.launch {
-            // Plan 05: ВСЕГДА закрываем старый источник перед открытием нового — иначе при смене
-            // источника (напр. UVC→фронталка) старая камера продолжает писать в ту же поверхность слоя
-            // и «побеждает» (виден старый источник). Закрыли старую → открыли выбранную.
+            // Закрываем старого продюсера этого слоя перед открытием нового (иначе «побеждает» старый).
             runCatching { old?.close() }
             if (opener != null) {
-                // Bug 31 + реконнект: старый продюсер (AUSBC/HWUI/Camera2) при закрытии/отвале оставляет
-                // BufferQueue общей SurfaceTexture в состоянии, из которого НОВЫЙ продюсер не доставляет
-                // кадры до консюмера-OES → превью «мёрзнет» на последнем кадре. Наблюдали: (1) смена ТИПА
-                // → HWUI-краш «no surface» (bug 31); (2) повторное открытие ТОЙ ЖЕ UVC (реконнект вебки /
-                // софт none→uvc) → видео не восстанавливалось, помогал только рестарт. Лечение общее — при
-                // ЛЮБОМ повторном открытии продюсера даём СВЕЖУЮ поверхность: recreateCameraSurface() на
-                // GL-потоке → onCameraSurfaceReady → onCameraLayerSurfaceReady откроет ТЕКУЩИЙ opener в неё.
-                // Первое открытие (lastOpenedKind==null, в т.ч. через None) идёт в поверхность из initGl
-                // напрямую — она уже свежая, лишний пересоздать не нужен.
-                val kind = opener::class.simpleName
-                val reopen = lastOpenedKind != null
-                lastOpenedKind = kind
+                // Bug 31 + реконнект: при ЛЮБОМ повторном открытии продюсера этого слоя даём СВЕЖУЮ
+                // поверхность (чистый BufferQueue) — recreateCameraSurface(layerId). Первое открытие идёт
+                // в поверхность из слота напрямую (она уже свежая).
+                val kind = opener::class.simpleName ?: "opener"
+                val reopen = lastOpenedKinds[layerId] != null
+                lastOpenedKinds[layerId] = kind
                 if (reopen) {
-                    compositorSource.recreateCameraSurface() // reopen произойдёт из onCameraSurfaceReady
+                    compositorSource.recreateCameraSurface(layerId) // reopen из onCameraSurfaceReady
                 } else {
-                    cameraLayerSurface?.let { opener.open(it) }
+                    cameraLayerSurfaces[layerId]?.let { opener.open(it) }
                 }
             }
         }
     }
 
-    // Колбэк от композитора: у слоя-камеры появилась/исчезла SurfaceTexture. Открываем/закрываем камеру.
-    private fun onCameraLayerSurfaceReady(st: SurfaceTexture?) {
-        cameraLayerSurface = st
-        val opener = cameraOpener ?: return
+    // Колбэк от композитора: у слоя-камеры [layerId] появилась/исчезла SurfaceTexture. Открыть/закрыть его продюсера.
+    private fun onCameraLayerSurfaceReady(layerId: String, st: SurfaceTexture?) {
+        if (st != null) cameraLayerSurfaces[layerId] = st else cameraLayerSurfaces.remove(layerId)
+        val opener = cameraOpeners[layerId] ?: return
         scope.launch { if (st != null) opener.open(st) else opener.close() }
     }
 
@@ -1097,6 +1088,7 @@ class RtmpStreamer @Inject constructor(
             val t = layer.transform
             when (layer) {
                 is Layer.VideoCapture -> CompositorLayer.Camera(
+                    id = layer.id,
                     scale = t.scale, cx = t.cx, cy = t.cy, alpha = t.alpha, rotation = t.rotation,
                 )
                 is Layer.Image -> CompositorLayer.Image(
@@ -1128,6 +1120,12 @@ class RtmpStreamer @Inject constructor(
         val id = "camera_${++videoCaptureLayerCounter}"
         mutateScene { it.addOnTop(Layer.VideoCapture(id = id)) }
         KLog.i(TAG, "Scene: added video-capture layer id=$id (мульти-источники, груновка)")
+    }
+
+    /** Мульти-источники: задать источник (CaptureSource) слоя «Устройство захвата видео» [layerId]. */
+    fun setCameraLayerSource(layerId: String, source: com.kriniks.kcam.feature.streaming.scene.CaptureSource) {
+        mutateScene { it.setSource(layerId, source) }
+        KLog.i(TAG, "Scene: layer $layerId source → ${source::class.simpleName}")
     }
 
     /**

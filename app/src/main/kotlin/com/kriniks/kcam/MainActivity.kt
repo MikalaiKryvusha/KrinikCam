@@ -32,6 +32,7 @@ import com.kriniks.kcam.streaming.StreamForegroundService
 import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.rtmp.redactRtmpUrl
+import com.kriniks.kcam.feature.streaming.scene.CaptureSource
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
@@ -262,6 +263,25 @@ class MainActivity : ComponentActivity() {
                     // Мульти-источники (idea 21 Фаза B, Idea 22): добавить ещё слой видеозахвата / удалить слой по id.
                     "add-video-capture" -> streamingRepository.addVideoCaptureLayer()
                     "remove-layer" -> arg?.trim()?.takeIf { it.isNotEmpty() }?.let { streamingRepository.removeLayer(it) }
+                    // Мульти-источники: задать источник КОНКРЕТНОГО слоя-камеры. arg = "<layerId> <front|rear|uvc|virtual|none|builtin <camId>>".
+                    "set-layer-source" -> {
+                        val parts = arg?.trim()?.split(Regex("[,\\s]+"))?.filter { it.isNotEmpty() } ?: emptyList()
+                        val layerId = parts.getOrNull(0)
+                        val token = parts.getOrNull(1)
+                        if (layerId != null && token != null) {
+                            val phones = deviceManager.phoneCameras.value
+                            val uvcs = deviceManager.uvcSources.value
+                            val src = when (token) {
+                                "front" -> phones.firstOrNull { it.isFront }?.let { CaptureSource.Builtin(it.cameraId, it.displayName) } ?: CaptureSource.None
+                                "rear" -> phones.firstOrNull { !it.isFront }?.let { CaptureSource.Builtin(it.cameraId, it.displayName) } ?: CaptureSource.None
+                                "uvc" -> uvcs.firstOrNull()?.let { CaptureSource.Uvc(it.id, it.displayName) } ?: CaptureSource.None
+                                "virtual" -> CaptureSource.Virtual
+                                "builtin" -> parts.getOrNull(2)?.let { CaptureSource.Builtin(it, "Камера $it") } ?: CaptureSource.None
+                                else -> CaptureSource.None
+                            }
+                            streamingRepository.setCameraLayerSource(layerId, src)
+                        } else KLog.w("MainActivity", "set-layer-source: '<layerId> <front|rear|uvc|virtual|none>'")
+                    }
                     // Тонкая команда: переключить видимость слоя по id (напр. camera) — для тестов OBS-поведения.
                     "toggle-layer" -> arg?.let { streamingRepository.toggleLayerVisible(it) }
                     "layer-up" -> arg?.let { streamingRepository.moveLayerUp(it) }
