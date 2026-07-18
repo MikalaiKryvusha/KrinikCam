@@ -109,6 +109,10 @@ class CompositorVideoSource : VideoSource() {
     // стримером через prepareVideo). Сцена о повороте «не знает» — слои крутятся вместе с холстом.
     @Volatile private var canvasRotation = 0
 
+    // Колбэк «отрисован первый кадр НОВОГО размера» — для синхронизации превью-GL RootEncoder с ресайзом
+    // холста (портрет↔ландшафт) без прыжка: RootEncoder переключает вьюпорт только после готового кадра.
+    @Volatile private var onResizedFrameReady: (() -> Unit)? = null
+
     // bug 32 / указание Криника — АСПЕКТ камеры-источника (ширина/высота). Камеру рисуем в её РОДНОМ
     // аспекте, без искажения: если он ≠ аспекту сцены (16:9), вписываем камеру-квад с полосами
     // (пилларбокс/леттербокс). UVC 16:9 → 16/9 → без изменений. Ставит опенер через setCameraAspect.
@@ -162,10 +166,10 @@ class CompositorVideoSource : VideoSource() {
      * encW/encH (viewport). SurfaceTexture НЕ пересоздаём → камера-продюсер продолжает писать, НЕ
      * закрывается. Никакого onCameraSurfaceReady. Вызывается вместо changeVideoSource на смене поворота.
      */
-    fun resizeCanvasKeepingCamera(w: Int, h: Int, rotation: Int) {
+    fun resizeCanvasKeepingCamera(w: Int, h: Int, rotation: Int, onFrameReady: (() -> Unit)? = null) {
         if (w <= 0 || h <= 0) return
         handler?.post {
-            if (!running) return@post
+            if (!running) { onFrameReady?.invoke(); return@post }
             // АТОМАРНО (в одном GL-посте): поворот холста И новый размер выхода. Иначе поворот (volatile-
             // поле, применяется сразу) обгонял отложенный ресайз → несколько кадров рендерились с НОВЫМ
             // поворотом, но СТАРЫМ размером выхода (портрет-поворот в ландшафт-буфер) → сцена (видео И
@@ -177,7 +181,12 @@ class CompositorVideoSource : VideoSource() {
             // FBO-сцена ФИКСИРОВАНЫ 16:9 (проход 1) — их НЕ трогаем: камера не сжимается и не
             // переоткрывается, поток непрерывен (bug 29.2/29.3).
             runCatching { outputSurfaceTexture?.setDefaultBufferSize(w, h) }
-            KLog.i(TAG, "resizeCanvasKeepingCamera → выход ${w}x${h}, поворот ${canvasRotation}° (атомарно; камера/FBO 16:9 неизменны)")
+            // Синхронизация с превью-GL RootEncoder: НЕ дёргаем его размер сразу (тогда старый кадр
+            // композитора отрисуется в НОВОМ вьюпорте → прыжок). Взводим колбэк, который сработает ПОСЛЕ
+            // того, как композитор реально отрисует кадр НОВОГО размера (см. конец drawFrame). Тогда
+            // RootEncoder переключит вьюпорт уже под готовый новый кадр — рассинхрон минимален.
+            onResizedFrameReady = onFrameReady
+            KLog.i(TAG, "resizeCanvasKeepingCamera → выход ${w}x${h}, поворот ${canvasRotation}° (атомарно; уведомлю превью-GL после первого нового кадра)")
         } ?: KLog.w(TAG, "resizeCanvasKeepingCamera: handler null (композитор не запущен)")
     }
 
@@ -197,7 +206,7 @@ class CompositorVideoSource : VideoSource() {
      * Кадр камеры/снапшот крутится с холстом как видео (finalM); контр-поворот — ТОЛЬКО у текста заглушки.
      */
     private fun buildStandbyMatrix() {
-        val counter = if (canvasRotation == 90 || canvasRotation == 270) -90 else 0
+        val counter = if (canvasRotation == 90 || canvasRotation == 270) 90 else 0
         if (counter == 0) { System.arraycopy(finalM, 0, standbyM, 0, 16); return }
         android.opengl.Matrix.setIdentityM(standbyM, 0)
         android.opengl.Matrix.scaleM(standbyM, 0, 1f / SCENE_ASPECT, 1f, 1f)
@@ -548,18 +557,22 @@ class CompositorVideoSource : VideoSource() {
             }
             core.setPresentationTime(es, SystemClock.elapsedRealtimeNanos())
             core.swapBuffers(es)
+
+            // Синхронизация превью-GL: кадр НОВОГО размера уже отрисован и выложен (swap) → теперь можно
+            // безопасно переключить вьюпорт RootEncoder под него (иначе прыжок при портрет↔ландшафт).
+            onResizedFrameReady?.let { cb -> onResizedFrameReady = null; runCatching { cb() } }
         } catch (e: Exception) {
             KLog.w(TAG, "drawFrame failed: ${e.message}")
         }
     }
 
-    // Матрица поворота ТЕКСТУРНЫХ координат FBO на [deg]° (CW) вокруг центра (0.5,0.5) для прохода 2.
+    // Матрица поворота ТЕКСТУРНЫХ координат FBO на [deg]° вокруг центра (0.5,0.5) для прохода 2.
     // FBO — 2D-текстура (в GlQuadRenderer 2D-путь домножает V-flip внутри), поэтому здесь только поворот.
-    // Знак минус: положительный canvasRotation = по часовой (как розовая кнопка, Bug 10).
+    // Знак ПЛЮС: canvasRotation крутит композит ПО ЧАСОВОЙ (Криник: 90° = по часовой; было -deg → шло CCW).
     private fun canvasTexMatrix(deg: Int) {
         android.opengl.Matrix.setIdentityM(canvasTexM, 0)
         android.opengl.Matrix.translateM(canvasTexM, 0, 0.5f, 0.5f, 0f)
-        android.opengl.Matrix.rotateM(canvasTexM, 0, -deg.toFloat(), 0f, 0f, 1f)
+        android.opengl.Matrix.rotateM(canvasTexM, 0, deg.toFloat(), 0f, 0f, 1f)
         android.opengl.Matrix.translateM(canvasTexM, 0, -0.5f, -0.5f, 0f)
     }
 

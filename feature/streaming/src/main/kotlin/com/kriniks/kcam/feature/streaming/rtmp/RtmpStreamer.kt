@@ -544,14 +544,20 @@ class RtmpStreamer @Inject constructor(
             val portrait = deg == 90 || deg == 270
             val (encW, encH) = rotatedDims(basePreviewWidth, basePreviewHeight, deg)
             val gl = stream.getGlInterface()
-            gl.setEncoderSize(encW, encH)        // портретный/ландшафтный холст под аспект
-            gl.setIsPortrait(portrait)
-            gl.setAspectRatioMode(AspectRatioMode.Adjust)
-            gl.setCameraOrientation(0)           // повороты делает композитор (Bug 02 A)
             // Bug 29.3: НЕ рестартим композитор (changeVideoSource переоткрывал бы камеру → freeze).
             // Ресайзим холст композитора вживую (камера-продюсер продолжает писать в ту же поверхность) +
-            // применяем поворот АТОМАРНО в одном GL-посте → нет рассинхрона поворот/размер (нет прыжка).
-            compositorSource.resizeCanvasKeepingCamera(encW, encH, deg)
+            // поворот АТОМАРНО в одном GL-посте. Вьюпорт превью-GL RootEncoder переключаем НЕ сразу, а в
+            // колбэке — ПОСЛЕ того, как композитор отрисовал первый кадр НОВОГО размера. Иначе RootEncoder
+            // рисует старый кадр в новом вьюпорте несколько кадров → сцена «прыгает» вбок (портрет↔ландшафт).
+            compositorSource.resizeCanvasKeepingCamera(encW, encH, deg) {
+                scope.launch {
+                    gl.setEncoderSize(encW, encH)        // портретный/ландшафтный холст под аспект
+                    gl.setIsPortrait(portrait)
+                    gl.setAspectRatioMode(AspectRatioMode.Adjust)
+                    gl.setCameraOrientation(0)           // повороты делает композитор (Bug 02 A)
+                    KLog.i(TAG, "превью-GL синхронизирован под новый размер ${encW}x${encH} (после готового кадра)")
+                }
+            }
             applySceneLayers()
             KLog.i(TAG, "resizeCanvasInPreview: enc ${encW}x${encH} portrait=$portrait (камера не трогается)")
         } catch (e: Exception) {
