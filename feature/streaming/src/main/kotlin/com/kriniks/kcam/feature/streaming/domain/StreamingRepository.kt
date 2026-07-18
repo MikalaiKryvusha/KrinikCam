@@ -58,8 +58,11 @@ class StreamingRepository @Inject constructor(
     fun addImageOverlay(id: String, name: String, bitmap: android.graphics.Bitmap) =
         rtmpStreamer.addImageOverlay(id, name, bitmap)
 
-    /** Мульти-источники (idea 21 Фаза B): добавить ещё один слой «Устройство захвата видео». */
-    fun addVideoCaptureLayer() = rtmpStreamer.addVideoCaptureLayer()
+    /** Мульти-источники (idea 21 Фаза B) + bug 57: добавить слой «Устройство захвата видео» с источником. */
+    fun addVideoCaptureLayer(
+        source: com.kriniks.kcam.feature.streaming.scene.CaptureSource =
+            com.kriniks.kcam.feature.streaming.scene.CaptureSource.None,
+    ): String = rtmpStreamer.addVideoCaptureLayer(source)
 
     fun removeLayer(id: String) = rtmpStreamer.removeLayer(id)
     fun toggleLayerVisible(id: String) = rtmpStreamer.toggleLayerVisible(id)

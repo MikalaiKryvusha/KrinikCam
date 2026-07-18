@@ -167,6 +167,13 @@ class RtmpStreamer @Inject constructor(
 
     /** Открывает/закрывает камеру в SurfaceTexture слоя-камеры. Реализуется в :app (держит AUSBC/Camera2). */
     interface CameraOpener {
+        /**
+         * bug 58 — стабильный ключ ФИЗИЧЕСКОГО устройства-источника: одно устройство = один ключ
+         * ("uvc:<id>", "builtin:<cameraId>"). null = источник шарится без конфликта (виртуалка рисует
+         * свой паттерн в свою поверхность). [setCameraOpener] не даёт открыть один exclusive-ключ на
+         * двух слоях одновременно (второй open того же устройства = нативный краш/зависание).
+         */
+        val sourceKey: String? get() = null
         fun open(surfaceTexture: SurfaceTexture)
         fun close()
     }
@@ -175,6 +182,11 @@ class RtmpStreamer @Inject constructor(
     private val cameraLayerSurfaces = HashMap<String, SurfaceTexture>()
     // Bug 31 — тип последнего ОТКРЫТОГО продюсера per слой. На реконнекте пересоздаём поверхность слоя.
     private val lastOpenedKinds = HashMap<String, String>()
+    // bug 58 / ШАРИНГ ФИДА — ФИЗ-ключ источника per слой (из опенера, «uvc:<id>»/«builtin:<id>»; null=
+    // виртуалка/нет источника) и вычисленная карта «слой X зеркалит слой Y» (layerId → mirrorOf; значение
+    // null = слой ПЕРВИЧНЫЙ, держит своего продюсера). Обновляются в setCameraOpener/applySceneLayers.
+    private val layerSourceKeys = HashMap<String, String>()
+    private val cameraLayerMirrors = HashMap<String, String?>()
 
     /** bug 32 — опенер слоя [layerId] сообщает аспект источника; композитор рисует камеру без растяга. */
     fun setCameraAspect(layerId: String, aspect: Float) = compositorSource.setCameraAspect(layerId, aspect)
@@ -191,13 +203,21 @@ class RtmpStreamer @Inject constructor(
         val old = cameraOpeners[layerId]
         if (old === opener) return
         if (opener == null) cameraOpeners.remove(layerId) else cameraOpeners[layerId] = opener
-        // plans/sourses_timeout — заморозка/разморозка последнего кадра ЭТОГО слоя при удалении/возврате
-        // источника (иначе закрытие AUSBC пушит чёрный кадр, и «замёрзнет» чернота).
+        // bug 58 / ШАРИНГ ФИДА — запоминаем ФИЗ-ключ источника слоя (из опенера) и пересчитываем карту
+        // первичный/зеркало: слои с ОДИНАКОВЫМ ключом делят ОДНОГО продюсера (первый в порядке сцены —
+        // первичный, держит открытие; остальные ЗЕРКАЛЯТ его слот, рисуя тот же кадр своей трансформой).
+        // Так один источник кладётся на несколько слоёв БЕЗ второго open того же устройства (краш bug 58 снят).
+        if (opener?.sourceKey == null) layerSourceKeys.remove(layerId) else layerSourceKeys[layerId] = opener.sourceKey!!
+        applySceneLayers()  // обновит cameraLayerMirrors под новый набор ключей
+        // plans/sourses_timeout — заморозка/разморозка последнего кадра ЭТОГО слоя при удалении/возврате источника.
         if (opener == null) compositorSource.enterCameraStandby(layerId) else compositorSource.exitCameraStandby(layerId)
         scope.launch {
             // Закрываем старого продюсера этого слоя перед открытием нового (иначе «побеждает» старый).
             runCatching { old?.close() }
-            if (opener != null) {
+            // Открываем ТОЛЬКО если слой ПЕРВИЧНЫЙ (не зеркало): зеркало своего продюсера не держит — его
+            // слот рисует первичный (шаринг). Первичный слот открывается ещё и по колбэку onCameraSurfaceReady
+            // (создание слота композитором); здесь — для СМЕНЫ источника на уже существующем слоте (без нового колбэка).
+            if (opener != null && cameraLayerMirrors[layerId] == null) {
                 // Bug 31 + реконнект: при ЛЮБОМ повторном открытии продюсера этого слоя даём СВЕЖУЮ
                 // поверхность (чистый BufferQueue) — recreateCameraSurface(layerId). Первое открытие идёт
                 // в поверхность из слота напрямую (она уже свежая).
@@ -1084,13 +1104,27 @@ class RtmpStreamer @Inject constructor(
      * Зовётся после каждой правки сцены и на хуках (превью поднялось / GL готов / переподцеплено).
      */
     private fun applySceneLayers() {
+        // bug 58 / ШАРИНГ ФИДА — считаем первичный/зеркало по ФИЗ-ключу источника (layerSourceKeys):
+        // первый ВИДИМЫЙ слой с данным ключом — первичный (mirrorOf=null, держит продюсера), следующие с
+        // тем же ключом — зеркала его слота (mirrorOf=первичный). Ключ null (виртуалка/нет источника) —
+        // свой независимый слот. Порядок — как в сцене (снизу вверх). cameraLayerMirrors кэшируем для
+        // setCameraOpener (открывать только первичный).
+        val primaryByKey = HashMap<String, String>()
+        cameraLayerMirrors.clear()
         val layers = _scene.value.layers.filter { it.visible }.map { layer ->
             val t = layer.transform
             when (layer) {
-                is Layer.VideoCapture -> CompositorLayer.Camera(
-                    id = layer.id,
-                    scale = t.scale, cx = t.cx, cy = t.cy, alpha = t.alpha, rotation = t.rotation,
-                )
+                is Layer.VideoCapture -> {
+                    val key = layerSourceKeys[layer.id]
+                    val mirrorOf = if (key != null) {
+                        primaryByKey[key] ?: run { primaryByKey[key] = layer.id; null }
+                    } else null
+                    cameraLayerMirrors[layer.id] = mirrorOf
+                    CompositorLayer.Camera(
+                        id = layer.id, mirrorOf = mirrorOf,
+                        scale = t.scale, cx = t.cx, cy = t.cy, alpha = t.alpha, rotation = t.rotation,
+                    )
+                }
                 is Layer.Image -> CompositorLayer.Image(
                     bitmap = layer.bitmap,
                     scale = t.scale, cx = t.cx, cy = t.cy, alpha = t.alpha, rotation = t.rotation,
@@ -1111,15 +1145,18 @@ class RtmpStreamer @Inject constructor(
     private var videoCaptureLayerCounter = 0
 
     /**
-     * Добавить ещё один слой «Устройство захвата видео» НА ВЕРХ сцены (мульти-источники). Источник по
-     * умолчанию — None (пользователь выберет в настройках слоя). id уникален. Полноценно независимые
-     * камеры заработают после per-слойного ресурса камеры в компоновщике (Фаза B GL); пока новый слой
-     * рисуется той же камерой (общая OES) — это груновка модели/UI.
+     * Добавить ещё один слой «Устройство захвата видео» НА ВЕРХ сцены (мульти-источники). bug 57 —
+     * источник задаётся СРАЗУ при создании ([source], пикер-модалка спросила его до добавления);
+     * дефолт None (харнес add-video-capture / обратная совместимость). id уникален, возвращается наверх.
      */
-    fun addVideoCaptureLayer() {
+    fun addVideoCaptureLayer(
+        source: com.kriniks.kcam.feature.streaming.scene.CaptureSource =
+            com.kriniks.kcam.feature.streaming.scene.CaptureSource.None,
+    ): String {
         val id = "camera_${++videoCaptureLayerCounter}"
-        mutateScene { it.addOnTop(Layer.VideoCapture(id = id)) }
-        KLog.i(TAG, "Scene: added video-capture layer id=$id (мульти-источники, груновка)")
+        mutateScene { it.addOnTop(Layer.VideoCapture(id = id, source = source)) }
+        KLog.i(TAG, "Scene: added video-capture layer id=$id source=${source::class.simpleName} (мульти-источники)")
+        return id
     }
 
     /** Мульти-источники: задать источник (CaptureSource) слоя «Устройство захвата видео» [layerId]. */

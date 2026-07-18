@@ -194,7 +194,8 @@ fun MainScreen(
                     val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
                     streamViewModel.setCameraOpener(lid, UvcCameraOpener(camera, previewWidth = w, previewHeight = h,
                         onAspect = { streamViewModel.setCameraAspect(lid, it) },
-                        onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) }))
+                        onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) },
+                        sourceKey = "uvc:${src.id}"))  // bug 58 — ключ физ-устройства (запрет дубля на 2 слоя)
                 } else {
                     streamViewModel.setCameraOpener(lid, null) // UVC выбрана, но объект камеры ещё не готов
                 }
@@ -224,7 +225,8 @@ fun MainScreen(
                         val h = usbState.activeCameraHeight.takeIf { it > 0 } ?: 1080
                         UvcCameraOpener(cam, previewWidth = w, previewHeight = h,
                             onAspect = { streamViewModel.setCameraAspect(lid, it) },
-                            onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) })
+                            onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) },
+                            sourceKey = "uvc:${cs.deviceId}")  // bug 58 — ключ физ-устройства (запрет дубля)
                     }
                     is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin -> DeviceCameraOpener(
                         appContext, cs.cameraId, onAspect = { streamViewModel.setCameraAspect(lid, it) },
@@ -588,11 +590,38 @@ fun MainScreen(
 
     // ── Layer 6: Scene layers modal overlay (Idea 19 — мульти-источники) ──
     if (showLayersOverlay) {
+        // Мульти-источники: id источника ЛЮБОГО слоя-камеры. Дефолтная 'camera' — по глобальному
+        // activeSource (гибрид, backward-compat); доп. слои — по их CaptureSource из сцены. Один
+        // источник правды и для подсветки текущего, и для запрета дубля источника на 2 слоя (bug 58).
+        fun sourceIdOf(layer: Layer): String? =
+            if (layer.id == "camera") activeSource.id
+            else when (val cs = (layer as? com.kriniks.kcam.feature.streaming.scene.Layer.VideoCapture)?.source) {
+                is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Uvc -> cs.deviceId
+                is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin ->
+                    availableSources.filterIsInstance<com.kriniks.kcam.feature.capture.model.VideoSource.PhoneCamera>()
+                        .firstOrNull { it.cameraId == cs.cameraId }?.id
+                is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Virtual -> "virtual"
+                is com.kriniks.kcam.feature.streaming.scene.CaptureSource.None -> "none"
+                else -> null
+            }
+        // Обратный маппинг id пункта пикера → CaptureSource слоя (для доп. слоёв). Общий для выбора
+        // источника (onSelectSource) и добавления слоя сразу с источником (bug 57).
+        fun captureSourceOf(optId: String): com.kriniks.kcam.feature.streaming.scene.CaptureSource =
+            when (val vs = availableSources.firstOrNull { it.id == optId }) {
+                is com.kriniks.kcam.feature.capture.model.VideoSource.UvcCamera ->
+                    com.kriniks.kcam.feature.streaming.scene.CaptureSource.Uvc(vs.id, vs.displayName)
+                is com.kriniks.kcam.feature.capture.model.VideoSource.PhoneCamera ->
+                    com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin(vs.cameraId, vs.displayName)
+                is com.kriniks.kcam.feature.capture.model.VideoSource.Virtual ->
+                    com.kriniks.kcam.feature.streaming.scene.CaptureSource.Virtual
+                else -> com.kriniks.kcam.feature.streaming.scene.CaptureSource.None
+            }
         StreamLayersOverlay(
             scene = scene,
             onDismiss = { showLayersOverlay = false },
             onAddTestOverlay = { streamViewModel.addTestOverlay() },
-            onAddVideoCapture = { streamViewModel.addVideoCaptureLayer() },
+            // bug 57 — добавляем слой видео СРАЗУ с выбранным в модалке источником (маппим id → CaptureSource).
+            onAddVideoCaptureWithSource = { optId -> streamViewModel.addVideoCaptureLayer(captureSourceOf(optId)) },
             onAddImage = { name, bitmap -> streamViewModel.addImageOverlay(name, bitmap) },
             onToggleVisible = { streamViewModel.toggleLayerVisible(it) },
             onRemove = { streamViewModel.removeLayer(it) },
@@ -609,20 +638,10 @@ fun MainScreen(
                     if (it.id == "virtual") stringResource(R.string.source_virtual) else it.displayName,
                 )
             } + SourceOption("none", stringResource(R.string.source_none)),
-            // Мульти-источники: подсветка источника PER-СЛОЙ. Дефолтная 'camera' — по глобальному
-            // activeSource (гибрид, backward-compat); доп. слои — по их CaptureSource из сцены.
-            currentSourceIdOf = { layer ->
-                if (layer.id == "camera") activeSource.id
-                else when (val cs = (layer as? com.kriniks.kcam.feature.streaming.scene.Layer.VideoCapture)?.source) {
-                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Uvc -> cs.deviceId
-                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin ->
-                        availableSources.filterIsInstance<com.kriniks.kcam.feature.capture.model.VideoSource.PhoneCamera>()
-                            .firstOrNull { it.cameraId == cs.cameraId }?.id
-                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Virtual -> "virtual"
-                    is com.kriniks.kcam.feature.streaming.scene.CaptureSource.None -> "none"
-                    else -> null
-                }
-            },
+            // Мульти-источники: подсветка источника PER-СЛОЙ (см. sourceIdOf выше). bug 58 — ОДИН источник
+            // можно класть на НЕСКОЛЬКО слоёв (шаринг фида: композитор открывает устройство один раз и
+            // раздаёт кадр в слои-зеркала), поэтому дизейбла «занято» больше НЕТ — выбирай свободно.
+            currentSourceIdOf = { sourceIdOf(it) },
             // Выбор источника ИМЕННО этому слою. 'camera' → глобальный (гибрид); доп. слои → CaptureSource слоя.
             onSelectSource = { layerId, optId ->
                 if (layerId == "camera") {
@@ -630,16 +649,7 @@ fun MainScreen(
                         ?: com.kriniks.kcam.feature.capture.model.VideoSource.None
                     deviceManager.selectVideoSource(src)
                 } else {
-                    val cs = when (val vs = availableSources.firstOrNull { it.id == optId }) {
-                        is com.kriniks.kcam.feature.capture.model.VideoSource.UvcCamera ->
-                            com.kriniks.kcam.feature.streaming.scene.CaptureSource.Uvc(vs.id, vs.displayName)
-                        is com.kriniks.kcam.feature.capture.model.VideoSource.PhoneCamera ->
-                            com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin(vs.cameraId, vs.displayName)
-                        is com.kriniks.kcam.feature.capture.model.VideoSource.Virtual ->
-                            com.kriniks.kcam.feature.streaming.scene.CaptureSource.Virtual
-                        else -> com.kriniks.kcam.feature.streaming.scene.CaptureSource.None
-                    }
-                    streamViewModel.setCameraLayerSource(layerId, cs)
+                    streamViewModel.setCameraLayerSource(layerId, captureSourceOf(optId))
                 }
             },
         )

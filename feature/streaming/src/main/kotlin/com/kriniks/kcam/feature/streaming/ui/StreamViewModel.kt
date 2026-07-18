@@ -169,7 +169,10 @@ class StreamViewModel @Inject constructor(
     }
 
     /** Мульти-источники (idea 21 Фаза B): добавить ещё один слой «Устройство захвата видео». */
-    fun addVideoCaptureLayer() = repository.addVideoCaptureLayer()
+    fun addVideoCaptureLayer(
+        source: com.kriniks.kcam.feature.streaming.scene.CaptureSource =
+            com.kriniks.kcam.feature.streaming.scene.CaptureSource.None,
+    ): String = repository.addVideoCaptureLayer(source)
 
     fun removeLayer(id: String) {
         if (_selectedLayerId.value == id) _selectedLayerId.value = null // снять выбор с удаляемого слоя

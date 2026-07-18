@@ -63,6 +63,8 @@
     <!-- Layers overlay -->
     <string name="layers_add">Add layer</string>
     <string name="layers_add_video_capture">Video capture device</string>
+    <!-- bug 57 — заголовок модалки выбора источника при добавлении слоя видео -->
+    <string name="layers_add_video_capture_title">Add video source</string>
     <string name="layers_add_image">Image</string>
     <string name="layers_add_test_overlay">Test overlay</string>
     <string name="layer_delete_title">Delete layer?</string>

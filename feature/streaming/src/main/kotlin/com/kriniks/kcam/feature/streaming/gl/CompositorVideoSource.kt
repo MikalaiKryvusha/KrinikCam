@@ -57,9 +57,15 @@ sealed interface CompositorLayer {
      * Слой камеры (OES external texture). [id] — id слоя сцены: ключ per-слойного ресурса камеры
      * (CameraSlot: своя OES/SurfaceTexture/снапшот/заглушка). Несколько Camera-слоёв с разными id =
      * НЕЗАВИСИМЫЕ камеры одновременно (мульти-источники, idea 21 Фаза B).
+     *
+     * [mirrorOf] (bug 58 / шаринг фида) — если задан, слой НЕ держит своего продюсера, а РИСУЕТ кадр
+     * слота слоя-ПЕРВИЧНОГО [mirrorOf] со СВОЕЙ трансформой (как OBS «дублировать источник»). Так один
+     * физический источник (одно открытие устройства) раздаётся в несколько слоёв — без второго open
+     * того же устройства (который крешил, bug 58). null = слой сам первичный (свой слот/продюсер).
      */
     data class Camera(
         val id: String = "camera",
+        val mirrorOf: String? = null,
         override val scale: Float = 1f,
         override val cx: Float = 0.5f,
         override val cy: Float = 0.5f,
@@ -399,7 +405,10 @@ class CompositorVideoSource : VideoSource() {
     // Слой-камера ушёл → освободить слот + onCameraSurfaceReady(id, null) (закрыть продюсера). Мульти-источники.
     private fun syncCameraSlots() {
         val r = renderer ?: return
-        val wantIds = requestedLayers.filterIsInstance<CompositorLayer.Camera>().map { it.id }.toSet()
+        // Слот (продюсер+OES+снапшот) держат ТОЛЬКО ПЕРВИЧНЫЕ слои-камеры (mirrorOf == null). Зеркала
+        // (mirrorOf != null) рисуют слот первичного — своего продюсера НЕ открывают (шаринг фида, bug 58).
+        val wantIds = requestedLayers.filterIsInstance<CompositorLayer.Camera>()
+            .filter { it.mirrorOf == null }.map { it.id }.toSet()
         // Удалить слоты слоёв, которых больше нет.
         val it = cameraSlots.iterator()
         while (it.hasNext()) {
@@ -523,7 +532,8 @@ class CompositorVideoSource : VideoSource() {
                 layerMatrixOf(layer)                           // T·S·PhysRot слоя (в координатах сцены)
                 when (layer) {
                     is CompositorLayer.Camera -> {
-                        val slot = cameraSlots[layer.id]
+                        // Шаринг фида (bug 58): зеркало рисует слот ПЕРВИЧНОГО (mirrorOf), первичный — свой.
+                        val slot = cameraSlots[layer.mirrorOf ?: layer.id]
                         // Рисуем СНАПШОТ ЭТОГО слота (read = предпоследний ХОРОШИЙ кадр), а НЕ сырой OES: при
                         // отвале держим хороший кадр (битый последний — в write, на экран не выходит), при
                         // реконнекте показываем его же, пока новый поток не обновит снапшот (без чёрной склейки).
@@ -647,7 +657,8 @@ class CompositorVideoSource : VideoSource() {
         // в 16:9, ведём родной аспект). Innermost (к вершине первым): сырой квад → аспект-фит →
         // [поворот] → масштаб → сдвиг. 16:9-слой → фактор 1, no-op.
         val layerAspect = when (layer) {
-            is CompositorLayer.Camera -> cameraSlots[layer.id]?.aspect ?: SCENE_ASPECT
+            // Зеркало наследует аспект источника у слота ПЕРВИЧНОГО (mirrorOf), иначе свой (шаринг, bug 58).
+            is CompositorLayer.Camera -> cameraSlots[layer.mirrorOf ?: layer.id]?.aspect ?: SCENE_ASPECT
             is CompositorLayer.Image ->
                 if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else SCENE_ASPECT
         }

@@ -74,8 +74,9 @@ fun StreamLayersOverlay(
     scene: Scene,
     onDismiss: () -> Unit,
     onAddTestOverlay: () -> Unit,
-    // Мульти-источники (idea 21 Фаза B): добавить ещё один слой «Устройство захвата видео».
-    onAddVideoCapture: () -> Unit = {},
+    // Мульти-источники (idea 21 Фаза B) + bug 57: добавить ещё один слой «Устройство захвата видео»
+    // СРАЗУ с выбранным источником (sourceId из пикера-модалки). :app маппит id → CaptureSource и создаёт слой.
+    onAddVideoCaptureWithSource: (sourceId: String) -> Unit = {},
     // Фаза 1: добавить слой-картинку из файла. [bitmap] уже декодирован и вписан в кадр.
     onAddImage: (name: String, bitmap: android.graphics.Bitmap) -> Unit,
     onToggleVisible: (String) -> Unit,
@@ -103,6 +104,8 @@ fun StreamLayersOverlay(
     var settingsFor by remember { mutableStateOf<Layer?>(null) }
     // Раскрыто ли меню кнопки «＋ Добавить слой».
     var addMenuOpen by remember { mutableStateOf(false) }
+    // bug 57 — открыта ли модалка выбора источника для НОВОГО слоя видео (спрашиваем ДО создания слоя).
+    var addSourcePickerOpen by remember { mutableStateOf(false) }
 
     // plans/13 — фолбэк-имя слоя резолвим ЗАРАНЕЕ: коллбэк лаунчера не composable-скоуп.
     val imageFallbackName = stringResource(R.string.layer_image_fallback)
@@ -201,11 +204,12 @@ fun StreamLayersOverlay(
                     }
                 }
                 DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
-                    // Мульти-источники (idea 21 Фаза B): ещё один слой «Устройство захвата видео».
+                    // Мульти-источники (idea 21 Фаза B) + bug 57: ещё один слой «Устройство захвата
+                    // видео» — сперва СПРАШИВАЕМ источник модалкой, слой создаём уже с ним.
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.layers_add_video_capture)) },
                         leadingIcon = { Icon(Icons.Default.Videocam, contentDescription = null) },
-                        onClick = { addMenuOpen = false; onAddVideoCapture() },
+                        onClick = { addMenuOpen = false; addSourcePickerOpen = true },
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.layers_add_image)) },
@@ -249,6 +253,34 @@ fun StreamLayersOverlay(
                 sourceOptions = sourceOptions,
                 currentSourceId = currentSourceIdOf(layer),          // текущий источник ИМЕННО этого слоя
                 onSelectSource = { optId -> onSelectSource(layer.id, optId) },  // назначить этому слою
+            )
+        }
+
+        // ── bug 57 — модалка выбора источника при ДОБАВЛЕНИИ слоя видео (спрашиваем ДО создания) ──
+        if (addSourcePickerOpen) {
+            AlertDialog(
+                onDismissRequest = { addSourcePickerOpen = false },  // тап вовне = отмена, слой не создаём
+                containerColor = DarkSurface,
+                title = { Text(stringResource(R.string.layers_add_video_capture_title), color = Color.White, fontSize = 17.sp) },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.layer_source_video), color = Color(0xFF999999), fontSize = 13.sp)
+                        Spacer(Modifier.height(8.dp))
+                        SourcePickerColumn(
+                            sourceOptions = sourceOptions,
+                            currentSourceId = null,   // новый слой — ничего ещё не выбрано
+                            onSelect = { optId ->
+                                addSourcePickerOpen = false
+                                onAddVideoCaptureWithSource(optId)  // создаём слой уже с этим источником
+                            },
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { addSourcePickerOpen = false }) {
+                        Text(stringResource(R.string.common_cancel), color = Color(0xFF999999))
+                    }
+                },
             )
         }
     }
@@ -394,31 +426,12 @@ private fun LayerSettingsDialog(
                     is Layer.VideoCapture -> {
                         Text(stringResource(R.string.layer_source_video), color = Color(0xFF999999), fontSize = 13.sp)
                         Spacer(Modifier.height(8.dp))
-                        // Список доступных источников — выбор подсвечивает текущий.
-                        sourceOptions.forEach { opt ->
-                            val isCurrent = opt.id == currentSourceId
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { onSelectSource(opt.id) }
-                                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                            ) {
-                                Icon(
-                                    if (isCurrent) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
-                                    contentDescription = null,
-                                    tint = if (isCurrent) AcidPink else Color(0xFF777777),
-                                    modifier = Modifier.size(20.dp),
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Text(
-                                    opt.label,
-                                    color = if (isCurrent) Color.White else Color(0xFFCCCCCC),
-                                    fontSize = 14.sp,
-                                )
-                            }
-                        }
+                        // Список доступных источников — выбор подсвечивает текущий (общий с модалкой добавления, bug 57).
+                        SourcePickerColumn(
+                            sourceOptions = sourceOptions,
+                            currentSourceId = currentSourceId,
+                            onSelect = onSelectSource,
+                        )
                     }
                     is Layer.Image -> {
                         Text(
@@ -436,4 +449,41 @@ private fun LayerSettingsDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_done), color = AcidPink) }
         },
     )
+}
+
+/**
+ * Список выбора источника для слоя «Устройство захвата видео» — ОБЩИЙ для модалки настроек слоя (⚙)
+ * и модалки добавления нового слоя (bug 57). Радио-подсветка текущего ([currentSourceId], null при
+ * добавлении). bug 58/шаринг: один источник можно выбрать на нескольких слоях (дизейбла «занято» нет).
+ */
+@Composable
+private fun SourcePickerColumn(
+    sourceOptions: List<SourceOption>,
+    currentSourceId: String?,
+    onSelect: (String) -> Unit,
+) {
+    sourceOptions.forEach { opt ->
+        val isCurrent = opt.id == currentSourceId
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onSelect(opt.id) }
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+        ) {
+            Icon(
+                if (isCurrent) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                contentDescription = null,
+                tint = if (isCurrent) AcidPink else Color(0xFF777777),
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                opt.label,
+                color = if (isCurrent) Color.White else Color(0xFFCCCCCC),
+                fontSize = 14.sp,
+            )
+        }
+    }
 }

@@ -56,6 +56,8 @@ class UvcCameraOpener(
     private val onAspect: (Float) -> Unit = {},
     // bug 19 — UVC отдаёт кадр уже «прямо», без sensor-ориентации → (0, false).
     private val onOrientation: (Int, Boolean) -> Unit = { _, _ -> },
+    // bug 58 — ключ физ-устройства ("uvc:<id>"): не даёт открыть эту же вебку на двух слоях (краш AUSBC).
+    override val sourceKey: String? = null,
 ) : RtmpStreamer.CameraOpener {
 
     // Bug 25 — переоткрывали ли уже на выбранном из списка размере (чтобы не зациклиться).

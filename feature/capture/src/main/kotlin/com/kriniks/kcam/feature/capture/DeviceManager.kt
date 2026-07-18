@@ -84,8 +84,17 @@ class DeviceManager @Inject constructor() {
 
     /** Called by :feature:usb when a UVC device is opened */
     fun notifyUvcConnected(source: VideoSource.UvcCamera) {
-        KLog.i(TAG, "UVC connected: ${source.displayName}")
-        _uvcSources.value = _uvcSources.value + source
+        KLog.i(TAG, "UVC connected: ${source.displayName} (VID=${source.vendorId} PID=${source.productId} id=${source.id})")
+        // bug 59 — ДЕДУП по СТАБИЛЬНОМУ ключу устройства (VID+PID), не по транзиентному id. На
+        // реконнекте Android выдаёт НОВЫЙ deviceId → без дедупа список копил клоны одной вебки (+ connect-
+        // события AUSBC порой дублируются). Одно физ-устройство = ОДНА запись: если такое (VID+PID) уже
+        // есть — заменяем (обновляем id/имя на свежие), иначе добавляем. Гарантия: клонов не будет НИКОГДА,
+        // даже если detach-событие не дошло (смежно bug 35). Два одинаковых модели-вебки (один VID+PID)
+        // схлопнутся в одну — приемлемо (у нас одна вебка; serial добавим, если понадобится различать).
+        val sameDevice = { s: VideoSource.UvcCamera -> s.vendorId == source.vendorId && s.productId == source.productId }
+        val hadClone = _uvcSources.value.any(sameDevice)
+        _uvcSources.value = _uvcSources.value.filterNot(sameDevice) + source
+        if (hadClone) KLog.i(TAG, "UVC dedup: заменил прежнюю запись того же устройства (bug 59)")
         updateActiveSource()
     }
 

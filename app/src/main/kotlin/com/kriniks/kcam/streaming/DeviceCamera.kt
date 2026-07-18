@@ -105,6 +105,10 @@ class DeviceCameraOpener(
     private val onOrientation: (Int, Boolean) -> Unit = { _, _ -> },
 ) : RtmpStreamer.CameraOpener {
 
+    // bug 58 — ключ физ-устройства ("builtin:<cameraId>"): не даёт открыть одну Camera2-камеру на двух
+    // слоях (второй openCamera того же id = CameraAccessException/зависание).
+    override val sourceKey: String get() = "builtin:$cameraId"
+
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private var device: CameraDevice? = null
     private var session: CameraCaptureSession? = null
