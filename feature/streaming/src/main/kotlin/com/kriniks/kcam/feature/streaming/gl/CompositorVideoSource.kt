@@ -293,7 +293,12 @@ class CompositorVideoSource : VideoSource() {
             camSt.setOnFrameAvailableListener { newCameraFrame = true }
             cameraSurfaceTexture = camSt
             newCameraFrame = false
-            KLog.d(TAG, "Camera layer SurfaceTexture RECREATED (bug 31 — чистое окно новому продюсеру)")
+            cameraFrozen = false
+            // Свежая OES = чёрная (кадра ещё нет). Даём НОВОМУ продюсеру грейс-окно hold: сбрасываем
+            // таймер свежести на «сейчас» → пока камера прогревается (~1-2с), заглушка НЕ мигает (её
+            // покажем, только если кадры не пойдут дольше STANDBY_HOLD_MS). hasEverHadFrame НЕ трогаем.
+            lastCameraFrameAtMs = SystemClock.elapsedRealtime()
+            KLog.d(TAG, "Camera layer SurfaceTexture RECREATED (чистое окно новому продюсеру; hold сброшен)")
             onCameraSurfaceReady?.invoke(camSt)
         }
     }

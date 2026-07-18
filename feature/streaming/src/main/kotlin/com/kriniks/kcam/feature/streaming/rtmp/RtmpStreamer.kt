@@ -201,16 +201,19 @@ class RtmpStreamer @Inject constructor(
             // и «побеждает» (виден старый источник). Закрыли старую → открыли выбранную.
             runCatching { old?.close() }
             if (opener != null) {
-                // Bug 31: при смене ТИПА продюсера (UVC-AUSBC ↔ виртуалка-HWUI ↔ Camera2) старый продюсер
-                // мог оставить BufferQueue общей SurfaceTexture в несовместимом состоянии → HWUI-краш
-                // «no surface». Даём новому продюсеру СВЕЖУЮ поверхность: recreateCameraSurface() на
-                // GL-потоке → onCameraSurfaceReady → onCameraLayerSurfaceReady откроет ТЕКУЩИЙ opener.
-                // Пересоздаём ТОЛЬКО на смене типа (не на старте/пересборке того же типа) — минимум churn.
-                // None не меняет lastOpenedKind → тип помнится через None (чинит uvc→none→virtual).
+                // Bug 31 + реконнект: старый продюсер (AUSBC/HWUI/Camera2) при закрытии/отвале оставляет
+                // BufferQueue общей SurfaceTexture в состоянии, из которого НОВЫЙ продюсер не доставляет
+                // кадры до консюмера-OES → превью «мёрзнет» на последнем кадре. Наблюдали: (1) смена ТИПА
+                // → HWUI-краш «no surface» (bug 31); (2) повторное открытие ТОЙ ЖЕ UVC (реконнект вебки /
+                // софт none→uvc) → видео не восстанавливалось, помогал только рестарт. Лечение общее — при
+                // ЛЮБОМ повторном открытии продюсера даём СВЕЖУЮ поверхность: recreateCameraSurface() на
+                // GL-потоке → onCameraSurfaceReady → onCameraLayerSurfaceReady откроет ТЕКУЩИЙ opener в неё.
+                // Первое открытие (lastOpenedKind==null, в т.ч. через None) идёт в поверхность из initGl
+                // напрямую — она уже свежая, лишний пересоздать не нужен.
                 val kind = opener::class.simpleName
-                val typeChanged = lastOpenedKind != null && lastOpenedKind != kind
+                val reopen = lastOpenedKind != null
                 lastOpenedKind = kind
-                if (typeChanged) {
+                if (reopen) {
                     compositorSource.recreateCameraSurface() // reopen произойдёт из onCameraSurfaceReady
                 } else {
                     cameraLayerSurface?.let { opener.open(it) }
