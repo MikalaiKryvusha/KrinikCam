@@ -45,6 +45,39 @@
 Путь записи — idea 10/11/17. Затрагивает ту же фичу, что plans/14 (профиль кодера) и bug 45 (задержка
 старта записи) — проверять вместе.
 
+## ✅ ВОСПРОИЗВЕДЕНО + ROOT CAUSE (2026-07-18, дневной цикл)
+
+**Repro:** харнес, виртуалка, 6× подряд `go-live` → `stop`. Краш стабильно на **3-м цикле**.
+
+**Нативный tombstone (crash-буфер):**
+```
+Fatal signal 6 (SIGABRT) в tid RenderThread
+Abort message: 'Failed to set damage region on surface 0x..., error=EGL_BAD_SURFACE'
+ #04 libhwui: EglManager::damageFrame
+ #05 libhwui: SkiaOpenGLPipeline::draw
+ #06 libhwui: CanvasContext::draw
+ #08 libhwui: RenderThread::threadLoop
+```
+
+**Root cause:** это **EGL_BAD_SURFACE в системном HWUI-рендерпотоке** (не в нашем GL-компоновщике, а в
+рендере окна приложения). Семья bug 27 (EGL_BAD_CONTEXT на повороте) / bug 31 (HWUI no surface). Каждый
+старт записи делает `stream.stopPreview()` перед `prepareVideo` (иначе IllegalStateException), затем
+`schedulePreviewRestoreAfterStream` ПЕРЕ-ЦЕПЛЯЕТ превью-поверхность TextureView. Повторные
+teardown/re-attach превью-поверхности гоняются с кадром HWUI → HWUI обращается к уже невалидной
+EGL-поверхности → abort. Накапливается за 2-3 цикла.
+
+**План фикса (аккуратно, НЕ вслепую — как bug 27/31):**
+1. Убрать ИЗБЫТОЧНЫЙ churn превью-поверхности при записи: не делать stopPreview+re-attach, если можно
+   пере-конфигурировать без пересоздания поверхности (паттерн bug 27 `resizeCanvasInPreview` — менять
+   без касания поверхности превью). Или сериализовать teardown так, чтобы HWUI не рисовал в мёртвую
+   поверхность (ждать idle рендерпотока).
+2. Приёмка (repro готов): 10× go-live→stop подряд + 10× record→stop через UI-кнопку → 0 крашей,
+   ffprobe каждого файла валиден.
+
+**⚠️ НЕ фиксить блиндом:** GL/HWUI-поверхности — ровно та зона, где слепые правки плодят НОВЫЕ крашы.
+Нужна аккуратная итерация с этим repro как тестом.
+
 ## Статус
-🔴 ОТКРЫТ (высокий). Нужен стектрейс для точного root cause; план: снять лог → защитить финализацию →
-приёмка серией стоп/старт по кодекам.
+🔴 ОТКРЫТ (ВЫСОКИЙ). ВОСПРОИЗВЕДЁН (3-й цикл записи), root cause = EGL_BAD_SURFACE в HWUI (churn
+превью-поверхности при старте записи). Repro-тест готов. Фикс — аккуратная работа с lifecycle
+поверхности (семья bug 27/31), не вслепую.
