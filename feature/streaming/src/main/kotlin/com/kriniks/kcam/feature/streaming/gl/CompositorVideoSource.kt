@@ -53,8 +53,13 @@ sealed interface CompositorLayer {
     /** Поворот СОДЕРЖИМОГО слоя внутри сцены, градусы CW (interview_006 Q3: «слои как в Photoshop»). */
     val rotation: Int
 
-    /** Слой камеры (OES external texture, кадры от камеры-продюсера). */
+    /**
+     * Слой камеры (OES external texture). [id] — id слоя сцены: ключ per-слойного ресурса камеры
+     * (CameraSlot: своя OES/SurfaceTexture/снапшот/заглушка). Несколько Camera-слоёв с разными id =
+     * НЕЗАВИСИМЫЕ камеры одновременно (мульти-источники, idea 21 Фаза B).
+     */
     data class Camera(
+        val id: String = "camera",
         override val scale: Float = 1f,
         override val cx: Float = 0.5f,
         override val cy: Float = 0.5f,
@@ -112,6 +117,131 @@ class CompositorVideoSource : VideoSource() {
     // Колбэк «отрисован первый кадр НОВОГО размера» — для синхронизации превью-GL RootEncoder с ресайзом
     // холста (портрет↔ландшафт) без прыжка: RootEncoder переключает вьюпорт только после готового кадра.
     @Volatile private var onResizedFrameReady: (() -> Unit)? = null
+
+    /**
+     * CameraSlot — ВСЁ per-слой состояние камеры (мульти-источники, idea 21 Фаза B). У каждого слоя-камеры
+     * (по id) — своя OES-текстура + SurfaceTexture (свой продюсер), свой пинг-понг снапшот (два кадра, держим
+     * предпоследний хороший), своя заглушка (свежесть/заморозка/фейд/пульс), свой sensor-поворот и аспект.
+     * Раньше это был единый набор полей → все слои-камеры делили одну камеру; теперь независимо.
+     * Ресурсы создаются/удаляются СТРОГО на GL-потоке (create/recreate/release зовём оттуда).
+     */
+    private inner class CameraSlot(val id: String) {
+        var oesTex = 0
+        var surfaceTexture: SurfaceTexture? = null
+        @Volatile var newFrame = false
+        val texMatrix = FloatArray(16)
+        val drawTexMatrix = FloatArray(16)
+        private val slotTexRot = FloatArray(16)
+        @Volatile var sensorRotation = 0
+        @Volatile var mirror = false
+        @Volatile var aspect = SCENE_ASPECT
+        // Пинг-понг снапшот (см. большой коммент про требования Криника а/б/в).
+        var freezeFbo = 0
+        var freezeReadTex = 0
+        var freezeWriteTex = 0
+        var hasSnapshot = false
+        // Свежесть/заглушка per-слой.
+        var lastFrameAtMs = 0L
+        var hasEverHadFrame = false
+        @Volatile var frozen = false
+        var standbyAlpha = 0f
+        var standbyPulse = 1f
+        var lastFadeClockMs = 0L
+
+        /** Создать OES+SurfaceTexture + FBO-снапшот. Зовём на GL-потоке. */
+        fun initGl(r: GlQuadRenderer) {
+            oesTex = r.createOesTexture()
+            val st = SurfaceTexture(oesTex)
+            st.setDefaultBufferSize(SCENE_W, SCENE_H)
+            st.setOnFrameAvailableListener { newFrame = true }
+            surfaceTexture = st
+            val (ffb, ftx) = r.createFramebuffer(SCENE_W, SCENE_H)
+            freezeFbo = ffb; freezeReadTex = ftx
+            freezeWriteTex = r.createColorTexture(SCENE_W, SCENE_H)
+            hasSnapshot = false
+            for (t in intArrayOf(freezeReadTex, freezeWriteTex)) {
+                r.setFramebufferColor(freezeFbo, t)
+                GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
+                GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            }
+            lastFrameAtMs = SystemClock.elapsedRealtime()
+            hasEverHadFrame = false; standbyAlpha = 0f; lastFadeClockMs = 0L; frozen = false
+        }
+
+        /** Пересоздать OES+SurfaceTexture (чистое окно новому продюсеру; bug 31/реконнект). Снапшот держит кадр. */
+        fun recreate(r: GlQuadRenderer) {
+            runCatching { surfaceTexture?.setOnFrameAvailableListener(null) }
+            runCatching { surfaceTexture?.release() }
+            if (oesTex != 0) runCatching { GLES20.glDeleteTextures(1, intArrayOf(oesTex), 0) }
+            oesTex = r.createOesTexture()
+            val st = SurfaceTexture(oesTex)
+            st.setDefaultBufferSize(SCENE_W, SCENE_H)
+            st.setOnFrameAvailableListener { newFrame = true }
+            surfaceTexture = st
+            newFrame = false; frozen = false
+        }
+
+        private fun buildDrawTexMatrix() {
+            android.opengl.Matrix.setIdentityM(slotTexRot, 0)
+            android.opengl.Matrix.translateM(slotTexRot, 0, 0.5f, 0.5f, 0f)
+            if (sensorRotation != 0) android.opengl.Matrix.rotateM(slotTexRot, 0, sensorRotation.toFloat(), 0f, 0f, 1f)
+            if (mirror) android.opengl.Matrix.scaleM(slotTexRot, 0, -1f, 1f, 1f)
+            android.opengl.Matrix.translateM(slotTexRot, 0, -0.5f, -0.5f, 0f)
+            android.opengl.Matrix.multiplyMM(drawTexMatrix, 0, texMatrix, 0, slotTexRot, 0)
+        }
+
+        private fun snapshot(r: GlQuadRenderer) {
+            if (oesTex == 0 || freezeFbo == 0) return
+            val tmp = freezeReadTex; freezeReadTex = freezeWriteTex; freezeWriteTex = tmp
+            r.setFramebufferColor(freezeFbo, freezeWriteTex)
+            GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
+            GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            r.draw(oesTex, oes = true, texMatrix = drawTexMatrix, posMatrix = null, alpha = 1f)
+            hasSnapshot = true
+        }
+
+        /** Раз в кадр: забрать свежий кадр (если не frozen) → снапшот → tex-матрица → обновить альфу/пульс заглушки. */
+        fun prepare(r: GlQuadRenderer, nowMs: Long) {
+            val st = surfaceTexture
+            var consumed = false
+            if (st != null && newFrame && !frozen) {
+                runCatching { st.updateTexImage(); st.getTransformMatrix(texMatrix) }
+                newFrame = false
+                lastFrameAtMs = nowMs
+                hasEverHadFrame = true
+                consumed = true
+            }
+            buildDrawTexMatrix()
+            if (consumed) snapshot(r)
+            // Заглушка: цель по свежести, плавный фейд + пульс «дыхания» (как было в едином варианте).
+            val wantStandby = !hasEverHadFrame || (nowMs - lastFrameAtMs) >= STANDBY_HOLD_MS
+            val target = if (wantStandby) 1f else 0f
+            val dt = if (lastFadeClockMs == 0L) FRAME_MS.toFloat() else (nowMs - lastFadeClockMs).toFloat()
+            lastFadeClockMs = nowMs
+            val step = (dt / STANDBY_FADE_MS).coerceIn(0f, 1f)
+            standbyAlpha =
+                if (target > standbyAlpha) (standbyAlpha + step).coerceAtMost(target)
+                else (standbyAlpha - step).coerceAtLeast(target)
+            val phase = (nowMs % STANDBY_PULSE_MS.toLong()) / STANDBY_PULSE_MS
+            val wave = 0.5f + 0.5f * kotlin.math.sin(phase * 2f * Math.PI.toFloat())
+            standbyPulse = STANDBY_PULSE_MIN + (1f - STANDBY_PULSE_MIN) * wave
+        }
+
+        fun release(r: GlQuadRenderer?) {
+            runCatching { surfaceTexture?.setOnFrameAvailableListener(null) }
+            runCatching { surfaceTexture?.release() }
+            surfaceTexture = null
+            if (oesTex != 0) runCatching { r?.deleteTexture(oesTex) }
+            oesTex = 0
+            if (freezeFbo != 0) runCatching { r?.deleteFramebuffer(freezeFbo) }
+            if (freezeReadTex != 0) runCatching { r?.deleteTexture(freezeReadTex) }
+            if (freezeWriteTex != 0) runCatching { r?.deleteTexture(freezeWriteTex) }
+            freezeFbo = 0; freezeReadTex = 0; freezeWriteTex = 0; hasSnapshot = false
+        }
+    }
+
+    // Слоты камер по id слоя (мульти-источники). Живут строго на GL-потоке (создание/удаление/рендер).
+    private val cameraSlots = LinkedHashMap<String, CameraSlot>()
 
     // bug 32 / указание Криника — АСПЕКТ камеры-источника (ширина/высота). Камеру рисуем в её РОДНОМ
     // аспекте, без искажения: если он ≠ аспекту сцены (16:9), вписываем камеру-квад с полосами
