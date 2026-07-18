@@ -246,12 +246,16 @@ fun StreamLayersOverlay(
         }
 
         // ── Модалка настроек слоя (⚙) — per-type содержимое (interview_008 Q5) ──
-        settingsFor?.let { layer ->
+        settingsFor?.let { captured ->
+            // Берём СВЕЖИЙ слой из ТЕКУЩЕЙ сцены по id: settingsFor — снимок на момент открытия ⚙, а при
+            // смене источника обновляется Scene → снимок устаревает, и радиокнопка не подсвечивала новый
+            // выбор (источник фактически менялся — видео шло с нового, но галка оставалась на старом).
+            val layer = scene.layers.firstOrNull { it.id == captured.id } ?: captured
             LayerSettingsDialog(
                 layer = layer,
                 onDismiss = { settingsFor = null },
                 sourceOptions = sourceOptions,
-                currentSourceId = currentSourceIdOf(layer),          // текущий источник ИМЕННО этого слоя
+                currentSourceId = currentSourceIdOf(layer),          // текущий источник ИМЕННО этого слоя (свежий)
                 onSelectSource = { optId -> onSelectSource(layer.id, optId) },  // назначить этому слою
             )
         }
