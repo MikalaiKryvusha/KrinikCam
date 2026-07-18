@@ -189,14 +189,20 @@ class CompositorVideoSource : VideoSource() {
     @Volatile private var newCameraFrame = false
     private val cameraTexMatrix = FloatArray(16)
 
-    // ── Двойная буферизация поверхности камеры (идея Криника — бесшовный реконнект БЕЗ мигания в чёрное) ──
-    // При переоткрытии продюсера (реконнект вебки / смена источника) создаём PENDING OES+SurfaceTexture и
-    // открываем НОВОГО продюсера в неё, а ТЕКУЩУЮ поверхность (с удержанным последним кадром) продолжаем
-    // показывать. Как только pending отдаст ПЕРВЫЙ живой кадр — атомарно промоутим её в текущую и удаляем
-    // старую. Свежая чёрная OES нового продюсера на экран не выходит — переключение «тихо в фоне».
-    private var pendingCameraOesTex = 0
-    private var pendingCameraSurfaceTexture: SurfaceTexture? = null
-    @Volatile private var pendingNewFrame = false
+    // ── Пинг-понг снапшот кадра камеры (требования Криника а/б/в — стрим-заглушка без косяков) ──────────
+    // Держим ДВА последних кадра камеры в 2D-текстурах и меняем read↔write на каждый живой кадр так, что
+    // READ = ПРЕДПОСЛЕДНИЙ кадр. Слой-камеры ВСЕГДА рисует READ-снапшот (не сырой OES):
+    //   • живое — кадр с лагом в 1 фрейм (незаметно);
+    //   • отвал вебки (б) — держим ХОРОШИЙ кадр; битый/чёрный ПОСЛЕДНИЙ кадр закрытия всегда попадает в
+    //     WRITE и на экран НЕ выходит (показываем предпоследний хороший);
+    //   • реконнект ≤3с (а) — во время прогрева новой (чёрной) OES показываем снапшот, не чёрную склейку;
+    //   • выход из заглушки (в) — снапшот обновляется ПЕРВЫМ свежим кадром вебки ДО того, как заглушка
+    //     погаснет, поэтому заглушка фейдит именно в свежий поток, а не в старый кадр буфера.
+    private var freezeFbo = 0
+    private var freezeReadTex = 0
+    private var freezeWriteTex = 0
+    private var hasSnapshot = false
+    private val snapIdentity = FloatArray(16).also { android.opengl.Matrix.setIdentityM(it, 0) }
 
     // ── Заглушка слоя-камеры «нет сигнала» (plans/sourses_timeout) ───────────────────────────────
     // Рисуется ВНУТРИ квадрата слоя-камеры (двигается/масштабируется со слоем, попадает в эфир/запись),
@@ -277,17 +283,17 @@ class CompositorVideoSource : VideoSource() {
     }
 
     /**
-     * Пересоздать поверхность слоя-камеры для НОВОГО продюсера — БЕСШОВНО (идея Криника).
+     * Пересоздать OES+SurfaceTexture слоя-камеры для НОВОГО продюсера (чистый BufferQueue).
      *
-     * Зачем пересоздавать вообще (bug 31 + реконнект): старый продюсер (AUSBC/HWUI/Camera2) при
-     * закрытии/отвале оставляет BufferQueue поверхности в состоянии, из которого новый продюсер не
-     * доставляет кадры до консюмера-OES (превью мёрзло) либо ловится HWUI-краш «no surface». Свежая
-     * OES+SurfaceTexture = чистое окно новому продюсеру.
+     * Зачем (bug 31 + реконнект): старый продюсер (AUSBC/HWUI/Camera2) при закрытии/отвале оставляет
+     * BufferQueue поверхности в состоянии, из которого новый продюсер НЕ доставляет кадры до консюмера-OES
+     * (превью мёрзло) либо ловится HWUI-краш «no surface». Свежая OES+ST = чистое окно новому продюсеру.
      *
-     * Бесшовность (двойная буферизация): НЕ трогаем ТЕКУЩУЮ поверхность (она держит последний кадр на
-     * экране), а создаём PENDING и отдаём её наверх — RtmpStreamer откроет продюсера В НЕЁ. Переключение
-     * на pending происходит в drawFrame по ПЕРВОМУ живому кадру (промоушен) → на экран не выходит чёрная
-     * свежая OES, зритель видит старый кадр → сразу живой новый, без мигания в чёрное.
+     * Бесшовность обеспечивает НЕ эта функция, а пинг-понг СНАПШОТ (см. поля freeze*): слой рисует не
+     * сырой (свежий чёрный) OES, а снапшот с последним хорошим кадром — пока новый продюсер не отдаст
+     * живой кадр (который обновит снапшот). Поэтому свежую чёрную OES можно смело пересоздавать здесь —
+     * на экран она не попадёт. Таймер свежести НЕ трогаем: если показана заглушка, она держится, пока не
+     * придёт первый живой кадр нового потока (тогда снапшот обновится и заглушка фейдит в свежий поток).
      * Продюсер должен быть уже ЗАКРЫТ вызывающим.
      */
     fun recreateCameraSurface() {
@@ -296,23 +302,18 @@ class CompositorVideoSource : VideoSource() {
             if (!running) return@post
             val r = renderer ?: return@post
             runCatching { eglSurface?.let { eglCore?.makeCurrent(it) } }
-            // Освободить прошлую pending, если предыдущий реконнект ещё не промоутился (быстрые переключения).
-            runCatching { pendingCameraSurfaceTexture?.setOnFrameAvailableListener(null) }
-            runCatching { pendingCameraSurfaceTexture?.release() }
-            if (pendingCameraOesTex != 0) runCatching { GLES20.glDeleteTextures(1, intArrayOf(pendingCameraOesTex), 0) }
-            // Свежая OES+ST для НОВОГО продюсера. ТЕКУЩУЮ поверхность НЕ трогаем — держит кадр на экране.
-            pendingCameraOesTex = r.createOesTexture()
-            val pend = SurfaceTexture(pendingCameraOesTex)
-            pend.setDefaultBufferSize(SCENE_W, SCENE_H)
-            pend.setOnFrameAvailableListener { pendingNewFrame = true }
-            pendingCameraSurfaceTexture = pend
-            pendingNewFrame = false
+            runCatching { cameraSurfaceTexture?.setOnFrameAvailableListener(null) }
+            runCatching { cameraSurfaceTexture?.release() }
+            if (cameraOesTex != 0) runCatching { GLES20.glDeleteTextures(1, intArrayOf(cameraOesTex), 0) }
+            cameraOesTex = r.createOesTexture()
+            val camSt = SurfaceTexture(cameraOesTex)
+            camSt.setDefaultBufferSize(SCENE_W, SCENE_H)
+            camSt.setOnFrameAvailableListener { newCameraFrame = true }
+            cameraSurfaceTexture = camSt
+            newCameraFrame = false
             cameraFrozen = false
-            // Грейс-окно hold: пока pending прогревается (~1-2с), показываем СТАРЫЙ кадр, а не заглушку —
-            // сбрасываем таймер свежести (заглушку покажем, лишь если кадры не пойдут дольше STANDBY_HOLD_MS).
-            lastCameraFrameAtMs = SystemClock.elapsedRealtime()
-            KLog.d(TAG, "Camera layer: PENDING поверхность создана (бесшовный реконнект — старый кадр держится до первого нового)")
-            onCameraSurfaceReady?.invoke(pend)
+            KLog.d(TAG, "Camera layer OES/SurfaceTexture RECREATED (чистое окно новому продюсеру; снапшот держит кадр)")
+            onCameraSurfaceReady?.invoke(camSt)
         }
     }
 
@@ -353,6 +354,15 @@ class CompositorVideoSource : VideoSource() {
             val (fbo, tex) = r.createFramebuffer(SCENE_W, SCENE_H)
             sceneFbo = fbo
             sceneTex = tex
+            // Пинг-понг снапшот кадра камеры: один FBO + две 2D-текстуры (read/write), обе в чёрный.
+            freezeFbo = r.createFramebuffer(SCENE_W, SCENE_H).let { (ffb, ftx) -> freezeReadTex = ftx; ffb }
+            freezeWriteTex = r.createColorTexture(SCENE_W, SCENE_H)
+            hasSnapshot = false
+            for (ftex in intArrayOf(freezeReadTex, freezeWriteTex)) {
+                r.setFramebufferColor(freezeFbo, ftex)
+                GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
+                GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            }
             // OES-текстура + SurfaceTexture для камеры (создаём в нашем GL-контексте).
             cameraOesTex = r.createOesTexture()
             val camSt = SurfaceTexture(cameraOesTex)
@@ -385,6 +395,24 @@ class CompositorVideoSource : VideoSource() {
         }
     }
 
+    /**
+     * Пинг-понг снапшот текущего кадра камеры (вызывать на GL-потоке после забора кадра + сборки
+     * cameraDrawTexMatrix). Меняем read↔write, затем рисуем текущий OES в write-текстуру. После вызова:
+     * READ = предыдущий кадр (предпоследний), WRITE = текущий. Слой рисует READ — так последний (возможно
+     * битый/чёрный) кадр не выходит на экран (он в write). Ориентация: рисуем OES с cameraDrawTexMatrix во
+     * весь FBO (posMatrix=null), позже слой рисует read-текстуру с snapIdentity+finalM — как sceneTex.
+     */
+    private fun snapshotCameraFrame(r: GlQuadRenderer) {
+        if (cameraOesTex == 0 || freezeFbo == 0) return
+        val tmp = freezeReadTex; freezeReadTex = freezeWriteTex; freezeWriteTex = tmp
+        r.setFramebufferColor(freezeFbo, freezeWriteTex)
+        GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
+        GLES20.glClearColor(0f, 0f, 0f, 1f)
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        r.draw(cameraOesTex, oes = true, texMatrix = cameraDrawTexMatrix, posMatrix = null, alpha = 1f)
+        hasSnapshot = true
+    }
+
     private fun drawFrame() {
         val core = eglCore ?: return
         val es = eglSurface ?: return
@@ -392,38 +420,26 @@ class CompositorVideoSource : VideoSource() {
         try {
             core.makeCurrent(es)
 
-            // Двойная буферизация: ПРОМОУШЕН pending → текущая, когда новый продюсер отдал ПЕРВЫЙ кадр.
-            // До этого момента на экране держался СТАРЫЙ кадр (текущая поверхность) — без мигания в чёрное.
-            // Меняем поверхности атомарно, старую (с последним кадром) освобождаем, листенер новой
-            // переназначаем на newCameraFrame, и забираем первый кадр нового продюсера прямо в этом кадре.
-            val pend = pendingCameraSurfaceTexture
-            if (pend != null && pendingNewFrame) {
-                runCatching { cameraSurfaceTexture?.setOnFrameAvailableListener(null) }
-                runCatching { cameraSurfaceTexture?.release() }
-                if (cameraOesTex != 0) runCatching { GLES20.glDeleteTextures(1, intArrayOf(cameraOesTex), 0) }
-                cameraOesTex = pendingCameraOesTex
-                cameraSurfaceTexture = pend
-                runCatching { pend.setOnFrameAvailableListener { newCameraFrame = true } }
-                pendingCameraOesTex = 0
-                pendingCameraSurfaceTexture = null
-                pendingNewFrame = false
-                newCameraFrame = true
-                KLog.d(TAG, "Camera layer: pending ПРОМОУТ в текущую (первый кадр нового продюсера — переключились без черноты)")
-            }
-
             // Забрать свежий кадр камеры (даже если слой камеры скрыт — чтобы не копить очередь).
             val camSt = cameraSurfaceTexture
-            // cameraFrozen: источник удалён — НЕ забираем кадры (иначе заберём чёрный кадр закрытия). OES
-            // держит последний хороший кадр; hold-таймер идёт от него → через HOLD_MS проявится заглушка.
+            // cameraFrozen: источник удалён софтом — не забираем кадры (держим последний OES/снапшот/таймер).
+            var consumedFrame = false
             if (camSt != null && newCameraFrame && !cameraFrozen) {
                 runCatching { camSt.updateTexImage(); camSt.getTransformMatrix(cameraTexMatrix) }
                 newCameraFrame = false
                 // Заглушка: отметить приход живого кадра (сбрасывает hold-таймер, снимает «не было кадра»).
                 lastCameraFrameAtMs = SystemClock.elapsedRealtime()
                 hasEverHadFrame = true
+                consumedFrame = true
             }
             // bug 19 — собрать эффективную tex-матрицу камеры (базовая + sensor-поворот + зеркало).
             buildCameraDrawTexMatrix()
+
+            // Пинг-понг снапшот: на КАЖДЫЙ забранный кадр рисуем текущий OES в write-снапшот и меняем
+            // read↔write, так что READ = ПРЕДПОСЛЕДНИЙ кадр. Слой рисует READ → битый/чёрный последний
+            // кадр (напр. teardown при физическом отвале) остаётся в WRITE и на экран не выходит
+            // (требования Криника а/б/в: держим хороший кадр, реконнект без чёрной склейки).
+            if (consumedFrame) snapshotCameraFrame(r)
 
             // ── Заглушка «нет сигнала»: цель прозрачности по свежести кадров, плавно едем к ней ──────
             // wantStandby: не было ни одного кадра (сразу) ИЛИ кадров нет дольше HOLD_MS (после hold).
@@ -456,13 +472,15 @@ class CompositorVideoSource : VideoSource() {
                 layerMatrixOf(layer)                           // T·S·PhysRot слоя (в координатах сцены)
                 when (layer) {
                     is CompositorLayer.Camera -> {
-                        // Кадр камеры (во время hold — УДЕРЖАННЫЙ последний кадр) ГАСНЕТ под заглушкой:
-                        // при полной заглушке кадра нет (Криник: «заглушка должна быть БЕЗ кадра»). Кросс-фейд:
-                        // hold → кадр виден, текста нет; после hold → кадр угасает, проявляется только текст.
-                        if (cameraOesTex != 0) {
+                        // Рисуем СНАПШОТ (read = предпоследний ХОРОШИЙ кадр), а НЕ сырой OES: при отвале
+                        // держим хороший кадр (битый последний — в write, на экран не выходит), при
+                        // реконнекте показываем его же, пока новый поток не обновит снапшот (без чёрной
+                        // склейки). Кадр ГАСНЕТ под заглушкой (frameAlpha=1−standbyAlpha): hold → кадр виден,
+                        // текста нет; после hold → кадр угасает, остаётся только текст (Криник: «заглушка БЕЗ кадра»).
+                        if (hasSnapshot && freezeReadTex != 0) {
                             val frameAlpha = layer.alpha * (1f - standbyAlpha)
                             if (frameAlpha > 0.001f)
-                                r.draw(cameraOesTex, oes = true, texMatrix = cameraDrawTexMatrix, posMatrix = finalM, alpha = frameAlpha)
+                                r.draw(freezeReadTex, oes = false, texMatrix = snapIdentity, posMatrix = finalM, alpha = frameAlpha)
                         }
                         // Заглушка (только текст) В КВАДРАТЕ ЭТОГО слоя (finalM) — двигается/масштабируется со
                         // слоем, попадает в эфир/запись. Отвал одного источника не рушит остальную сцену.
@@ -620,12 +638,11 @@ class CompositorVideoSource : VideoSource() {
             cameraSurfaceTexture = null
             runCatching { if (cameraOesTex != 0) renderer?.deleteTexture(cameraOesTex) }
             cameraOesTex = 0
-            // Двойная буферизация: освободить непромоутившуюся pending-поверхность (если была).
-            runCatching { pendingCameraSurfaceTexture?.setOnFrameAvailableListener(null) }
-            runCatching { pendingCameraSurfaceTexture?.release() }
-            pendingCameraSurfaceTexture = null
-            runCatching { if (pendingCameraOesTex != 0) renderer?.deleteTexture(pendingCameraOesTex) }
-            pendingCameraOesTex = 0
+            // Пинг-понг снапшот: освободить FBO + обе текстуры.
+            runCatching { if (freezeFbo != 0) renderer?.deleteFramebuffer(freezeFbo) }
+            runCatching { if (freezeReadTex != 0) renderer?.deleteTexture(freezeReadTex) }
+            runCatching { if (freezeWriteTex != 0) renderer?.deleteTexture(freezeWriteTex) }
+            freezeFbo = 0; freezeReadTex = 0; freezeWriteTex = 0; hasSnapshot = false
             renderer = null
             runCatching { eglSurface?.let { eglCore?.releaseSurface(it) } }
             runCatching { eglCore?.release() }

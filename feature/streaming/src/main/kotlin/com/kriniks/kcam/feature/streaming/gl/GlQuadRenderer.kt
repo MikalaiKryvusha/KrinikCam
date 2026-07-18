@@ -91,6 +91,29 @@ class GlQuadRenderer {
 
     fun deleteFramebuffer(fbo: Int) { if (fbo != 0) GLES20.glDeleteFramebuffers(1, intArrayOf(fbo), 0) }
 
+    /**
+     * Создать отдельную цветовую 2D-текстуру [w]×[h] (без FBO) — для пинг-понг снапшота кадра камеры
+     * (CompositorVideoSource: держим два последних кадра, показываем предпоследний, чтобы не выводить
+     * битый/чёрный последний кадр и не мигать в чёрное при реконнекте). Рендер в неё — привязав её к
+     * общему FBO через [setFramebufferColor].
+     */
+    fun createColorTexture(w: Int, h: Int): Int {
+        val tex = IntArray(1); GLES20.glGenTextures(1, tex, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex[0])
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        return tex[0]
+    }
+
+    /** Привязать текстуру [tex] цветовым выходом FBO [fbo] (для пинг-понг рендера в разные текстуры). */
+    fun setFramebufferColor(fbo: Int, tex: Int) {
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo)
+        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, tex, 0)
+    }
+
     /** Bug 29.2 — направить рендер в FBO (проход 1) или в экран/энкодер (fbo=0, проход 2). */
     fun bindFramebuffer(fbo: Int) { GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo) }
 
