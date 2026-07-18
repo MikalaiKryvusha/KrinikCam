@@ -188,16 +188,20 @@ class CompositorVideoSource : VideoSource() {
     private val standbyM = FloatArray(16)   // finalM + контр-поворот заглушки против поворота холста
 
     /**
-     * Матрица для ТЕКСТА заглушки: как finalM слоя, но с КОНТР-поворотом против поворота холста (pass-2),
-     * чтобы текст оставался ВЕРТИКАЛЬНО ПРАВИЛЬНЫМ и в портрете (90/270), а не лежал набок (Криник).
+     * Матрица для ТЕКСТА заглушки: как finalM слоя, но с КОНТР-поворотом, чтобы текст не лежал НАБОК в
+     * портрете (90/270), но при этом 90 и 270 отличались на 180° друг от друга (как и всё, что крутится
+     * с холстом — Криник). Контр-поворот ФИКСИРОВАННЫЙ -90° для портрета (не -canvasRotation!), 0° для
+     * ландшафта → итоговая ориентация заглушки в выходе: 0°/0°/180°/180° для холста 0/90/180/270. Значит
+     * текст всегда горизонтальный (не набок), а 0/90 «прямо» vs 180/270 «перевёрнуто» — совпадает с
+     * физическим переворотом холста на 180. Поворот аспект-корректный (сцена 16:9) — как у layer.rotation.
      * Кадр камеры/снапшот крутится с холстом как видео (finalM); контр-поворот — ТОЛЬКО у текста заглушки.
-     * Поворот аспект-корректный (сцена 16:9, единицы clip-space не квадратные) — как у layer.rotation.
      */
     private fun buildStandbyMatrix() {
-        if (canvasRotation == 0) { System.arraycopy(finalM, 0, standbyM, 0, 16); return }
+        val counter = if (canvasRotation == 90 || canvasRotation == 270) -90 else 0
+        if (counter == 0) { System.arraycopy(finalM, 0, standbyM, 0, 16); return }
         android.opengl.Matrix.setIdentityM(standbyM, 0)
         android.opengl.Matrix.scaleM(standbyM, 0, 1f / SCENE_ASPECT, 1f, 1f)
-        android.opengl.Matrix.rotateM(standbyM, 0, -canvasRotation.toFloat(), 0f, 0f, 1f)
+        android.opengl.Matrix.rotateM(standbyM, 0, counter.toFloat(), 0f, 0f, 1f)
         android.opengl.Matrix.scaleM(standbyM, 0, SCENE_ASPECT, 1f, 1f)
         android.opengl.Matrix.multiplyMM(standbyM, 0, standbyM, 0, finalM, 0)
     }
