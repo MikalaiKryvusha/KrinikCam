@@ -189,6 +189,15 @@ class CompositorVideoSource : VideoSource() {
     @Volatile private var newCameraFrame = false
     private val cameraTexMatrix = FloatArray(16)
 
+    // ── Двойная буферизация поверхности камеры (идея Криника — бесшовный реконнект БЕЗ мигания в чёрное) ──
+    // При переоткрытии продюсера (реконнект вебки / смена источника) создаём PENDING OES+SurfaceTexture и
+    // открываем НОВОГО продюсера в неё, а ТЕКУЩУЮ поверхность (с удержанным последним кадром) продолжаем
+    // показывать. Как только pending отдаст ПЕРВЫЙ живой кадр — атомарно промоутим её в текущую и удаляем
+    // старую. Свежая чёрная OES нового продюсера на экран не выходит — переключение «тихо в фоне».
+    private var pendingCameraOesTex = 0
+    private var pendingCameraSurfaceTexture: SurfaceTexture? = null
+    @Volatile private var pendingNewFrame = false
+
     // ── Заглушка слоя-камеры «нет сигнала» (plans/sourses_timeout) ───────────────────────────────
     // Рисуется ВНУТРИ квадрата слоя-камеры (двигается/масштабируется со слоем, попадает в эфир/запись),
     // когда у камеры нет свежих кадров. Логика по СВЕЖЕСТИ КАДРОВ (source-агностично, без плюмбинга сцены):
@@ -268,13 +277,18 @@ class CompositorVideoSource : VideoSource() {
     }
 
     /**
-     * Bug 31 — пересоздать SurfaceTexture слоя-камеры на GL-потоке (ЧИСТОЕ окно новому продюсеру).
-     * Нужно при смене ТИПА продюсера (UVC-AUSBC ↔ виртуалка-HWUI): нативный AUSBC оставляет BufferQueue
-     * поверхности в состоянии, несовместимом с последующим HWUI `lockHardwareCanvas` → нативный SIGABRT
-     * «drawRenderNode called on a context with no surface». Свежая OES-текстура + SurfaceTexture рвут
-     * связь со старым продюсером — грубо, но надёжно (указание Криника: «надёжно, не обязательно красиво»).
-     * Продюсер должен быть уже ЗАКРЫТ вызывающим. Затем onCameraSurfaceReady(new) → RtmpStreamer
-     * откроет ТЕКУЩИЙ opener в свежую поверхность.
+     * Пересоздать поверхность слоя-камеры для НОВОГО продюсера — БЕСШОВНО (идея Криника).
+     *
+     * Зачем пересоздавать вообще (bug 31 + реконнект): старый продюсер (AUSBC/HWUI/Camera2) при
+     * закрытии/отвале оставляет BufferQueue поверхности в состоянии, из которого новый продюсер не
+     * доставляет кадры до консюмера-OES (превью мёрзло) либо ловится HWUI-краш «no surface». Свежая
+     * OES+SurfaceTexture = чистое окно новому продюсеру.
+     *
+     * Бесшовность (двойная буферизация): НЕ трогаем ТЕКУЩУЮ поверхность (она держит последний кадр на
+     * экране), а создаём PENDING и отдаём её наверх — RtmpStreamer откроет продюсера В НЕЁ. Переключение
+     * на pending происходит в drawFrame по ПЕРВОМУ живому кадру (промоушен) → на экран не выходит чёрная
+     * свежая OES, зритель видит старый кадр → сразу живой новый, без мигания в чёрное.
+     * Продюсер должен быть уже ЗАКРЫТ вызывающим.
      */
     fun recreateCameraSurface() {
         val h = handler ?: return
@@ -282,24 +296,23 @@ class CompositorVideoSource : VideoSource() {
             if (!running) return@post
             val r = renderer ?: return@post
             runCatching { eglSurface?.let { eglCore?.makeCurrent(it) } }
-            // Освободить старую поверхность камеры (продюсер уже закрыт вызывающим).
-            runCatching { cameraSurfaceTexture?.setOnFrameAvailableListener(null) }
-            runCatching { cameraSurfaceTexture?.release() }
-            if (cameraOesTex != 0) runCatching { GLES20.glDeleteTextures(1, intArrayOf(cameraOesTex), 0) }
-            // Свежая OES-текстура + SurfaceTexture (как в initGl) — новый продюсер получит чистый BufferQueue.
-            cameraOesTex = r.createOesTexture()
-            val camSt = SurfaceTexture(cameraOesTex)
-            camSt.setDefaultBufferSize(SCENE_W, SCENE_H)
-            camSt.setOnFrameAvailableListener { newCameraFrame = true }
-            cameraSurfaceTexture = camSt
-            newCameraFrame = false
+            // Освободить прошлую pending, если предыдущий реконнект ещё не промоутился (быстрые переключения).
+            runCatching { pendingCameraSurfaceTexture?.setOnFrameAvailableListener(null) }
+            runCatching { pendingCameraSurfaceTexture?.release() }
+            if (pendingCameraOesTex != 0) runCatching { GLES20.glDeleteTextures(1, intArrayOf(pendingCameraOesTex), 0) }
+            // Свежая OES+ST для НОВОГО продюсера. ТЕКУЩУЮ поверхность НЕ трогаем — держит кадр на экране.
+            pendingCameraOesTex = r.createOesTexture()
+            val pend = SurfaceTexture(pendingCameraOesTex)
+            pend.setDefaultBufferSize(SCENE_W, SCENE_H)
+            pend.setOnFrameAvailableListener { pendingNewFrame = true }
+            pendingCameraSurfaceTexture = pend
+            pendingNewFrame = false
             cameraFrozen = false
-            // Свежая OES = чёрная (кадра ещё нет). Даём НОВОМУ продюсеру грейс-окно hold: сбрасываем
-            // таймер свежести на «сейчас» → пока камера прогревается (~1-2с), заглушка НЕ мигает (её
-            // покажем, только если кадры не пойдут дольше STANDBY_HOLD_MS). hasEverHadFrame НЕ трогаем.
+            // Грейс-окно hold: пока pending прогревается (~1-2с), показываем СТАРЫЙ кадр, а не заглушку —
+            // сбрасываем таймер свежести (заглушку покажем, лишь если кадры не пойдут дольше STANDBY_HOLD_MS).
             lastCameraFrameAtMs = SystemClock.elapsedRealtime()
-            KLog.d(TAG, "Camera layer SurfaceTexture RECREATED (чистое окно новому продюсеру; hold сброшен)")
-            onCameraSurfaceReady?.invoke(camSt)
+            KLog.d(TAG, "Camera layer: PENDING поверхность создана (бесшовный реконнект — старый кадр держится до первого нового)")
+            onCameraSurfaceReady?.invoke(pend)
         }
     }
 
@@ -378,6 +391,25 @@ class CompositorVideoSource : VideoSource() {
         val r = renderer ?: return
         try {
             core.makeCurrent(es)
+
+            // Двойная буферизация: ПРОМОУШЕН pending → текущая, когда новый продюсер отдал ПЕРВЫЙ кадр.
+            // До этого момента на экране держался СТАРЫЙ кадр (текущая поверхность) — без мигания в чёрное.
+            // Меняем поверхности атомарно, старую (с последним кадром) освобождаем, листенер новой
+            // переназначаем на newCameraFrame, и забираем первый кадр нового продюсера прямо в этом кадре.
+            val pend = pendingCameraSurfaceTexture
+            if (pend != null && pendingNewFrame) {
+                runCatching { cameraSurfaceTexture?.setOnFrameAvailableListener(null) }
+                runCatching { cameraSurfaceTexture?.release() }
+                if (cameraOesTex != 0) runCatching { GLES20.glDeleteTextures(1, intArrayOf(cameraOesTex), 0) }
+                cameraOesTex = pendingCameraOesTex
+                cameraSurfaceTexture = pend
+                runCatching { pend.setOnFrameAvailableListener { newCameraFrame = true } }
+                pendingCameraOesTex = 0
+                pendingCameraSurfaceTexture = null
+                pendingNewFrame = false
+                newCameraFrame = true
+                KLog.d(TAG, "Camera layer: pending ПРОМОУТ в текущую (первый кадр нового продюсера — переключились без черноты)")
+            }
 
             // Забрать свежий кадр камеры (даже если слой камеры скрыт — чтобы не копить очередь).
             val camSt = cameraSurfaceTexture
@@ -588,6 +620,12 @@ class CompositorVideoSource : VideoSource() {
             cameraSurfaceTexture = null
             runCatching { if (cameraOesTex != 0) renderer?.deleteTexture(cameraOesTex) }
             cameraOesTex = 0
+            // Двойная буферизация: освободить непромоутившуюся pending-поверхность (если была).
+            runCatching { pendingCameraSurfaceTexture?.setOnFrameAvailableListener(null) }
+            runCatching { pendingCameraSurfaceTexture?.release() }
+            pendingCameraSurfaceTexture = null
+            runCatching { if (pendingCameraOesTex != 0) renderer?.deleteTexture(pendingCameraOesTex) }
+            pendingCameraOesTex = 0
             renderer = null
             runCatching { eglSurface?.let { eglCore?.releaseSurface(it) } }
             runCatching { eglCore?.release() }
