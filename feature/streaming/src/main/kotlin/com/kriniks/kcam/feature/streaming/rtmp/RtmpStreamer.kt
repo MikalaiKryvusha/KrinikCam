@@ -507,14 +507,17 @@ class RtmpStreamer @Inject constructor(
         val wasPortrait = _videoRotation.value == 90 || _videoRotation.value == 270
         val nowPortrait = normalized == 90 || normalized == 270
         _videoRotation.value = normalized
-        compositorSource.setCanvasRotation(normalized)
         KLog.i(TAG, "Canvas rotation set to $normalized°")
         if (wasPortrait == nowPortrait) {
             // 0↔180 или 90↔270: размер холста ТОТ ЖЕ — только матрица поворота композитора, БЕЗ
             // рестарта и БЕЗ переоткрытия камеры (нет чёрного мигания; §7 частично закрыт для этих
             // переходов). Композитор нарисует следующий кадр уже повёрнутым; превью его зеркалит.
+            // Поворот применяем СРАЗУ (размер не меняется → рассинхрона нет).
+            compositorSource.setCanvasRotation(normalized)
             KLog.d(TAG, "rotation $normalized°: размер холста без изменений — matrix-only, камера не трогается")
         } else if (rtmpStream?.isOnPreview == true) {
+            // Портрет↔ландшафт: поворот НЕ применяем здесь — resizeCanvasInPreview применит поворот И
+            // новый размер выхода АТОМАРНО (иначе кадры с новым поворотом в старом размере → прыжок).
             // Портрет↔пейзаж: нужен ДРУГОЙ размер холста энкодера. КРИТИЧНО (bug 27): НЕ пересобираем
             // поверхность превью через stopPreview/startPreview — это гонка с системным HWUI
             // RenderThread за EGL-контекст поверхности TextureView → SIGABRT EGL_BAD_CONTEXT (Криник
@@ -545,10 +548,10 @@ class RtmpStreamer @Inject constructor(
             gl.setIsPortrait(portrait)
             gl.setAspectRatioMode(AspectRatioMode.Adjust)
             gl.setCameraOrientation(0)           // повороты делает композитор (Bug 02 A)
-            compositorSource.setCanvasRotation(deg)
             // Bug 29.3: НЕ рестартим композитор (changeVideoSource переоткрывал бы камеру → freeze).
-            // Ресайзим холст композитора вживую, камера-продюсер продолжает писать в ту же поверхность.
-            compositorSource.resizeCanvasKeepingCamera(encW, encH)
+            // Ресайзим холст композитора вживую (камера-продюсер продолжает писать в ту же поверхность) +
+            // применяем поворот АТОМАРНО в одном GL-посте → нет рассинхрона поворот/размер (нет прыжка).
+            compositorSource.resizeCanvasKeepingCamera(encW, encH, deg)
             applySceneLayers()
             KLog.i(TAG, "resizeCanvasInPreview: enc ${encW}x${encH} portrait=$portrait (камера не трогается)")
         } catch (e: Exception) {

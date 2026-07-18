@@ -162,17 +162,22 @@ class CompositorVideoSource : VideoSource() {
      * encW/encH (viewport). SurfaceTexture НЕ пересоздаём → камера-продюсер продолжает писать, НЕ
      * закрывается. Никакого onCameraSurfaceReady. Вызывается вместо changeVideoSource на смене поворота.
      */
-    fun resizeCanvasKeepingCamera(w: Int, h: Int) {
+    fun resizeCanvasKeepingCamera(w: Int, h: Int, rotation: Int) {
         if (w <= 0 || h <= 0) return
         handler?.post {
             if (!running) return@post
+            // АТОМАРНО (в одном GL-посте): поворот холста И новый размер выхода. Иначе поворот (volatile-
+            // поле, применяется сразу) обгонял отложенный ресайз → несколько кадров рендерились с НОВЫМ
+            // поворотом, но СТАРЫМ размером выхода (портрет-поворот в ландшафт-буфер) → сцена (видео И
+            // заглушка) «прыгала» вбок и возвращалась. Теперь один и тот же drawFrame видит оба изменения.
+            canvasRotation = ((rotation % 360) + 360) % 360
             encW = w
             encH = h
             // Ресайзим ТОЛЬКО выходной буфер энкодера (проход 2 рисует в encW×encH). Камера-буфер и
             // FBO-сцена ФИКСИРОВАНЫ 16:9 (проход 1) — их НЕ трогаем: камера не сжимается и не
             // переоткрывается, поток непрерывен (bug 29.2/29.3).
             runCatching { outputSurfaceTexture?.setDefaultBufferSize(w, h) }
-            KLog.i(TAG, "resizeCanvasKeepingCamera → выход ${w}x${h} (камера/FBO 16:9 неизменны)")
+            KLog.i(TAG, "resizeCanvasKeepingCamera → выход ${w}x${h}, поворот ${canvasRotation}° (атомарно; камера/FBO 16:9 неизменны)")
         } ?: KLog.w(TAG, "resizeCanvasKeepingCamera: handler null (композитор не запущен)")
     }
 
@@ -180,6 +185,22 @@ class CompositorVideoSource : VideoSource() {
     private val canvasM = FloatArray(16)
     private val layerM = FloatArray(16)
     private val finalM = FloatArray(16)
+    private val standbyM = FloatArray(16)   // finalM + контр-поворот заглушки против поворота холста
+
+    /**
+     * Матрица для ТЕКСТА заглушки: как finalM слоя, но с КОНТР-поворотом против поворота холста (pass-2),
+     * чтобы текст оставался ВЕРТИКАЛЬНО ПРАВИЛЬНЫМ и в портрете (90/270), а не лежал набок (Криник).
+     * Кадр камеры/снапшот крутится с холстом как видео (finalM); контр-поворот — ТОЛЬКО у текста заглушки.
+     * Поворот аспект-корректный (сцена 16:9, единицы clip-space не квадратные) — как у layer.rotation.
+     */
+    private fun buildStandbyMatrix() {
+        if (canvasRotation == 0) { System.arraycopy(finalM, 0, standbyM, 0, 16); return }
+        android.opengl.Matrix.setIdentityM(standbyM, 0)
+        android.opengl.Matrix.scaleM(standbyM, 0, 1f / SCENE_ASPECT, 1f, 1f)
+        android.opengl.Matrix.rotateM(standbyM, 0, -canvasRotation.toFloat(), 0f, 0f, 1f)
+        android.opengl.Matrix.scaleM(standbyM, 0, SCENE_ASPECT, 1f, 1f)
+        android.opengl.Matrix.multiplyMM(standbyM, 0, standbyM, 0, finalM, 0)
+    }
 
     // ── Слой-камера (OES) ────────────────────────────────────────────────────
     // Компоновщик САМ создаёт OES-текстуру + SurfaceTexture; в неё пишет камера-продюсер (Camera2/USB/
@@ -482,15 +503,16 @@ class CompositorVideoSource : VideoSource() {
                             if (frameAlpha > 0.001f)
                                 r.draw(freezeReadTex, oes = false, texMatrix = snapIdentity, posMatrix = finalM, alpha = frameAlpha)
                         }
-                        // Заглушка (только текст) В КВАДРАТЕ ЭТОГО слоя (finalM) — двигается/масштабируется со
-                        // слоем, попадает в эфир/запись. Отвал одного источника не рушит остальную сцену.
-                        // Подпись — статична; ЗАГОЛОВОК — пульсирует альфой (standbyPulse), «дышит» как старое превью.
+                        // Заглушка (только текст) В КВАДРАТЕ ЭТОГО слоя — двигается/масштабируется со слоем,
+                        // попадает в эфир/запись. КОНТР-поворот (standbyM) держит текст вертикально правильным
+                        // и в портрете (90/270). Подпись — статична; ЗАГОЛОВОК пульсирует альфой (standbyPulse).
                         if (standbyAlpha > 0.001f) {
+                            buildStandbyMatrix()
                             val base = standbyAlpha * layer.alpha
                             if (standbyBodyTex != 0)
-                                r.draw(standbyBodyTex, oes = false, posMatrix = finalM, alpha = base)
+                                r.draw(standbyBodyTex, oes = false, posMatrix = standbyM, alpha = base)
                             if (standbyTitleTex != 0)
-                                r.draw(standbyTitleTex, oes = false, posMatrix = finalM, alpha = base * standbyPulse)
+                                r.draw(standbyTitleTex, oes = false, posMatrix = standbyM, alpha = base * standbyPulse)
                         }
                     }
                     is CompositorLayer.Image -> {
