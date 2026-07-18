@@ -64,6 +64,8 @@
     <string name="um_title_8">8. Platforms</string>
     <string-array name="um_body_8">
         <item>A platform profile is defined by the server address and the stream key; profiles are saved and switched.</item>
+        <item>A platform references a separate CODEC PROFILE that defines how to encode: video resolution, frame rate, video bitrate, video codec (H.264, H.265 or AV1), and audio (bitrate, sample rate, and channel mode — stereo, mono or joined stereo). One codec profile can be shared by several platforms.</item>
+        <item>Codec profiles are created and edited in their own manager, opened from the platform screen; editing a codec profile affects every platform that uses it. The video bitrate is chosen from quick presets in megabits per second or entered by hand. File recording is encoded with the codec profile of the active platform.</item>
         <item>Profiles can be exported and imported, which allows backup copies of the configuration.</item>
         <item>Simultaneous broadcasting to several platforms is built on the same profile system.</item>
     </string-array>

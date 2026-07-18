@@ -41,13 +41,18 @@ import android.provider.MediaStore
 import android.view.TextureView
 import java.io.File
 import com.pedro.common.ConnectChecker
+// Профиль кодера — библиотечный enum кодеков RootEncoder; домен-модель VideoCodec маппится в него.
+import com.pedro.common.VideoCodec as PedroVideoCodec
 import com.pedro.library.base.recording.RecordController
 import java.lang.ref.WeakReference
 import com.pedro.encoder.utils.gl.AspectRatioMode
 import com.pedro.library.multiple.MultiStream
 import com.pedro.library.multiple.MultiType
 import com.kriniks.kcam.core.logging.KLog
+import com.kriniks.kcam.data.profiles.model.AudioChannelMode
+import com.kriniks.kcam.data.profiles.model.EncoderProfile
 import com.kriniks.kcam.data.profiles.model.StreamProfile
+import com.kriniks.kcam.data.profiles.model.VideoCodec
 import com.kriniks.kcam.feature.streaming.gl.CompositorLayer
 import com.kriniks.kcam.feature.streaming.gl.CompositorVideoSource
 import com.kriniks.kcam.feature.streaming.model.StreamState
@@ -568,11 +573,15 @@ class RtmpStreamer @Inject constructor(
      * otherwise sneak in 270° for "phone sensors" — Bug 02 A). No RotatableSource, no
      * setStreamRotation — those legacy mechanisms are gone. Returns whether prepareVideo succeeded.
      */
-    private fun configureCaptureRotation(stream: MultiStream, profile: StreamProfile): Boolean {
+    private fun configureCaptureRotation(stream: MultiStream, encoder: EncoderProfile): Boolean {
         val deg = _videoRotation.value
         val portrait = deg == 90 || deg == 270
-        val (encW, encH) = rotatedDims(profile.videoWidth, profile.videoHeight, deg)
-        val vp = stream.prepareVideo(encW, encH, profile.videoBitrateBps, profile.videoFps, 2)
+        val (encW, encH) = rotatedDims(encoder.videoWidth, encoder.videoHeight, deg)
+        // Профиль кодера — видеокодек задаётся ДО prepareVideo (RootEncoder кэширует выбор в
+        // videoEncoder.type перед конфигом MediaCodec; после prepare менять поздно). H.264 —
+        // безопасный дефолт; H.265/AV1 экономят битрейт, но RTMP-приёмник должен их принять.
+        stream.setVideoCodec(encoder.videoCodec.toPedro())
+        val vp = stream.prepareVideo(encW, encH, encoder.videoBitrateBps, encoder.videoFps, 2)
         val gl = stream.getGlInterface()
         gl.setIsPortrait(portrait)     // full-frame viewport for the portrait canvas (no letterbox)
         gl.setCameraOrientation(0)     // library does NO rotation — the compositor owns it (Bug 02 A)
@@ -580,8 +589,35 @@ class RtmpStreamer @Inject constructor(
         // Restart the source so it re-allocates its producer buffer at the new encoder geometry.
         runCatching { stream.changeVideoSource(compositorSource) }
             .onFailure { KLog.w(TAG, "configureCaptureRotation: source rebind failed", it) }
-        KLog.i(TAG, "configureCaptureRotation: canvas=$deg° enc ${encW}x${encH} portrait=$portrait vp=$vp")
+        KLog.i(TAG, "configureCaptureRotation: canvas=$deg° enc ${encW}x${encH} portrait=$portrait codec=${encoder.videoCodec.name} vp=$vp")
         return vp
+    }
+
+    /** Профиль кодера — маппинг домен-модели кодека в библиотечный enum RootEncoder. */
+    private fun VideoCodec.toPedro(): PedroVideoCodec = when (this) {
+        VideoCodec.H264 -> PedroVideoCodec.H264
+        VideoCodec.H265 -> PedroVideoCodec.H265
+        VideoCodec.AV1  -> PedroVideoCodec.AV1
+    }
+
+    /**
+     * Профиль кодера — подготовка звука по режиму каналов (bug 44).
+     *  STEREO        — 2 канала, L/R как с источника (prepareAudio isStereo=true).
+     *  MONO          — 1 канал (isStereo=false); AudioRecord с одним каналом даёт микс микрофона.
+     *  JOINED_STEREO — 2 канала (isStereo=true). Истинный даунмикс L+R в оба канала (L=R) требует
+     *                  своей PCM-обработки — TODO (сейчас стерео-контейнер, passthrough). Помечено в
+     *                  plans/14 / bug 44 как остаток; STEREO/MONO работают корректно уже сейчас.
+     */
+    private fun prepareAudioFor(stream: MultiStream, encoder: EncoderProfile): Boolean {
+        val isStereo = encoder.audioChannelMode != AudioChannelMode.MONO
+        if (encoder.audioChannelMode == AudioChannelMode.JOINED_STEREO) {
+            KLog.w(TAG, "prepareAudioFor: JOINED_STEREO — даунмикс L+R→оба канала ещё не реализован " +
+                    "(PCM-фильтр), пока стерео-passthrough. TODO plans/14/bug44")
+        }
+        val ok = stream.prepareAudio(encoder.audioSampleRate, isStereo, encoder.audioBitrateBps)
+        KLog.d(TAG, "prepareAudioFor → $ok (${encoder.audioSampleRate}Hz " +
+                "${encoder.audioChannelMode.name} ${encoder.audioBitrateBps / 1000}kbps)")
+        return ok
     }
 
     /**
@@ -720,16 +756,17 @@ class RtmpStreamer @Inject constructor(
      *  4. stream.startStream(url) — start RTMP + GL pipeline
      *  5. schedulePreviewRestoreAfterStream — re-attach TextureView once GL is ready
      */
-    /** Одно-профильный запуск (обёртка над мультивыходом). */
-    fun startStream(profile: StreamProfile): Boolean = startStream(listOf(profile))
+    /** Одно-профильный запуск (обёртка над мультивыходом). [encoder] — профиль кодера (plans/14). */
+    fun startStream(profile: StreamProfile, encoder: EncoderProfile): Boolean =
+        startStream(listOf(profile), encoder)
 
     /**
      * plans/07 S3 — МУЛЬТИСТРИМ: запустить трансляцию на НЕСКОЛЬКО платформ разом (ютуб+инстаграм…).
-     * Один энкодер (наш композитор) кодирует ОДИН раз; каждый профиль = отдельный RTMP-выход (index).
-     * Параметры энкодера (разрешение/битрейт/fps) берём у ПЕРВОГО (основного) профиля — выходы общие.
-     * Ограничение — [maxRtmpOutputs] выходов.
+     * Один энкодер (наш композитор) кодирует ОДИН раз; каждый профиль платформы = отдельный RTMP-выход.
+     * Параметры энкодера берём из [encoder] (профиль кодера, plans/14 — резолвится в репозитории по
+     * encoderProfileId первого выхода). Ограничение — [maxRtmpOutputs] выходов.
      */
-    fun startStream(profiles: List<StreamProfile>): Boolean {
+    fun startStream(profiles: List<StreamProfile>, encoder: EncoderProfile): Boolean {
         val profile = profiles.firstOrNull() ?: run {
             KLog.e(TAG, "startStream: пустой список профилей")
             return false
@@ -746,8 +783,9 @@ class RtmpStreamer @Inject constructor(
         }
 
         val rtmpUrl = "${profile.rtmpUrl}/${profile.streamKey}"
-        KLog.i(TAG, "startStream: profile='${profile.name}' ${profile.videoWidth}x${profile.videoHeight}" +
-                " ${profile.videoFps}fps ${profile.videoBitrateBps}bps → $rtmpUrl")
+        KLog.i(TAG, "startStream: platform='${profile.name}' encoder='${encoder.name}' " +
+                "${encoder.videoWidth}x${encoder.videoHeight} ${encoder.videoFps}fps " +
+                "${encoder.videoBitrateBps}bps ${encoder.videoCodec.name} → $rtmpUrl")
         KLog.d(TAG, "startStream: isOnPreview=${stream.isOnPreview}" +
                 " glRunning=${stream.getGlInterface().isRunning}")
 
@@ -763,11 +801,11 @@ class RtmpStreamer @Inject constructor(
             // CRITICAL: RootEncoder StreamBase.prepareVideo signature is
             //   prepareVideo(width, height, bitrate, fps = 30, iFrameInterval = 2, ...)
             // i.e. BITRATE is the 3rd param and FPS the 4th (Bug 02). iFrameInterval=2 = 2s GOP.
-            val videoPrepared = configureCaptureRotation(stream, profile)
-            KLog.d(TAG, "startStream: prepareVideo+rotation → $videoPrepared (canvas=${_videoRotation.value}° ${profile.videoFps}fps iFrame=2s)")
+            val videoPrepared = configureCaptureRotation(stream, encoder)
+            KLog.d(TAG, "startStream: prepareVideo+rotation → $videoPrepared (canvas=${_videoRotation.value}° ${encoder.videoFps}fps iFrame=2s)")
 
-            val audioPrepared = stream.prepareAudio(44100, true, 128_000)
-            KLog.d(TAG, "startStream: prepareAudio → $audioPrepared (44100Hz stereo 128kbps)")
+            // Профиль кодера — звук из профиля кодера (частота/режим каналов/битрейт), а не хардкод.
+            val audioPrepared = prepareAudioFor(stream, encoder)
 
             if (!videoPrepared || !audioPrepared) {
                 val msg = "Failed to prepare encoder (video=$videoPrepared audio=$audioPrepared)"
@@ -794,11 +832,11 @@ class RtmpStreamer @Inject constructor(
             }
             KLog.d(TAG, "startStream: запущено выходов=${outputs.size} — ждём GL + ConnectChecker")
 
-            // idea 37 — телеметрия + адаптер: цель = битрейт профиля (энкодер один на все выходы),
-            // адаптив включён, только если ВСЕ профили эфира его просят; тикер сам умрёт по концу эфира.
-            targetVideoBitrateBps = outputs.first().videoBitrateBps
+            // idea 37 — телеметрия + адаптер: цель = битрейт профиля КОДЕРА (энкодер один на все
+            // выходы); адаптив — свойство профиля кодера (plans/14); тикер сам умрёт по концу эфира.
+            targetVideoBitrateBps = encoder.videoBitrateBps
             currentVideoBitrateBps = targetVideoBitrateBps
-            adaptiveBitrateEnabled = outputs.all { it.adaptiveBitrate }
+            adaptiveBitrateEnabled = encoder.adaptiveBitrate
             KLog.i(TAG, "idea37: target=${targetVideoBitrateBps / 1000}kbps adaptive=$adaptiveBitrateEnabled")
             startLiveTicker()
 
@@ -963,7 +1001,7 @@ class RtmpStreamer @Inject constructor(
      * Camera dropout mid-record is now HARMLESS (Phase 3): no source swap happens, the compositor
      * keeps feeding the encoder (black base + layers) and the MediaMuxer timeline stays intact.
      */
-    fun startRecordToFile(profile: StreamProfile): String? {
+    fun startRecordToFile(encoder: EncoderProfile): String? {
         val stream = rtmpStream ?: run {
             KLog.e(TAG, "startRecordToFile: no rtmpStream — start preview first")
             return null
@@ -978,9 +1016,9 @@ class RtmpStreamer @Inject constructor(
         isStreamSetupInProgress = true
         try {
             if (stream.isOnPreview) stream.stopPreview()
-            // Same rotation config as the real stream (shared helper) — record == stream.
-            val vp = configureCaptureRotation(stream, profile)
-            val ap = stream.prepareAudio(44100, true, 128_000)
+            // bug 51 — запись кодируется ВЫБРАННЫМ профилем кодера (тот же путь, что эфир: record == stream).
+            val vp = configureCaptureRotation(stream, encoder)
+            val ap = prepareAudioFor(stream, encoder)
             if (!vp || !ap) {
                 KLog.e(TAG, "startRecordToFile: prepare failed (video=$vp audio=$ap)")
                 isStreamSetupInProgress = false

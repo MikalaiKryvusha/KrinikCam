@@ -25,6 +25,34 @@
     <string name="field_resolution">Resolution (16:9)</string>
     <string name="field_adaptive_bitrate">Adaptive bitrate</string>
     <string name="field_adaptive_bitrate_hint">Lower quality instead of freezing on a weak network</string>
+    <!-- Encoder profile (video/audio) -->
+    <string name="section_video">Video</string>
+    <string name="section_audio">Audio</string>
+    <string name="field_video_bitrate">Video bitrate (Mbit/s)</string>
+    <string name="bitrate_custom">Custom</string>
+    <string name="field_video_bitrate_kbps">Bitrate (kbit/s)</string>
+    <string name="field_codec">Video codec</string>
+    <string name="codec_hevc_hint">H.265 halves the bitrate for the same quality, but not every RTMP destination accepts it (YouTube does; many don\'t). Safe for file recording.</string>
+    <string name="field_audio_bitrate">Audio bitrate</string>
+    <string name="field_sample_rate">Sample rate</string>
+    <string name="field_stereo">Stereo</string>
+    <string name="field_mono">Mono</string>
+    <!-- Encoder profile manager (plans/14) -->
+    <string name="encoder_profiles_title">Codec profiles</string>
+    <string name="encoder_profiles_add_desc">Add codec profile</string>
+    <string name="encoder_profiles_empty">No codec profiles yet.\nTap + to create one.</string>
+    <string name="encoder_profile_form_title">Codec profile</string>
+    <string name="encoder_profile_delete_title">Delete codec profile?</string>
+    <string name="encoder_profile_delete_text">“%1$s” will be deleted.</string>
+    <string name="field_video_bitrate_mbps">Bitrate (Mbit/s)</string>
+    <string name="field_codec_profile">Codec profile</string>
+    <string name="encoder_manage">Manage codec profiles</string>
+    <string name="field_channel_mode">Audio channels</string>
+    <string name="channel_stereo">Stereo</string>
+    <string name="channel_mono">Mono</string>
+    <string name="channel_joined">Joined stereo</string>
+    <string name="codec_av1_hint">AV1 is the most efficient, but almost no RTMP platform accepts it — safe for file recording. Only codecs your device can hardware-encode are listed.</string>
+    <string name="snack_encoder_profile_reassigned">Codec profile deleted — %1$d platform(s) moved to a fallback profile</string>
 
     <!-- Common actions -->
     <string name="common_delete">Delete</string>

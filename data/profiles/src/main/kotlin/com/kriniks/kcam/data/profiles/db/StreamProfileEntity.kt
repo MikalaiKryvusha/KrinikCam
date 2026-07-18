@@ -1,7 +1,11 @@
 /**
  * StreamProfileEntity — Room table row for a streaming platform profile.
  * Maps 1:1 to StreamProfile domain model via toProfile() / StreamProfile.toEntity().
- * Related: AppDatabase, StreamProfileDao, StreamProfile (domain model)
+ *
+ * Поля кодера вынесены в encoder_profiles (EncoderProfileEntity); здесь только ссылка
+ * encoderProfileId (bug 41 / plans/14, schema v4).
+ *
+ * Related: AppDatabase, StreamProfileDao, StreamProfile (domain model), EncoderProfileEntity
  */
 
 package com.kriniks.kcam.data.profiles.db
@@ -19,12 +23,8 @@ data class StreamProfileEntity(
     val rtmpUrl: String,
     val streamKey: String,
     val isEnabled: Boolean,
-    val videoWidth: Int,
-    val videoHeight: Int,
-    val videoFps: Int,
-    val videoBitrateBps: Int,
-    // idea 37 — версия схемы 2 (MIGRATION_1_2): адаптивный битрейт, дефолт ВКЛ.
-    val adaptiveBitrate: Boolean = true,
+    // schema v4 (plans/14): ссылка на профиль кодера (encoder_profiles.id). Кодер-поля больше не тут.
+    val encoderProfileId: Long = 0,
 ) {
     fun toProfile() = StreamProfile(
         id             = id,
@@ -36,11 +36,7 @@ data class StreamProfileEntity(
         rtmpUrl        = rtmpUrl,
         streamKey      = streamKey,
         isEnabled      = isEnabled,
-        videoWidth     = videoWidth,
-        videoHeight    = videoHeight,
-        videoFps       = videoFps,
-        videoBitrateBps = videoBitrateBps,
-        adaptiveBitrate = adaptiveBitrate,
+        encoderProfileId = encoderProfileId,
     )
 }
 
@@ -51,9 +47,5 @@ fun StreamProfile.toEntity() = StreamProfileEntity(
     rtmpUrl         = rtmpUrl,
     streamKey       = streamKey,
     isEnabled       = isEnabled,
-    videoWidth      = videoWidth,
-    videoHeight     = videoHeight,
-    videoFps        = videoFps,
-    videoBitrateBps = videoBitrateBps,
-    adaptiveBitrate = adaptiveBitrate,
+    encoderProfileId = encoderProfileId,
 )

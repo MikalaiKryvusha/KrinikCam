@@ -20,8 +20,10 @@ import android.view.TextureView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kriniks.kcam.core.logging.KLog
+import com.kriniks.kcam.data.profiles.model.EncoderProfile
 import com.kriniks.kcam.data.profiles.model.ProfilesBackupCodec
 import com.kriniks.kcam.data.profiles.model.StreamProfile
+import com.kriniks.kcam.data.profiles.model.VideoCodec
 import com.kriniks.kcam.feature.streaming.R
 import com.kriniks.kcam.feature.streaming.domain.StreamingRepository
 import com.kriniks.kcam.feature.streaming.model.StreamState
@@ -36,7 +38,15 @@ private const val TAG = "StreamViewModel"
 @HiltViewModel
 class StreamViewModel @Inject constructor(
     private val repository: StreamingRepository,
+    // Сканер аппаратных кодеров устройства (MediaCodecList) — для списка ДОСТУПНЫХ кодеков (bug 42).
+    private val codecScanner: com.kriniks.kcam.feature.codec.CodecScanner,
 ) : ViewModel() {
+
+    // Кодеки, которые РЕАЛЬНО умеет аппаратно кодировать SoC устройства. В выборе кодека показываем
+    // ТОЛЬКО их — нельзя выбрать то, что процессор не кодирует (требование Криника). H.264 — фолбэк
+    // (есть на любом устройстве). Заполняется сканом на старте.
+    private val _supportedCodecs = MutableStateFlow(listOf(VideoCodec.H264))
+    val supportedCodecs: StateFlow<List<VideoCodec>> = _supportedCodecs.asStateFlow()
 
     val streamState: StateFlow<StreamState> = repository.streamState
 
@@ -219,6 +229,10 @@ class StreamViewModel @Inject constructor(
     val profiles: StateFlow<List<StreamProfile>> = repository.allProfiles
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // plans/14 — профили кодера (отдельная сущность): список для менеджера и пикера в форме платформы.
+    val encoderProfiles: StateFlow<List<EncoderProfile>> = repository.encoderProfiles
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val _activeProfile = MutableStateFlow<StreamProfile?>(null)
     val activeProfile: StateFlow<StreamProfile?> = _activeProfile.asStateFlow()
 
@@ -232,6 +246,26 @@ class StreamViewModel @Inject constructor(
                 if (_activeProfile.value == null) {
                     _activeProfile.value = list.firstOrNull()
                 }
+            }
+        }
+        // plans/14 — гарантируем хотя бы один профиль кодера (дефолтный), чтобы пикер и резолв не были пусты.
+        viewModelScope.launch { repository.ensureDefaultEncoderProfile() }
+        // bug 42 — пробим железо: список кодеков в UI = ТОЛЬКО те, что SoC умеет кодировать аппаратно.
+        // Весь скан в защите: любой сбой MediaCodecList не должен ронять приложение (фолбэк — H.264).
+        viewModelScope.launch {
+            runCatching {
+                val hw = codecScanner.scan().filter { it.isHardwareAccelerated }
+                buildList {
+                    if (hw.any { it.isH264 }) add(VideoCodec.H264)
+                    if (hw.any { it.isHevc }) add(VideoCodec.H265)
+                    if (hw.any { it.isAv1 }) add(VideoCodec.AV1)
+                }.ifEmpty { listOf(VideoCodec.H264) }
+            }.onSuccess {
+                _supportedCodecs.value = it
+                KLog.i(TAG, "Аппаратные видеокодеки устройства: ${it.joinToString { c -> c.name }}")
+            }.onFailure {
+                KLog.e(TAG, "Скан кодеков упал — фолбэк на H.264", it)
+                _supportedCodecs.value = listOf(VideoCodec.H264)
             }
         }
     }
@@ -290,10 +324,11 @@ class StreamViewModel @Inject constructor(
         val targets = enabled.ifEmpty { listOfNotNull(_activeProfile.value) }
         val primary = targets.firstOrNull()
         // Idea 10 — virtual stream platform: record encoder output to a file instead of RTMP.
+        // plans/14 — резолвим профиль кодера основной платформы (suspend) → пишем им.
         if (repository.virtualStreamToFile) {
-            val p = primary ?: StreamProfile()
-            val path = repository.startRecordToFile(p)
             viewModelScope.launch {
+                val encoder = repository.encoderForProfile(primary)
+                val path = repository.startRecordToFile(encoder)
                 _snackbar.emit(
                     if (path != null) UiText.Res(R.string.snack_record_to_file, listOf(path))
                     else UiText.Res(R.string.snack_record_failed)
@@ -306,19 +341,20 @@ class StreamViewModel @Inject constructor(
             return
         }
         KLog.i(TAG, "Starting MULTISTREAM on ${targets.size} platform(s): ${targets.joinToString { it.name }}")
-        val ok = repository.startStream(targets)
-        if (!ok) {
-            viewModelScope.launch { _snackbar.emit(UiText.Res(R.string.snack_encoder_failed)) }
+        viewModelScope.launch {
+            val ok = repository.startStream(targets)
+            if (!ok) _snackbar.emit(UiText.Res(R.string.snack_encoder_failed))
         }
     }
 
     // idea 17 — ЮЗЕР-фича «Запись»: пишем композит в файл и публикуем в галерею DCIM/KrinikCam
     // (механика и переживание отрыва камеры давно проверены; запись и эфир взаимоисключающи).
     fun startRecording() {
-        val profile = _activeProfile.value ?: StreamProfile()
-        val path = repository.startRecordToFile(profile)
-        KLog.i(TAG, "startRecording → ${path ?: "FAILED"}")
+        // bug 51 / plans/14 — запись кодируется профилем кодера активной платформы (резолв suspend).
         viewModelScope.launch {
+            val encoder = repository.encoderForProfile(_activeProfile.value)
+            val path = repository.startRecordToFile(encoder)
+            KLog.i(TAG, "startRecording → ${path ?: "FAILED"} (encoder='${encoder.name}')")
             _snackbar.emit(
                 if (path != null) UiText.Res(R.string.snack_recording_started)
                 else UiText.Res(R.string.snack_recording_failed)
@@ -388,6 +424,26 @@ class StreamViewModel @Inject constructor(
         viewModelScope.launch {
             if (profile == _activeProfile.value) _activeProfile.value = null
             repository.deleteProfile(profile)
+        }
+    }
+
+    // ── Профили кодера (plans/14) ───────────────────────────────────────
+
+    fun saveEncoderProfile(profile: EncoderProfile) {
+        viewModelScope.launch {
+            repository.saveEncoderProfile(profile)
+            KLog.i(TAG, "Saved encoder profile '${profile.name}'")
+        }
+    }
+
+    /**
+     * Удаляем профиль кодера всегда (решение Криника 2026-07-18). Если на него ссылались платформы,
+     * им выдаётся запасной профиль (fallback) — показываем инфо-снэкбар со сколькими это случилось.
+     */
+    fun deleteEncoderProfile(profile: EncoderProfile) {
+        viewModelScope.launch {
+            val reassigned = repository.deleteEncoderProfile(profile)
+            if (reassigned > 0) _snackbar.emit(UiText.Res(R.string.snack_encoder_profile_reassigned, listOf(reassigned)))
         }
     }
 }

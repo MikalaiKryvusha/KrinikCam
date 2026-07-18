@@ -4,7 +4,11 @@
  * Stored in Room (StreamProfileEntity) and mapped to/from it via repository.
  * Each profile is an independently configurable destination (YouTube, Twitch, etc.).
  *
- * Related: StreamProfileEntity (Room), ProfilesRepository, StreamPlatformsManager
+ * Профиль кодера (как кодировать) вынесен в ОТДЕЛЬНУЮ сущность [EncoderProfile] (bug 41 / plans/14,
+ * решение Криника 2026-07-18). Платформа лишь ССЫЛАЕТСЯ на профиль кодера через [encoderProfileId] —
+ * живая ссылка по id: правка профиля кодера задевает ВСЕ платформы, настроенные на него (без снимков).
+ *
+ * Related: StreamProfileEntity (Room), EncoderProfile (профиль кодера), ProfilesRepository
  */
 
 package com.kriniks.kcam.data.profiles.model
@@ -21,13 +25,9 @@ data class StreamProfile(
     val rtmpUrl: String = "",            // full base URL, e.g. "rtmp://a.rtmp.youtube.com/live2"
     val streamKey: String = "",          // secret stream key
     val isEnabled: Boolean = true,       // user can toggle without deleting
-    val videoWidth: Int = 1920,
-    val videoHeight: Int = 1080,
-    val videoFps: Int = 30,
-    val videoBitrateBps: Int = 4_000_000,
-    // idea 37 — адаптивный битрейт: при затыке канала плавно снижать битрейт (деградация качеством,
-    // а не фризами), на чистом канале — восстанавливать к videoBitrateBps. Дефолт ВКЛ (Q5=A).
-    val adaptiveBitrate: Boolean = true,
+    // Ссылка на профиль кодера (EncoderProfile.id). 0 = «дефолтный»/не выбран — резолвится в первый
+    // доступный профиль кодера на уровне репозитория/стримера.
+    val encoderProfileId: Long = 0,
 )
 
 enum class StreamPlatform(

@@ -24,6 +24,34 @@
     <string name="field_resolution">Разрешение (16:9)</string>
     <string name="field_adaptive_bitrate">Адаптивный битрейт</string>
     <string name="field_adaptive_bitrate_hint">На слабой сети снижать качество вместо фризов</string>
+    <!-- Профиль кодера (видео/звук) -->
+    <string name="section_video">Видео</string>
+    <string name="section_audio">Звук</string>
+    <string name="field_video_bitrate">Битрейт видео (Мбит/с)</string>
+    <string name="bitrate_custom">Своё</string>
+    <string name="field_video_bitrate_kbps">Битрейт (кбит/с)</string>
+    <string name="field_codec">Видеокодек</string>
+    <string name="codec_hevc_hint">H.265 вдвое экономит битрейт при том же качестве, но по RTMP его берут не все площадки (YouTube — да, многие — нет). Для записи в файл безопасен всегда.</string>
+    <string name="field_audio_bitrate">Битрейт звука</string>
+    <string name="field_sample_rate">Частота дискретизации</string>
+    <string name="field_stereo">Стерео</string>
+    <string name="field_mono">Моно</string>
+    <!-- Менеджер профилей кодера (plans/14) -->
+    <string name="encoder_profiles_title">Профили кодера</string>
+    <string name="encoder_profiles_add_desc">Добавить профиль кодера</string>
+    <string name="encoder_profiles_empty">Профилей кодера пока нет.\nНажмите +, чтобы создать.</string>
+    <string name="encoder_profile_form_title">Профиль кодека</string>
+    <string name="encoder_profile_delete_title">Удалить профиль кодера?</string>
+    <string name="encoder_profile_delete_text">«%1$s» будет удалён.</string>
+    <string name="field_video_bitrate_mbps">Битрейт (Мбит/с)</string>
+    <string name="field_codec_profile">Профиль кодера</string>
+    <string name="encoder_manage">Управление профилями кодера</string>
+    <string name="field_channel_mode">Каналы звука</string>
+    <string name="channel_stereo">Стерео</string>
+    <string name="channel_mono">Моно</string>
+    <string name="channel_joined">Объединённое стерео</string>
+    <string name="codec_av1_hint">AV1 — самый эффективный, но по RTMP его почти нигде не принимают: безопасен для записи в файл. В списке — только кодеки, которые устройство умеет кодировать аппаратно.</string>
+    <string name="snack_encoder_profile_reassigned">Профиль кодера удалён — %1$d платформам выдан запасной профиль</string>
 
     <!-- Common actions -->
     <string name="common_delete">Удалить</string>

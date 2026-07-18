@@ -11,6 +11,7 @@ package com.kriniks.kcam.feature.streaming.domain
 
 import android.view.TextureView
 import com.kriniks.kcam.core.logging.KLog
+import com.kriniks.kcam.data.profiles.model.EncoderProfile
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.data.profiles.repository.ProfilesRepository
 import com.kriniks.kcam.feature.streaming.model.StreamState
@@ -169,19 +170,24 @@ class StreamingRepository @Inject constructor(
     // ── Idea 22 — удобства для debug-команд автоматизатора (harness) ─────────
     /**
      * «Go Live» для харнеса: если включён stream-to-file — пишем энкодер в MP4 (вернёт путь), иначе —
-     * пушим RTMP по [profile] (в харнесе обычно не используем). [profile] задаёт разрешение/битрейт
-     * (по умолчанию — дефолтный профиль). Вызывается из CMD-receiver автоматизатора.
+     * пушим RTMP. [encoder] — профиль кодера (plans/14): харнес строит его из аргументов go-live
+     * (кодек/звук для ffprobe-приёмки). Вызывается из CMD-receiver автоматизатора.
      */
-    fun goLiveHarness(profile: StreamProfile = StreamProfile()): String? =
-        if (virtualStreamToFile) rtmpStreamer.startRecordToFile(profile)
-        else { rtmpStreamer.startStream(profile); null }
+    suspend fun goLiveHarness(encoder: EncoderProfile = EncoderProfile()): String? =
+        if (virtualStreamToFile) rtmpStreamer.startRecordToFile(encoder)
+        else { rtmpStreamer.startStream(listOf(StreamProfile()), encoder); null }
 
     /** Остановить активный вывод (запись или стрим). */
     fun stopAll() {
         if (rtmpStreamer.isRecording) rtmpStreamer.stopRecordToFile() else rtmpStreamer.stopStream()
     }
-    fun startRecordToFile(profile: StreamProfile): String? = rtmpStreamer.startRecordToFile(profile)
+    /** bug 51 — запись кодируется переданным профилем кодера. */
+    fun startRecordToFile(encoder: EncoderProfile): String? = rtmpStreamer.startRecordToFile(encoder)
     fun stopRecordToFile() = rtmpStreamer.stopRecordToFile()
+
+    /** plans/14 — резолв профиля кодера, привязанного к платформе (или дефолтного). */
+    suspend fun encoderForProfile(profile: StreamProfile?): EncoderProfile =
+        profilesRepository.resolveEncoderProfile(profile?.encoderProfileId ?: 0)
 
     /**
      * Start the GL preview pipeline (наш композитор) and display it on [textureView].
@@ -206,10 +212,13 @@ class StreamingRepository @Inject constructor(
         rtmpStreamer.stopPreview()
     }
 
-    fun startStream(profile: StreamProfile): Boolean = startStream(listOf(profile))
+    suspend fun startStream(profile: StreamProfile): Boolean = startStream(listOf(profile))
 
-    /** plans/07 — МУЛЬТИСТРИМ: запуск на несколько платформ разом (профили с непустым ключом). */
-    fun startStream(profiles: List<StreamProfile>): Boolean {
+    /**
+     * plans/07 — МУЛЬТИСТРИМ: запуск на несколько платформ разом (профили с непустым ключом).
+     * plans/14 — параметры энкодера берём из профиля кодера ПЕРВОГО выхода (резолв по encoderProfileId).
+     */
+    suspend fun startStream(profiles: List<StreamProfile>): Boolean {
         val valid = profiles.filter { it.streamKey.isNotBlank() }
         if (valid.isEmpty()) {
             KLog.w(TAG, "startStream: нет профилей с ключом (all blank)")
@@ -218,7 +227,8 @@ class StreamingRepository @Inject constructor(
         if (valid.size < profiles.size) {
             KLog.w(TAG, "startStream: пропущены профили с пустым ключом (${profiles.size - valid.size})")
         }
-        return rtmpStreamer.startStream(valid)
+        val encoder = profilesRepository.resolveEncoderProfile(valid.first().encoderProfileId)
+        return rtmpStreamer.startStream(valid, encoder)
     }
 
     fun stopStream() = rtmpStreamer.stopStream()
@@ -226,4 +236,12 @@ class StreamingRepository @Inject constructor(
     suspend fun saveProfile(profile: StreamProfile) = profilesRepository.saveProfile(profile)
 
     suspend fun deleteProfile(profile: StreamProfile) = profilesRepository.deleteProfile(profile)
+
+    // ── Профили кодера (plans/14) ───────────────────────────────────────
+    val encoderProfiles: Flow<List<EncoderProfile>> = profilesRepository.observeEncoderProfiles()
+    suspend fun saveEncoderProfile(profile: EncoderProfile): Long = profilesRepository.saveEncoderProfile(profile)
+    /** Удаляет профиль кодера всегда; переназначает ссылавшиеся платформы на fallback. Возвращает их число. */
+    suspend fun deleteEncoderProfile(profile: EncoderProfile): Int =
+        profilesRepository.deleteEncoderProfile(profile)
+    suspend fun ensureDefaultEncoderProfile(): Long = profilesRepository.ensureDefaultEncoderProfile()
 }

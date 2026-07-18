@@ -1,21 +1,20 @@
 /**
  * StreamPlatformsOverlay — modal bottom-sheet for managing streaming platforms.
  *
- * Shows a list of configured platform profiles (YouTube, Twitch, etc.)
- * each with enable/disable toggle, edit action, and delete swipe.
- * Opening the edit form lets the user change stream key, RTMP URL, resolution.
+ * Платформа = «куда» стримить: имя, платформа, RTMP URL, ключ, вкл/выкл, и ССЫЛКА на профиль кодера
+ * (как кодировать). Сам профиль кодера настраивается в отдельном менеджере (EncoderProfilesOverlay,
+ * plans/14 / bug 41) — здесь только ВЫБОР профиля из выпадашки + кнопка «Управление профилями кодера».
  *
- * Settings in this overlay are identical to those in SettingsScreen (Q3 answer).
- * Both read/write the same ProfilesRepository — changes are instant and synced.
+ * Settings in this overlay are identical to those in SettingsScreen (Q3 answer): both read/write the
+ * same ProfilesRepository — changes are instant and synced.
  *
- * Related: StreamViewModel, StreamProfile (:data:profiles), SettingsScreen
+ * Related: StreamViewModel, StreamProfile / EncoderProfile (:data:profiles), EncoderProfilesOverlay
  */
 
 package com.kriniks.kcam.feature.streaming.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -40,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.res.stringResource
+import com.kriniks.kcam.data.profiles.model.EncoderProfile
 import com.kriniks.kcam.data.profiles.model.StreamPlatform
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.feature.streaming.R
@@ -48,8 +48,8 @@ import kotlinx.coroutines.launch
 
 private val AcidPink = Color(0xFFFF1A8C)
 private val DarkSurface = Color(0xFF1A1A1A)
-// Dropdown popup needs a LIGHTER surface than the sheet/cards behind it (0xFF1A1A1A / 0xFF232323),
-// otherwise the open menu blends into the background and reads as low-contrast.
+// Dropdown popup needs a LIGHTER surface than the sheet/cards behind it, otherwise the open menu
+// blends into the background and reads as low-contrast.
 private val DropdownSurface = Color(0xFF3A3A3A)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,13 +57,15 @@ private val DropdownSurface = Color(0xFF3A3A3A)
 fun StreamPlatformsOverlay(
     profiles: List<StreamProfile>,
     activeProfileId: Long?,
+    // plans/14 — список профилей кодера для пикера в форме платформы + резолва имени на карточке.
+    encoderProfiles: List<EncoderProfile>,
+    onManageEncoders: () -> Unit,
     onDismiss: () -> Unit,
     onSelectProfile: (StreamProfile) -> Unit,
     onSaveProfile: (StreamProfile) -> Unit,
     onDeleteProfile: (StreamProfile) -> Unit,
     onStartStream: () -> Unit,
-    // Idea 01 — config import/export. buildExportJson() returns the JSON to write to the file the
-    // user picks; onImportJson(text) receives the JSON read from a picked file.
+    // Idea 01 — config import/export.
     buildExportJson: () -> String = { "" },
     onImportJson: (String) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -75,10 +77,8 @@ fun StreamPlatformsOverlay(
     var confirmDelete by remember { mutableStateOf<StreamProfile?>(null) }
     val ioScope = rememberCoroutineScope()
 
-    // SAF "create document" — user picks where to save; we write the export JSON there (no runtime
-    // storage permission needed). Default filename suggested via the launch() call below.
-    // plans/12 S5 — файловый I/O в Dispatchers.IO: SAF-uri может быть сетевым/медленным провайдером,
-    // запись на main-потоке ловила бы ANR. JSON строится на main (снимок state), пишутся байты в IO.
+    // SAF "create document" — user picks where to save; write export JSON there (no runtime perm).
+    // plans/12 S5 — файловый I/O в Dispatchers.IO: SAF-uri может быть сетевым/медленным провайдером.
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -89,8 +89,6 @@ fun StreamPlatformsOverlay(
             }
         }
     }
-    // SAF "open document" — user picks a config file; we read its text and hand it to the importer.
-    // Чтение — в IO; onImportJson безопасен из фона (ViewModel сам уводит работу в viewModelScope).
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -101,85 +99,82 @@ fun StreamPlatformsOverlay(
         }
     }
 
+    // Лендскейп: контент листа ПРОКРУЧИВАЕТСЯ внутри (verticalScroll ниже) — ничего не режется; за
+    // драг-хендл лист тянется на весь экран (nested-scroll связывает скролл контента с раскрытием листа).
+    // sheetMaxWidth ограничивает ширину на широком экране (лист по центру, не на всю ширину).
+    val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = DarkSurface,
+        sheetState = sheetState,
+        sheetMaxWidth = 720.dp,
         modifier = modifier,
     ) {
+        // Если лист РАСКРЫТ на весь экран, изменение списка (удаление платформы) меняет высоту контента
+        // и ModalBottomSheet пере-усаживается на partial — лист «схлопывается». Держим Expanded:
+        // при изменении числа платформ, если были раскрыты, возвращаем на весь экран.
+        LaunchedEffect(profiles.size) {
+            if (sheetState.currentValue == SheetValue.Expanded) sheetState.expand()
+        }
+        // Контент ОБОРАЧИВАЕТ высоту (wrap): мало платформ → лист минимальный; много (контент > пол-
+        // экрана) → ModalBottomSheet сам встаёт на ~половину (partiallyExpanded), verticalScroll даёт
+        // прокрутку внутри, драг хендла раскрывает до полного. Вложенный LazyColumn в скролле нельзя
+        // (краш) → карточки обычной Column.
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .navigationBarsPadding(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                .navigationBarsPadding().verticalScroll(rememberScrollState()),
         ) {
-            // ── Header ─────────────────────────────────────────────────
+            // ── Header: заголовок + компактные действия (Экспорт/Импорт иконками + заметный «+») ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = stringResource(R.string.platforms_title),
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                IconButton(onClick = { showAddNew = true }) {
-                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.platforms_add_desc), tint = AcidPink)
+                Text(stringResource(R.string.platforms_title), color = Color.White,
+                    fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    // Компактные иконки вместо широких кнопок (радикально меньше места — просьба Криника).
+                    IconButton(onClick = { exportLauncher.launch("krinikcam_profiles.json") }, enabled = profiles.isNotEmpty()) {
+                        Icon(Icons.Default.FileUpload, contentDescription = stringResource(R.string.platforms_export), tint = AcidPink)
+                    }
+                    IconButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/*", "application/octet-stream")) }) {
+                        Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.platforms_import), tint = AcidPink)
+                    }
+                    // «+ Добавить платформу» — ОДНА ИЗ ГЛАВНЫХ кнопок: залитая розовая, заметная (не тусклый ghost).
+                    FilledIconButton(
+                        onClick = { showAddNew = true },
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = AcidPink, contentColor = Color.White),
+                    ) { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.platforms_add_desc)) }
                 }
             }
+            // plans/12 S5 — предупреждение про секретные ключи в экспорт-файле.
+            Text(stringResource(R.string.platforms_keys_warning), color = Color.Gray, fontSize = 11.sp,
+                modifier = Modifier.padding(top = 4.dp))
 
-            // ── Import / Export config (Idea 01) ──────────────────────
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(
-                    onClick = { exportLauncher.launch("krinikcam_profiles.json") },
-                    enabled = profiles.isNotEmpty(),
-                    modifier = Modifier.weight(1f),
-                ) { Text(stringResource(R.string.platforms_export), color = AcidPink) }
-                OutlinedButton(
-                    onClick = { importLauncher.launch(arrayOf("application/json", "text/*", "application/octet-stream")) },
-                    modifier = Modifier.weight(1f),
-                ) { Text(stringResource(R.string.platforms_import), color = AcidPink) }
-            }
-            // plans/12 S5 — честное предупреждение: экспорт-файл несёт секретные stream-ключи.
-            Text(
-                text = stringResource(R.string.platforms_keys_warning),
-                color = Color.Gray,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+            // plans/14 — вход в менеджер профилей кодера (настройка «как кодировать»).
+            OutlinedButton(
+                onClick = onManageEncoders,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            ) { Text(stringResource(R.string.encoder_manage), color = AcidPink) }
 
             Spacer(Modifier.height(12.dp))
 
             // ── Profile list ──────────────────────────────────────────
             if (profiles.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.platforms_empty),
-                        color = Color(0xFF888888),
-                        fontSize = 14.sp,
-                    )
+                Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                    Text(stringResource(R.string.platforms_empty), color = Color(0xFF888888), fontSize = 14.sp)
                 }
             } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(profiles, key = { it.id }) { profile ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    profiles.forEach { profile ->
                         PlatformCard(
                             profile = profile,
+                            // Имя привязанного профиля кодера (или «—», если ещё не создан/не найден).
+                            encoderName = encoderProfiles.firstOrNull { it.id == profile.encoderProfileId }?.name ?: "—",
                             isActive = profile.id == activeProfileId,
                             onSelect = { onSelectProfile(profile) },
                             onEdit = { editingProfile = profile },
                             onToggle = { onSaveProfile(profile.copy(isEnabled = !profile.isEnabled)) },
-                            // plans/12 S5 — сначала подтверждение (диалог ниже), потом удаление.
                             onDelete = { confirmDelete = profile },
                         )
                     }
@@ -198,37 +193,27 @@ fun StreamPlatformsOverlay(
                 platform = StreamPlatform.YOUTUBE,
                 rtmpUrl = StreamPlatform.YOUTUBE.defaultRtmpUrl,
                 streamKey = "",
+                // Новый профиль ссылается на первый доступный профиль кодера (гарантирован init'ом VM).
+                encoderProfileId = encoderProfiles.firstOrNull()?.id ?: 0,
             ),
-            onSave = { profile ->
-                onSaveProfile(profile)
-                editingProfile = null
-                showAddNew = false
-            },
-            onDismiss = {
-                editingProfile = null
-                showAddNew = false
-            },
+            encoderProfiles = encoderProfiles,
+            onManageEncoders = onManageEncoders,
+            onSave = { profile -> onSaveProfile(profile); editingProfile = null; showAddNew = false },
+            onDismiss = { editingProfile = null; showAddNew = false },
         )
     }
 
     // ── plans/12 S5 — подтверждение удаления профиля ───────────────────
-    // Корзина была мгновенной: тап = безвозвратная потеря stream-ключа. Теперь — явный вопрос.
     confirmDelete?.let { doomed ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             containerColor = DarkSurface,
             title = { Text(stringResource(R.string.profile_delete_title), color = Color.White) },
-            text = {
-                Text(
-                    stringResource(R.string.profile_delete_text, doomed.name),
-                    color = Color.Gray,
-                )
-            },
+            text = { Text(stringResource(R.string.profile_delete_text, doomed.name), color = Color.Gray) },
             confirmButton = {
-                TextButton(onClick = {
-                    onDeleteProfile(doomed)
-                    confirmDelete = null
-                }) { Text(stringResource(R.string.common_delete), color = AcidPink) }
+                TextButton(onClick = { onDeleteProfile(doomed); confirmDelete = null }) {
+                    Text(stringResource(R.string.common_delete), color = AcidPink)
+                }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = null }) { Text(stringResource(R.string.common_cancel), color = Color.Gray) }
@@ -240,6 +225,7 @@ fun StreamPlatformsOverlay(
 @Composable
 private fun PlatformCard(
     profile: StreamProfile,
+    encoderName: String,
     isActive: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit,
@@ -251,28 +237,21 @@ private fun PlatformCard(
         onClick = onSelect,
         colors = CardDefaults.cardColors(containerColor = Color(0xFF232323)),
         shape = RoundedCornerShape(10.dp),
-        border = androidx.compose.foundation.BorderStroke(
-            if (isActive) 2.dp else 1.dp, borderColor,
-        ),
+        border = androidx.compose.foundation.BorderStroke(if (isActive) 2.dp else 1.dp, borderColor),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(profile.name, color = Color.White, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "${profile.platform.displayName}  ·  ${profile.videoWidth}x${profile.videoHeight}",
-                    color = Color(0xFF888888),
-                    fontSize = 12.sp,
-                )
+                // Платформа · привязанный профиль кодера (plans/14).
+                Text("${profile.platform.displayName}  ·  $encoderName",
+                    color = Color(0xFF888888), fontSize = 12.sp)
             }
             Switch(
-                checked = profile.isEnabled,
-                onCheckedChange = { onToggle() },
+                checked = profile.isEnabled, onCheckedChange = { onToggle() },
                 colors = SwitchDefaults.colors(checkedThumbColor = AcidPink, checkedTrackColor = AcidPink.copy(alpha = 0.4f)),
             )
             IconButton(onClick = onEdit) {
@@ -288,6 +267,8 @@ private fun PlatformCard(
 @Composable
 private fun ProfileEditDialog(
     initial: StreamProfile,
+    encoderProfiles: List<EncoderProfile>,
+    onManageEncoders: () -> Unit,
     onSave: (StreamProfile) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -296,21 +277,15 @@ private fun ProfileEditDialog(
     var rtmpUrl by remember { mutableStateOf(initial.rtmpUrl) }
     var streamKey by remember { mutableStateOf(initial.streamKey) }
     var keyVisible by remember { mutableStateOf(false) }
-    // Idea 16: resolution is now picked from a dropdown of standard 16:9 presets instead of typed by
-    // hand. Stored landscape (16:9); portrait 9:16 is produced by the rotation feature at stream time.
-    var resW by remember { mutableStateOf(initial.videoWidth) }
-    var resH by remember { mutableStateOf(initial.videoHeight) }
-    var fps by remember { mutableStateOf(initial.videoFps.toString()) }
-    // idea 37 — тумблер адаптивного битрейта профиля (дефолт ВКЛ, Q5=A).
-    var adaptive by remember { mutableStateOf(initial.adaptiveBitrate) }
+    // plans/14 — платформа хранит только ССЫЛКУ на профиль кодера (id). Кодер-полей тут больше нет.
+    var encoderProfileId by remember {
+        mutableStateOf(initial.encoderProfileId.takeIf { id -> encoderProfiles.any { it.id == id } }
+            ?: encoderProfiles.firstOrNull()?.id ?: 0L)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        // Bug 04.2: don't dismiss the whole form on an outside tap. When the platform dropdown
-        // is open, tapping outside it used to bubble to the dialog scrim and close the entire
-        // form. Disabling click-outside dismiss means the outside tap only closes the dropdown
-        // (its own popup), and the form is closed deliberately via Cancel/Save (back press still
-        // works). Bonus: prevents accidental loss of a half-filled form.
+        // Bug 04.2: outside tap must not dismiss the whole form (only close an open dropdown).
         properties = DialogProperties(dismissOnClickOutside = false),
         containerColor = DarkSurface,
         title = {
@@ -318,77 +293,40 @@ private fun ProfileEditDialog(
                 color = Color.White, fontWeight = FontWeight.Bold)
         },
         text = {
-            // Bug 04.3: the Width/Height/FPS row rendered as empty boxes (no label, no value)
-            // in landscape — the dialog caps its height, the tall field stack overflowed, and the
-            // bottom row got compressed to ~0 height so its OutlinedTextField labels/values clipped
-            // away. verticalScroll lets every field keep its natural height; the user scrolls to
-            // reach the resolution/FPS fields instead of them being squashed into invisibility.
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.verticalScroll(rememberScrollState()),
             ) {
-                // Platform picker
                 PlatformDropdown(selected = platform, onSelect = { p ->
                     platform = p
                     rtmpUrl = p.defaultRtmpUrl
-                    // Auto-fill Name from the chosen platform ONLY while Name still holds a
-                    // default value — i.e. it's blank or equals SOME platform's display name
-                    // (Bug 04.1). Checking against the full platform list (not just `initial`)
-                    // is what makes auto-fill keep working after the 2nd, 3rd… change. If the
-                    // user typed a custom name, it won't match any default → we leave it intact.
-                    val isDefaultName = name.isBlank() ||
-                        StreamPlatform.entries.any { it.displayName == name }
+                    // Auto-fill Name only while it still holds a default (Bug 04.1).
+                    val isDefaultName = name.isBlank() || StreamPlatform.entries.any { it.displayName == name }
                     if (isDefaultName) name = p.displayName
                 })
 
                 KcamTextField(stringResource(R.string.field_name), name) { name = it }
                 KcamTextField(stringResource(R.string.field_rtmp_url), rtmpUrl) { rtmpUrl = it }
 
-                // Stream key with show/hide toggle
                 OutlinedTextField(
-                    value = streamKey,
-                    onValueChange = { streamKey = it },
+                    value = streamKey, onValueChange = { streamKey = it },
                     label = { Text(stringResource(R.string.field_stream_key), color = Color(0xFF888888)) },
                     singleLine = true,
                     visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     trailingIcon = {
                         IconButton(onClick = { keyVisible = !keyVisible }) {
-                            Icon(
-                                if (keyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = null, tint = AcidPink,
-                            )
+                            Icon(if (keyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = null, tint = AcidPink)
                         }
                     },
-                    colors = kcamTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
+                    colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth(),
                 )
 
-                // Resolution preset (16:9) + FPS. Width/Height are no longer typed by hand (Idea 16).
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ResolutionDropdown(
-                        width = resW, height = resH,
-                        modifier = Modifier.weight(2f),
-                    ) { w, h -> resW = w; resH = h }
-                    KcamTextField(stringResource(R.string.field_fps), fps, Modifier.weight(1f)) { fps = it }
-                }
-                // idea 37 — адаптивный битрейт: при затыке канала снижаем битрейт вместо фризов.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Checkbox(
-                        checked = adaptive,
-                        onCheckedChange = { adaptive = it },
-                        colors = CheckboxDefaults.colors(checkedColor = AcidPink),
-                    )
-                    Column {
-                        Text(stringResource(R.string.field_adaptive_bitrate), color = Color.White, fontSize = 14.sp)
-                        Text(
-                            stringResource(R.string.field_adaptive_bitrate_hint),
-                            color = Color(0xFF888888), fontSize = 11.sp,
-                        )
-                    }
+                // plans/14 — ВЫБОР профиля кодера (как кодировать) + кнопка перехода в менеджер.
+                EncoderProfilePicker(encoderProfiles, encoderProfileId) { encoderProfileId = it }
+                TextButton(onClick = onManageEncoders, modifier = Modifier.align(Alignment.End)) {
+                    Text(stringResource(R.string.encoder_manage), color = AcidPink, fontSize = 12.sp)
                 }
             }
         },
@@ -400,10 +338,7 @@ private fun ProfileEditDialog(
                         platform = platform,
                         rtmpUrl = rtmpUrl.ifBlank { platform.defaultRtmpUrl },
                         streamKey = streamKey,
-                        videoWidth = resW,
-                        videoHeight = resH,
-                        videoFps = fps.toIntOrNull() ?: 30,
-                        adaptiveBitrate = adaptive,
+                        encoderProfileId = encoderProfileId,
                     ))
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = AcidPink),
@@ -415,68 +350,43 @@ private fun ProfileEditDialog(
     )
 }
 
+/** plans/14 — пикер профиля кодера, привязываемого к платформе. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EncoderProfilePicker(profiles: List<EncoderProfile>, selectedId: Long, onSelect: (Long) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = profiles.firstOrNull { it.id == selectedId }?.name ?: "—"
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selectedName, onValueChange = {}, readOnly = true,
+            label = { Text(stringResource(R.string.field_codec_profile), color = Color(0xFF888888)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded, { expanded = false }, modifier = Modifier.background(DropdownSurface)) {
+            profiles.forEach { p ->
+                DropdownMenuItem(text = { Text(p.name, color = Color.White) },
+                    onClick = { onSelect(p.id); expanded = false })
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlatformDropdown(selected: StreamPlatform, onSelect: (StreamPlatform) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = selected.displayName,
-            onValueChange = {},
-            readOnly = true,
+            value = selected.displayName, onValueChange = {}, readOnly = true,
             label = { Text(stringResource(R.string.field_platform), color = Color(0xFF888888)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            colors = kcamTextFieldColors(),
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
+            colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false },
-            modifier = Modifier.background(DropdownSurface)) {
+        ExposedDropdownMenu(expanded, { expanded = false }, modifier = Modifier.background(DropdownSurface)) {
             StreamPlatform.entries.forEach { platform ->
-                DropdownMenuItem(
-                    text = { Text(platform.displayName, color = Color.White) },
-                    onClick = { onSelect(platform); expanded = false },
-                )
-            }
-        }
-    }
-}
-
-/** Standard 16:9 resolution presets (Idea 16). Stored landscape; portrait is via rotation at stream time. */
-private data class ResPreset(val w: Int, val h: Int, val label: String)
-private val RESOLUTION_PRESETS = listOf(
-    ResPreset(3840, 2160, "2160p · 4K"),
-    ResPreset(2560, 1440, "1440p · 2K"),
-    ResPreset(1920, 1080, "1080p · Full HD"),
-    ResPreset(1280, 720, "720p · HD"),
-    ResPreset(854, 480, "480p"),
-    ResPreset(640, 360, "360p"),
-)
-
-/**
- * Resolution picker (Idea 16) — dropdown of standard 16:9 presets instead of hand-typed Width/Height.
- * Shows "W×H"; a profile with a non-preset size still displays its raw W×H until the user picks one.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ResolutionDropdown(width: Int, height: Int, modifier: Modifier = Modifier, onSelect: (Int, Int) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
-        OutlinedTextField(
-            value = "${width}×${height}",
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(stringResource(R.string.field_resolution), color = Color(0xFF888888)) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            colors = kcamTextFieldColors(),
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false },
-            modifier = Modifier.background(DropdownSurface)) {
-            RESOLUTION_PRESETS.forEach { r ->
-                DropdownMenuItem(
-                    text = { Text("${r.w}×${r.h}  ·  ${r.label}", color = Color.White) },
-                    onClick = { onSelect(r.w, r.h); expanded = false },
-                )
+                DropdownMenuItem(text = { Text(platform.displayName, color = Color.White) },
+                    onClick = { onSelect(platform); expanded = false })
             }
         }
     }
@@ -485,20 +395,14 @@ private fun ResolutionDropdown(width: Int, height: Int, modifier: Modifier = Mod
 @Composable
 private fun KcamTextField(label: String, value: String, modifier: Modifier = Modifier.fillMaxWidth(), onValueChange: (String) -> Unit) {
     OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label, color = Color(0xFF888888)) },
-        singleLine = true,
-        colors = kcamTextFieldColors(),
-        modifier = modifier,
+        value = value, onValueChange = onValueChange,
+        label = { Text(label, color = Color(0xFF888888)) }, singleLine = true,
+        colors = kcamTextFieldColors(), modifier = modifier,
     )
 }
 
 @Composable
 private fun kcamTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White,
-    focusedBorderColor = AcidPink,
-    unfocusedBorderColor = Color(0xFF444444),
-    cursorColor = AcidPink,
+    focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+    focusedBorderColor = AcidPink, unfocusedBorderColor = Color(0xFF444444), cursorColor = AcidPink,
 )

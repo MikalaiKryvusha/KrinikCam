@@ -29,4 +29,8 @@ interface StreamProfileDao {
 
     @Query("DELETE FROM stream_profiles WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    // plans/14 — при удалении профиля кодера переназначаем ссылавшиеся платформы на запасной (fallback).
+    @Query("UPDATE stream_profiles SET encoderProfileId = :newId WHERE encoderProfileId = :oldId")
+    suspend fun repointEncoder(oldId: Long, newId: Long): Int
 }

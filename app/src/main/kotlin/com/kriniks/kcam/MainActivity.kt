@@ -23,7 +23,10 @@ import com.kriniks.kcam.core.logging.FileLogger
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.core.ui.theme.KrinikCamTheme
 import com.kriniks.kcam.dev.DevSettings
+import com.kriniks.kcam.data.profiles.model.AudioChannelMode
+import com.kriniks.kcam.data.profiles.model.EncoderProfile
 import com.kriniks.kcam.data.profiles.model.StreamProfile
+import com.kriniks.kcam.data.profiles.model.VideoCodec
 import com.kriniks.kcam.streaming.DeviceCameraEnumerator
 import com.kriniks.kcam.streaming.StreamForegroundService
 import com.kriniks.kcam.feature.capture.DeviceManager
@@ -144,7 +147,8 @@ class MainActivity : ComponentActivity() {
      * Команды (полный список; при добавлении — сюда, в ui.mjs usage и в контракт-шаг smoke.mjs):
      *   virtual-camera  arg=on|off     — вкл/выкл виртуальную дебаг-камеру (персистит)
      *   stream-to-file  arg=on|off     — режим записи в файл вместо RTMP (harness)
-     *   go-live         [arg=<height>] — старт (в harness — запись в MP4); arg = высота кадра (1080/2160)
+     *   go-live         [arg=<height>[,codec][,audioKbps][,sampleRate][,stereo|mono|joined]] — старт (в
+     *                    harness — запись MP4). Профиль кодера для приёмки: напр. `go-live 720,AV1,192,48000,joined`
      *   go-live-rtmp    arg=url1[,url2…] — старт НАСТОЯЩЕГО RTMP-мультистрима (полигон, plans/09)
      *   stop                           — остановить запись/стрим
      *   photo                          — кадр композита в галерею DCIM/KrinikCam (Idea 17)
@@ -192,12 +196,32 @@ class MainActivity : ComponentActivity() {
                         DevSettings.setVirtualStream(this@MainActivity, on)
                     }
                     "go-live" -> {
-                        // arg = высота кадра (опц.); строим профиль с 16:9-шириной, иначе дефолт.
-                        val h = arg?.toIntOrNull()
-                        val profile = if (h != null) StreamProfile(videoWidth = h * 16 / 9, videoHeight = h)
-                                      else StreamProfile()
-                        val path = streamingRepository.goLiveHarness(profile)
-                        KLog.i("MainActivity", "CMD go-live → ${path ?: "(rtmp)"}")
+                        // arg (опц.): "height[,codec][,audioKbps][,sampleRate][,mono|stereo]" — профиль
+                        // КОДЕРА для харнес-записи. Нужен, чтобы приёмка могла ДОКАЗАТЬ ffprobe'ом, что
+                        // кодек/звук профиля реально доходят до энкодера (дефолтный профиль этого не
+                        // покажет). Пусто → дефолтный профиль. `go-live 720` (только высота) работает
+                        // как раньше — контракт CMD (bug 39) цел, разделитель тот же [,\s]+.
+                        val parts = arg?.split(Regex("[,\\s]+"))?.filter { it.isNotBlank() } ?: emptyList()
+                        val h = parts.getOrNull(0)?.toIntOrNull()
+                        var encoder = if (h != null) EncoderProfile(videoWidth = h * 16 / 9, videoHeight = h)
+                                      else EncoderProfile()
+                        parts.getOrNull(1)?.let { c ->
+                            runCatching { VideoCodec.valueOf(c.uppercase()) }.getOrNull()?.let { encoder = encoder.copy(videoCodec = it) }
+                        }
+                        parts.getOrNull(2)?.toIntOrNull()?.let { encoder = encoder.copy(audioBitrateBps = it * 1000) }
+                        parts.getOrNull(3)?.toIntOrNull()?.let { encoder = encoder.copy(audioSampleRate = it) }
+                        parts.getOrNull(4)?.lowercase()?.let { mode ->
+                            encoder = encoder.copy(audioChannelMode = when (mode) {
+                                "mono" -> AudioChannelMode.MONO
+                                "joined", "joined-stereo" -> AudioChannelMode.JOINED_STEREO
+                                else -> AudioChannelMode.STEREO
+                            })
+                        }
+                        val enc = encoder
+                        lifecycleScope.launch {
+                            val path = streamingRepository.goLiveHarness(enc)
+                            KLog.i("MainActivity", "CMD go-live → ${path ?: "(rtmp)"}")
+                        }
                     }
                     // plans/09 S5 — старт РЕАЛЬНОГО RTMP-мультистрима на заданные URL для автономной
                     // приёмки бага 34 на локальном полигоне (MediaMTX). arg = "url1,url2,…"; каждый url
@@ -213,7 +237,7 @@ class MainActivity : ComponentActivity() {
                             StreamProfile(name = "polygon$i", rtmpUrl = base, streamKey = key)
                         }
                         if (profiles.isEmpty()) KLog.w("MainActivity", "go-live-rtmp: нужен url (или url1,url2)")
-                        else streamingRepository.startStream(profiles)
+                        else lifecycleScope.launch { streamingRepository.startStream(profiles) }
                     }
                     "stop" -> streamingRepository.stopAll()
                     // Idea 17 — снять фото (кадр композита) в галерею DCIM/KrinikCam.

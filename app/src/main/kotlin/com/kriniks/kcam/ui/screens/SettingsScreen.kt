@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kriniks.kcam.BuildConfig
 import com.kriniks.kcam.R
 import com.kriniks.kcam.core.logging.FileLogger
+import com.kriniks.kcam.feature.streaming.ui.EncoderProfilesOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
 
@@ -71,7 +72,12 @@ fun SettingsScreen(
     val context = LocalContext.current
     val profiles by streamViewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by streamViewModel.activeProfile.collectAsStateWithLifecycle()
+    // plans/14 — профили кодера для пикера/менеджера.
+    val encoderProfiles by streamViewModel.encoderProfiles.collectAsStateWithLifecycle()
+    // bug 42 — кодеки, поддерживаемые железом устройства.
+    val supportedCodecs by streamViewModel.supportedCodecs.collectAsStateWithLifecycle()
     var showPlatforms by remember { mutableStateOf(false) }
+    var showEncoderOverlay by remember { mutableStateOf(false) }
     var showProjectInfo by remember { mutableStateOf(false) }
     var showAuthorInfo by remember { mutableStateOf(false) }
 
@@ -186,6 +192,8 @@ fun SettingsScreen(
         StreamPlatformsOverlay(
             profiles = profiles,
             activeProfileId = activeProfile?.id,
+            encoderProfiles = encoderProfiles,
+            onManageEncoders = { showEncoderOverlay = true },
             onDismiss = { showPlatforms = false },
             onSelectProfile = { streamViewModel.selectProfile(it) },
             onSaveProfile = { streamViewModel.saveProfile(it) },
@@ -193,6 +201,17 @@ fun SettingsScreen(
             onStartStream = {},
             buildExportJson = { streamViewModel.buildExportJson() },
             onImportJson = { streamViewModel.importProfilesFromJson(it) },
+        )
+    }
+
+    // plans/14 — менеджер профилей кодера.
+    if (showEncoderOverlay) {
+        EncoderProfilesOverlay(
+            profiles = encoderProfiles,
+            supportedCodecs = supportedCodecs,
+            onDismiss = { showEncoderOverlay = false },
+            onSaveProfile = { streamViewModel.saveEncoderProfile(it) },
+            onDeleteProfile = { streamViewModel.deleteEncoderProfile(it) },
         )
     }
 

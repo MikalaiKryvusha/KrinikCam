@@ -64,6 +64,7 @@ import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.model.isLive
 import com.kriniks.kcam.feature.streaming.ui.StreamLayersOverlay
 import com.kriniks.kcam.feature.streaming.ui.SourceOption
+import com.kriniks.kcam.feature.streaming.ui.EncoderProfilesOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import androidx.compose.ui.platform.LocalContext
 import com.kriniks.kcam.streaming.DeviceCameraOpener
@@ -114,6 +115,10 @@ fun MainScreen(
     val streamState by streamViewModel.streamState.collectAsStateWithLifecycle()
     val profiles by streamViewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by streamViewModel.activeProfile.collectAsStateWithLifecycle()
+    // plans/14 — профили кодера для пикера в форме платформы и менеджера.
+    val encoderProfiles by streamViewModel.encoderProfiles.collectAsStateWithLifecycle()
+    // bug 42 — кодеки, поддерживаемые железом устройства (для списка выбора кодека).
+    val supportedCodecs by streamViewModel.supportedCodecs.collectAsStateWithLifecycle()
     val activeSource by deviceManager.activeVideoSource.collectAsStateWithLifecycle()
     val videoRotation by streamViewModel.videoRotation.collectAsStateWithLifecycle()
     // Idea 19 — текущая сцена (слои) для панели «Слои».
@@ -130,6 +135,8 @@ fun MainScreen(
 
     var showPlatformsOverlay by remember { mutableStateOf(false) }
     var showLayersOverlay by remember { mutableStateOf(false) }
+    // plans/14 — менеджер профилей кодера (открывается из формы платформы кнопкой «Управление…»).
+    var showEncoderOverlay by remember { mutableStateOf(false) }
     // plans/03 S7 — контекст-меню слоя (долгий тап на превью): id целевого слоя и точка вызова.
     var contextMenuLayerId by remember { mutableStateOf<String?>(null) }
     var contextMenuOffset by remember { mutableStateOf(Offset.Zero) }
@@ -524,6 +531,8 @@ fun MainScreen(
         StreamPlatformsOverlay(
             profiles = profiles,
             activeProfileId = activeProfile?.id,
+            encoderProfiles = encoderProfiles,
+            onManageEncoders = { showEncoderOverlay = true },
             onDismiss = { showPlatformsOverlay = false },
             onSelectProfile = { streamViewModel.selectProfile(it) },
             onSaveProfile = { streamViewModel.saveProfile(it) },
@@ -531,6 +540,17 @@ fun MainScreen(
             onStartStream = { streamViewModel.startStream(); showPlatformsOverlay = false },
             buildExportJson = { streamViewModel.buildExportJson() },
             onImportJson = { streamViewModel.importProfilesFromJson(it) },
+        )
+    }
+
+    // ── plans/14 — менеджер профилей кодера (поверх формы платформы) ──
+    if (showEncoderOverlay) {
+        EncoderProfilesOverlay(
+            profiles = encoderProfiles,
+            supportedCodecs = supportedCodecs,
+            onDismiss = { showEncoderOverlay = false },
+            onSaveProfile = { streamViewModel.saveEncoderProfile(it) },
+            onDeleteProfile = { streamViewModel.deleteEncoderProfile(it) },
         )
     }
 

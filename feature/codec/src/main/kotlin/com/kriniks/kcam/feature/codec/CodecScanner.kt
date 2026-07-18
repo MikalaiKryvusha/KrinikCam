@@ -29,11 +29,21 @@ class CodecScanner @Inject constructor() {
     // Mimes we care about in priority order
     private val targetMimes = listOf("video/avc", "video/hevc", "video/av01")
 
+    // Кэш результата скана: перечень кодеков устройства НЕИЗМЕНЕН за сессию, а запросы к MediaCodecList
+    // (getCapabilitiesForType/isBitrateModeSupported) на некоторых MediaTek нативно капризны — гоняем
+    // скан ОДИН раз, дальше отдаём кэш. Меньше обращений к кодек-сервису = меньше шанс нативного затыка.
+    @Volatile private var cached: List<CodecInfo>? = null
+
     /**
      * Scans all available encoders and returns a list of supported video codecs.
-     * Must be called from a non-main thread (IO).
+     * Must be called from a non-main thread (IO). Результат кэшируется (скан выполняется один раз).
      */
-    suspend fun scan(): List<CodecInfo> = withContext(Dispatchers.Default) {
+    suspend fun scan(): List<CodecInfo> {
+        cached?.let { return it }
+        return doScan().also { cached = it }
+    }
+
+    private suspend fun doScan(): List<CodecInfo> = withContext(Dispatchers.Default) {
         val list = MediaCodecList(MediaCodecList.ALL_CODECS)
         val results = mutableListOf<CodecInfo>()
 
@@ -56,10 +66,16 @@ class CodecScanner @Inject constructor() {
                 // Clamp to sane streaming maximums
                 val maxW = minOf(videoCaps.supportedWidths.upper, 3840)
                 val maxH = minOf(videoCaps.supportedHeights.upper, 2160)
-                val maxFps = minOf(
-                    videoCaps.getSupportedFrameRatesFor(maxW, maxH).upper.toInt(),
-                    60,
-                )
+                // getSupportedFrameRatesFor(w,h) КИДАЕТ IllegalArgumentException «unsupported size», если
+                // конкретная пара (maxW,maxH) не входит в допустимую область кодека (напр. у некоторых
+                // secure/SW-энкодеров максимумы ширины и высоты не сочетаются). Раньше это роняло весь
+                // скан (и приложение). Теперь — безопасный дефолт 30, кодек не теряем.
+                val maxFps = try {
+                    minOf(videoCaps.getSupportedFrameRatesFor(maxW, maxH).upper.toInt(), 60)
+                } catch (e: IllegalArgumentException) {
+                    KLog.w(TAG, "getSupportedFrameRatesFor(${maxW}x${maxH}) не поддержан у ${codecInfo.name} — fps→30")
+                    30
+                }
                 val maxBitrate = minOf(videoCaps.bitrateRange.upper, 50_000_000)
 
                 val info = CodecInfo(
