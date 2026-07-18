@@ -86,6 +86,32 @@ node tools/release.mjs --major      # major (0.x → 1.0)
 > Совет: `node tools/release.mjs --dry-run` покажет, какая версия/тег будут, без сборки и пуша — удобно
 > показать Кринику перед реальным выпуском.
 
+## Шаг 7.5. Двуязычные релиз-ноты С ПЕРЕКЛЮЧАТЕЛЯМИ ЯЗЫКА (обязательно)
+
+`release.mjs` создаёт релиз с `--generate-notes` (только ссылка Full Changelog) — это НЕ финал. Ноты
+KrinikCam **двуязычные (EN/RU) с якорями-переключателями** (канон с v0.6; Криник следит). Формат:
+```markdown
+> **Release date: YYYY-MM-DD** · Minsk.
+
+<a name="english"></a>
+## English · [Русский](#русский)
+… секции EN (🎥 Cameras & scene · 📡 Streaming · 🎞️ Recording · 🌍 Localization · 🐞 Fixes · 📦 Install) …
+
+---
+---
+
+<a name="русский"></a>
+## Русский · [English](#english)
+… те же секции по-русски …
+
+---
+**Full Changelog / Полный список изменений:** https://github.com/MikalaiKryvusha/KrinikCam/compare/vПРЕД...vX.Y
+```
+Собери highlights из `git log vПРЕД..HEAD` (сгруппируй по темам, не сырые коммиты), сверься со STATUS и
+`*_DONE_*`. Применяй ПОСЛЕ `release.mjs`: `gh release edit vX.Y --notes-file <файл>`. Проверь якоря:
+`gh release view vX.Y --json body -q .body | grep -E '<a name=|## English|## Русский'` — переключатели
+на месте (их потеря = регресс, EXP «проебал переключатели»).
+
 ## Шаг 8. Проверка и итог
 
 ```bash

@@ -6,6 +6,9 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
 [![Version](https://img.shields.io/badge/Version-0.8-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
 
+<a name="english"></a>
+**🇬🇧 English** · [🇷🇺 Русский](#русский)
+
 **An open-source Android app for streamers and bloggers — a mobile OBS.**  
 Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose a scene from layers → go live on YouTube, Instagram, Twitch, or TikTok.
 
@@ -43,9 +46,9 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 | Manual UI language + "follow system" (EN / RU) | ✅ v0.7 |
 | Simultaneous multi-platform streaming (YouTube + Instagram…) | ✅ engine stabilized — per-output failure isolation + auto-reconnect (backoff); live multi-key check pending |
 | Screen stays on while live (keep-screen-on) | ✅ v0.7 |
+| **Background streaming** — Foreground Service (stream survives screen-off / app in background) + wake lock | ✅ v0.7 |
 | Auto image regulation (exposure, white balance) | 📅 Phase 4 |
 | Picture-in-Picture, GPU filters | 📅 Phase 4 |
-| Background streaming (Foreground Service) | 📅 Phase 5 |
 | Stickers, reactions, video overlays | 📅 Phase 6 |
 | 10-language localization | 📅 Phase 7 |
 
@@ -63,8 +66,8 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 
 ## Installation
 
-### Download APK (when available)
-Go to [Releases](https://github.com/MikalaiKryvusha/KrinikCam/releases) and download the latest `KrinikCam-vX.Y.apk`.
+### Download APK
+Download the latest **[KrinikCam-v0.8.apk](https://github.com/MikalaiKryvusha/KrinikCam/releases/latest)** — or browse all builds on the [Releases](https://github.com/MikalaiKryvusha/KrinikCam/releases) page.
 
 Enable **Install from unknown sources** in your Android settings, then open the APK.
 
@@ -149,7 +152,10 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 
 ---
 
-# KrinikCam (на русском)
+<a name="русский"></a>
+# KrinikCam
+
+[🇬🇧 English](#english) · **🇷🇺 Русский**
 
 **Открытое Android-приложение для стримеров и блогеров — мобильный OBS.**  
 Подключи USB-вебкамеру через OTG (или используй встроенные камеры устройства) → собери сцену из слоёв → выходи в эфир на YouTube, Instagram, Twitch или TikTok.
@@ -188,9 +194,9 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Ручной выбор языка UI + «следовать системе» (EN / RU) | ✅ v0.7 |
 | Одновременный стрим на несколько платформ (YouTube + Instagram…) | ✅ движок стабилизирован — изоляция сбоя выхода + авто-реконнект (бэкофф); сверка живыми ключами впереди |
 | Экран не гаснет во время эфира (keep-screen-on) | ✅ v0.7 |
+| **Фоновый режим стриминга** — Foreground Service (эфир переживает гашение экрана / сворачивание) + wake lock | ✅ v0.7 |
 | Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 4 |
 | Картинка-в-картинке, GPU-фильтры | 📅 Phase 4 |
-| Фоновый режим стриминга (Foreground Service) | 📅 Phase 5 |
 | Стикеры, реакции, видео-оверлеи | 📅 Phase 6 |
 | Локализация на 10 языков | 📅 Phase 7 |
 
@@ -208,8 +214,8 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 
 ## Установка
 
-### Скачать APK (когда будет доступно)
-Открой [Releases](https://github.com/MikalaiKryvusha/KrinikCam/releases) и скачай последний `KrinikCam-vX.Y.apk`.
+### Скачать APK
+Скачай последний **[KrinikCam-v0.8.apk](https://github.com/MikalaiKryvusha/KrinikCam/releases/latest)** — или посмотри все сборки на странице [Releases](https://github.com/MikalaiKryvusha/KrinikCam/releases).
 
 Включи **Установку из неизвестных источников** в настройках Android, открой APK.
 
