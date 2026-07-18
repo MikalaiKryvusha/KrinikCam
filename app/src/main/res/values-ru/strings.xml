@@ -87,6 +87,12 @@
 
     <!-- Settings screen additions (plans/13) -->
     <string name="settings_section_help">Справка</string>
+    <!-- bug 46 — выбор языка приложения -->
+    <string name="settings_section_language">Язык</string>
+    <string name="settings_language">Язык приложения</string>
+    <string name="lang_follow_system">Следовать системе</string>
+    <string name="lang_english">English</string>
+    <string name="lang_russian">Русский</string>
     <string name="settings_manual_title">Руководство пользователя</string>
     <string name="settings_manual_subtitle">Как пользоваться KrinikCam и как оно устроено</string>
     <string name="settings_perm_status">Камера %1$s · Микрофон %2$s</string>

@@ -80,6 +80,15 @@ fun SettingsScreen(
     var showEncoderOverlay by remember { mutableStateOf(false) }
     var showProjectInfo by remember { mutableStateOf(false) }
     var showAuthorInfo by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+    // bug 46 — текущий язык приложения (per-app locale, Android 13+). null = следовать системе.
+    // Смена локали пересоздаёт Activity → SettingsScreen перечитает значение свежим.
+    val currentLangTag = appLanguageTag(context)
+    val currentLangName = when (currentLangTag) {
+        "en" -> stringResource(R.string.lang_english)
+        "ru" -> stringResource(R.string.lang_russian)
+        else -> stringResource(R.string.lang_follow_system)
+    }
 
     // Build identity shown as a gray aux line under "KrinikCam" — lets the user (and bug reports)
     // see exactly which build is running, in every build type. BUILD_TIME is injected at build
@@ -161,6 +170,16 @@ fun SettingsScreen(
                 )
             }
 
+            // ── Язык приложения (bug 46) ──────────────────────────────
+            SettingsSection(title = stringResource(R.string.settings_section_language)) {
+                SettingsRow(
+                    icon = Icons.Default.Language,
+                    title = stringResource(R.string.settings_language),
+                    subtitle = currentLangName,
+                    onClick = { showLanguageDialog = true },
+                )
+            }
+
             // ── About ─────────────────────────────────────────────────
             SettingsSection(title = stringResource(R.string.settings_section_about)) {
                 SettingsRow(
@@ -223,6 +242,67 @@ fun SettingsScreen(
     if (showAuthorInfo) {
         AuthorInfoDialog(onDismiss = { showAuthorInfo = false })
     }
+    // bug 46 — выбор языка приложения (следовать системе / English / Русский).
+    if (showLanguageDialog) {
+        LanguageDialog(
+            current = currentLangTag,
+            onSelect = { tag -> setAppLanguage(context, tag); showLanguageDialog = false },
+            onDismiss = { showLanguageDialog = false },
+        )
+    }
+}
+
+/**
+ * bug 46 — диалог выбора языка приложения. Применяется через LocaleManager (Android 13+): пустой
+ * список локалей = следовать системе; конкретный тег = принудительный язык. Система сама пересоздаёт
+ * Activity с новой локалью, поэтому доп. рестарт не нужен.
+ */
+@Composable
+private fun LanguageDialog(current: String?, onSelect: (String?) -> Unit, onDismiss: () -> Unit) {
+    val options: List<Pair<String?, Int>> = listOf(
+        null to R.string.lang_follow_system,
+        "en" to R.string.lang_english,
+        "ru" to R.string.lang_russian,
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1A1A1A),
+        title = { Text(stringResource(R.string.settings_language), color = Color.White) },
+        text = {
+            Column {
+                options.forEach { (tag, res) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { onSelect(tag) }.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = current == tag,
+                            onClick = { onSelect(tag) },
+                            colors = RadioButtonDefaults.colors(selectedColor = Color(0xFFFF1A8C)),
+                        )
+                        Text(stringResource(res), color = Color.White)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color.Gray) }
+        },
+    )
+}
+
+/** bug 46 — текущий язык приложения (per-app locale). Возвращает "en"/"ru" или null (следовать системе). */
+private fun appLanguageTag(context: android.content.Context): String? {
+    val locales = context.getSystemService(android.app.LocaleManager::class.java).applicationLocales
+    return if (locales.isEmpty) null else locales[0]?.language
+}
+
+/** bug 46 — задать язык приложения. tag=null → следовать системе; "en"/"ru" → принудительно. */
+private fun setAppLanguage(context: android.content.Context, tag: String?) {
+    val lm = context.getSystemService(android.app.LocaleManager::class.java)
+    lm.applicationLocales = if (tag == null) android.os.LocaleList.getEmptyLocaleList()
+                            else android.os.LocaleList.forLanguageTags(tag)
 }
 
 /**

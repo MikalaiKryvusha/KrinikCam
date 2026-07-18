@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- bug 46 — список локалей приложения для системного per-app language (Android 13+). Включает
+     ручной выбор языка в системных настройках приложения И через наш селектор в Settings. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="ru" />
+</locale-config>
