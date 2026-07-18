@@ -4,12 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF1A8C.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%2013%2B-3DDC84.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
-[![Version](https://img.shields.io/badge/Version-0.7-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
+[![Version](https://img.shields.io/badge/Version-0.8-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
 
 **An open-source Android app for streamers and bloggers — a mobile OBS.**  
 Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose a scene from layers → go live on YouTube, Instagram, Twitch, or TikTok.
 
-> **Status:** Active development · Phase 1 ✅ USB preview · Phase 2 ✅ RTMP confirmed on device (portrait + landscape) · **Phase 3 ✅ GL compositor "camera = layer" is the default pipeline** (multi-source scene, layer gestures, unified rotation model)
+> **Status:** Active development · Phase 1 ✅ USB preview · Phase 2 ✅ RTMP confirmed on device (portrait + landscape) · **Phase 3 ✅ GL compositor "camera = layer" is the default pipeline** — multi-source scene with **multiple independent camera feeds** and **feed sharing** (one camera on several layers, OBS-style), encoder profiles (H.264/HEVC/AV1), adaptive bitrate + live telemetry, record to gallery
 
 ---
 
@@ -34,6 +34,13 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 | Built-in device cameras as a source (Camera2, correct orientation & aspect) | ✅ Phase 3 |
 | Vertical layer menu (per-layer settings dialog, source label) | ✅ Phase 3 |
 | Built-in User Manual (Settings) | ✅ Phase 3 |
+| **Multiple independent camera feeds** on separate layers (UVC + selfie at once) | ✅ v0.8 |
+| **Feed sharing** — one camera on several layers (OBS-style "duplicate source", PiP) | ✅ v0.8 |
+| Source picker modal when adding a video layer + per-layer source selection | ✅ v0.8 |
+| **Encoder profiles** — separate manager (H.264 / HEVC / AV1, bitrate in Mbps, stereo / mono / joined audio) | ✅ v0.7 |
+| **Adaptive bitrate** + live stream telemetry (health badge, −20% on congestion / +10% recovery) | ✅ v0.7 |
+| **Record composite to gallery** (DCIM/KrinikCam .mp4) + photo capture | ✅ v0.7 |
+| Manual UI language + "follow system" (EN / RU) | ✅ v0.7 |
 | Simultaneous multi-platform streaming (YouTube + Instagram…) | ✅ engine stabilized — per-output failure isolation + auto-reconnect (backoff); live multi-key check pending |
 | Screen stays on while live (keep-screen-on) | ✅ v0.7 |
 | Auto image regulation (exposure, white balance) | 📅 Phase 4 |
@@ -104,8 +111,10 @@ Sources (opener per type)                 Compose UI → ViewModel → Repositor
   • UVC webcam    (AndroidUSBCamera)         a fact discovered by an opener (aspect, sensor
   • built-in cam  (Camera2)                  orientation) travels up this chain to the compositor
   • virtual cam   (debug test pattern)
-        → OES texture of the camera layer
+        → producer per physical source → OES texture of a camera slot
   → CompositorVideoSource (OpenGL ES)     // draws ALL layers bottom-up into one frame
+        each camera layer maps to a producer by sourceKey: different sources = independent feeds,
+        the SAME source shared across layers (mirror slots — one open, drawn into many quads)
         two-pass FBO render: scene in a fixed 16:9 buffer, canvas rotation as a final blit
   → MediaCodec encoder (RootEncoder) → RTMP packets  +  mirror to on-screen preview
 ```
@@ -145,7 +154,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 **Открытое Android-приложение для стримеров и блогеров — мобильный OBS.**  
 Подключи USB-вебкамеру через OTG (или используй встроенные камеры устройства) → собери сцену из слоёв → выходи в эфир на YouTube, Instagram, Twitch или TikTok.
 
-> **Статус:** Активная разработка · Phase 1 ✅ USB превью · Phase 2 ✅ RTMP подтверждён на устройстве (портрет + ландшафт) · **Phase 3 ✅ GL-композитор «камера = слой» — основной пайплайн** (мультиисточниковая сцена, жесты слоёв, единая модель поворота)
+> **Статус:** Активная разработка · Phase 1 ✅ USB превью · Phase 2 ✅ RTMP подтверждён на устройстве (портрет + ландшафт) · **Phase 3 ✅ GL-композитор «камера = слой» — основной пайплайн** — мультиисточниковая сцена с **несколькими независимыми камерами** и **шарингом фида** (одна камера на нескольких слоях, как в OBS), профили кодера (H.264/HEVC/AV1), адаптивный битрейт + живая телеметрия, запись в галерею
 
 ---
 
@@ -170,6 +179,13 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Встроенные камеры устройства как источник (Camera2, верные ориентация и аспект) | ✅ Phase 3 |
 | Вертикальное меню слоёв (диалог настроек слоя, подпись источника) | ✅ Phase 3 |
 | Встроенное руководство пользователя (Настройки) | ✅ Phase 3 |
+| **Несколько независимых камер** на разных слоях (UVC + селфи одновременно) | ✅ v0.8 |
+| **Шаринг фида** — одна камера на нескольких слоях (как OBS «дублировать источник», PiP) | ✅ v0.8 |
+| Модалка выбора источника при добавлении слоя + выбор источника пер-слой | ✅ v0.8 |
+| **Профили кодера** — отдельный менеджер (H.264 / HEVC / AV1, битрейт в Мбит/с, стерео / моно / объединённый звук) | ✅ v0.7 |
+| **Адаптивный битрейт** + живая телеметрия эфира (health-бейдж, −20% при затыке / +10% восстановление) | ✅ v0.7 |
+| **Запись композита в галерею** (DCIM/KrinikCam .mp4) + фотоснимок | ✅ v0.7 |
+| Ручной выбор языка UI + «следовать системе» (EN / RU) | ✅ v0.7 |
 | Одновременный стрим на несколько платформ (YouTube + Instagram…) | ✅ движок стабилизирован — изоляция сбоя выхода + авто-реконнект (бэкофф); сверка живыми ключами впереди |
 | Экран не гаснет во время эфира (keep-screen-on) | ✅ v0.7 |
 | Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 4 |
