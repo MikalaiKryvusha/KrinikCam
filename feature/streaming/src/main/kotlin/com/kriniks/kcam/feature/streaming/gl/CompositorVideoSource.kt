@@ -33,6 +33,12 @@ private const val TAG = "CompositorVideoSource"
 private const val FPS = 30L
 private const val FRAME_MS = 1000L / FPS
 
+// plans/sourses_timeout — заглушка «нет сигнала» как СОСТОЯНИЕ слоя-камеры (Криник: «живёт ВНУТРИ слоя»).
+private const val STANDBY_HOLD_MS = 10_000L   // держим последний кадр до показа заглушки (Криник: до 10с)
+private const val STANDBY_FADE_MS = 500f      // плавный фейд появления/исчезновения заглушки
+private const val STANDBY_PULSE_MS = 1600f    // период «дыхания» заголовка (пульс альфы, как старое превью)
+private const val STANDBY_PULSE_MIN = 0.55f   // минимальная альфа заголовка в пульсе (макс = 1.0)
+
 /**
  * Описание слоя для GL-композитора (z-order = порядок в списке, снизу вверх).
  *
@@ -182,6 +188,60 @@ class CompositorVideoSource : VideoSource() {
     private var cameraSurfaceTexture: SurfaceTexture? = null
     @Volatile private var newCameraFrame = false
     private val cameraTexMatrix = FloatArray(16)
+
+    // ── Заглушка слоя-камеры «нет сигнала» (plans/sourses_timeout) ───────────────────────────────
+    // Рисуется ВНУТРИ квадрата слоя-камеры (двигается/масштабируется со слоем, попадает в эфир/запись),
+    // когда у камеры нет свежих кадров. Логика по СВЕЖЕСТИ КАДРОВ (source-агностично, без плюмбинга сцены):
+    //   • НИКОГДА не было кадра → заглушка сразу (холодный старт без камеры / явный «Нет источника»);
+    //   • кадры были и пропали (hot-detach UVC) → держим последний кадр STANDBY_HOLD_MS (бесшовно, если
+    //     камера вернулась быстро — зритель заглушку не увидит), затем плавно фейдим заглушку;
+    //   • кадры вернулись → плавно фейдим заглушку обратно к живому видео.
+    // Всё — плавным STANDBY_FADE_MS. Битмап задаёт RtmpStreamer через setStandbyBitmap (StandbyImage).
+    // Два текстур-слоя заглушки: ЗАГОЛОВОК (пульсирует альфой — Криник) + ПОДПИСЬ (статична).
+    @Volatile private var standbyTitleBitmap: Bitmap? = null
+    @Volatile private var standbyBodyBitmap: Bitmap? = null
+    private var standbyTitleTex = 0
+    private var standbyBodyTex = 0
+    private var lastCameraFrameAtMs = 0L     // elapsedRealtime последнего забранного кадра камеры
+    private var hasEverHadFrame = false      // был ли ХОТЬ ОДИН кадр (иначе — заглушка сразу, без hold)
+    private var standbyAlpha = 0f            // текущая (сглаженная) прозрачность заглушки 0..1
+    private var standbyPulse = 1f            // множитель альфы заголовка (пульс «дыхания») 0.55..1.0
+    private var lastFadeClockMs = 0L         // для dt фейда, независимого от джиттера рендер-цикла
+
+    // Заморозка кадра при УДАЛЕНИИ источника (Криник: «держать последний кадр, а не черноту»). Плавное
+    // закрытие продюсера (select None / смена источника) при closeCamera ПУШИТ чёрный кадр в OES — если
+    // его забрать, «замёрзнет» чернота. Поэтому при удалении источника приложение зовёт enterCameraStandby:
+    // перестаём ЗАБИРАТЬ кадры (updateTexImage) → OES держит ПОСЛЕДНИЙ ХОРОШИЙ кадр, а чёрный кадр
+    // закрытия остаётся в очереди непрочитанным. exitCameraStandby (источник вернулся) — снова забираем.
+    @Volatile private var cameraFrozen = false
+
+    /** Источник камеры-слоя удалён — заморозить OES на последнем хорошем кадре (не забирать чёрный кадр закрытия). */
+    fun enterCameraStandby() {
+        handler?.post { cameraFrozen = true } ?: run { cameraFrozen = true }
+        KLog.i(TAG, "enterCameraStandby — держим последний кадр слоя-камеры (plans/sourses_timeout)")
+    }
+
+    /** Источник камеры-слоя вернулся — снова забираем кадры (заглушка плавно уйдёт по свежести). */
+    fun exitCameraStandby() {
+        // Сбрасываем флаг «есть новый кадр»: в очереди мог остаться непрочитанный чёрный кадр закрытия —
+        // не забираем его, ждём первый ЖИВОЙ кадр нового продюсера (иначе мелькнёт чернота при возврате).
+        handler?.post { cameraFrozen = false; newCameraFrame = false } ?: run { cameraFrozen = false }
+        KLog.i(TAG, "exitCameraStandby — возобновляем живые кадры слоя-камеры")
+    }
+
+    /** plans/sourses_timeout — задать битмапы заглушки: [title] пульсирует, [body] статична. RtmpStreamer при init. */
+    fun setStandbyBitmaps(title: Bitmap, body: Bitmap) {
+        standbyTitleBitmap = title
+        standbyBodyBitmap = body
+        handler?.post { uploadStandby() }
+    }
+
+    // GL-поток: залить/перезалить текстуры заглушки (заголовок + подпись).
+    private fun uploadStandby() {
+        val r = renderer ?: return
+        standbyTitleBitmap?.let { if (standbyTitleTex != 0) r.deleteTexture(standbyTitleTex); standbyTitleTex = r.uploadBitmap(it) }
+        standbyBodyBitmap?.let { if (standbyBodyTex != 0) r.deleteTexture(standbyBodyTex); standbyBodyTex = r.uploadBitmap(it) }
+    }
     // Вызывается, когда у слоя-камеры готова/исчезла SurfaceTexture (RtmpStreamer → откроет камеру).
     @Volatile var onCameraSurfaceReady: ((SurfaceTexture?) -> Unit)? = null
 
@@ -282,6 +342,13 @@ class CompositorVideoSource : VideoSource() {
             camSt.setOnFrameAvailableListener { newCameraFrame = true }
             cameraSurfaceTexture = camSt
             syncTextures() // залить уже запрошенные слои-картинки
+            // Заглушка «нет сигнала»: залить текстуру + сбросить таймеры свежести на старте композитора.
+            uploadStandby()
+            lastCameraFrameAtMs = SystemClock.elapsedRealtime()
+            hasEverHadFrame = false
+            standbyAlpha = 0f
+            lastFadeClockMs = 0L
+            cameraFrozen = false
             // Сообщить наверх, что поверхность камеры готова → откроют камеру в неё (Camera2/USB/вирт).
             onCameraSurfaceReady?.invoke(camSt)
         } catch (e: Exception) {
@@ -309,12 +376,36 @@ class CompositorVideoSource : VideoSource() {
 
             // Забрать свежий кадр камеры (даже если слой камеры скрыт — чтобы не копить очередь).
             val camSt = cameraSurfaceTexture
-            if (camSt != null && newCameraFrame) {
+            // cameraFrozen: источник удалён — НЕ забираем кадры (иначе заберём чёрный кадр закрытия). OES
+            // держит последний хороший кадр; hold-таймер идёт от него → через HOLD_MS проявится заглушка.
+            if (camSt != null && newCameraFrame && !cameraFrozen) {
                 runCatching { camSt.updateTexImage(); camSt.getTransformMatrix(cameraTexMatrix) }
                 newCameraFrame = false
+                // Заглушка: отметить приход живого кадра (сбрасывает hold-таймер, снимает «не было кадра»).
+                lastCameraFrameAtMs = SystemClock.elapsedRealtime()
+                hasEverHadFrame = true
             }
             // bug 19 — собрать эффективную tex-матрицу камеры (базовая + sensor-поворот + зеркало).
             buildCameraDrawTexMatrix()
+
+            // ── Заглушка «нет сигнала»: цель прозрачности по свежести кадров, плавно едем к ней ──────
+            // wantStandby: не было ни одного кадра (сразу) ИЛИ кадров нет дольше HOLD_MS (после hold).
+            // standbyAlpha сглаживаем с шагом dt/FADE_MS — фейд ровно STANDBY_FADE_MS в обе стороны.
+            run {
+                val nowMs = SystemClock.elapsedRealtime()
+                val wantStandby = !hasEverHadFrame || (nowMs - lastCameraFrameAtMs) >= STANDBY_HOLD_MS
+                val target = if (wantStandby) 1f else 0f
+                val dt = if (lastFadeClockMs == 0L) FRAME_MS.toFloat() else (nowMs - lastFadeClockMs).toFloat()
+                lastFadeClockMs = nowMs
+                val step = (dt / STANDBY_FADE_MS).coerceIn(0f, 1f)
+                standbyAlpha =
+                    if (target > standbyAlpha) (standbyAlpha + step).coerceAtMost(target)
+                    else (standbyAlpha - step).coerceAtLeast(target)
+                // Пульс «дыхания» заголовка: синус по времени, альфа STANDBY_PULSE_MIN..1.0 (как старое превью).
+                val phase = (nowMs % STANDBY_PULSE_MS.toLong()) / STANDBY_PULSE_MS
+                val wave = 0.5f + 0.5f * kotlin.math.sin(phase * 2f * Math.PI.toFloat())
+                standbyPulse = STANDBY_PULSE_MIN + (1f - STANDBY_PULSE_MIN) * wave
+            }
 
             // ── ПРОХОД 1: сцена в 16:9 FBO (аспект-корректно, БЕЗ поворота холста) ──────────
             // Камера в нативном 16:9-буфере рисуется в 16:9 FBO → не сжимается. Поворот холста здесь
@@ -327,8 +418,26 @@ class CompositorVideoSource : VideoSource() {
             for (layer in requestedLayers) {
                 layerMatrixOf(layer)                           // T·S·PhysRot слоя (в координатах сцены)
                 when (layer) {
-                    is CompositorLayer.Camera -> if (cameraOesTex != 0)
-                        r.draw(cameraOesTex, oes = true, texMatrix = cameraDrawTexMatrix, posMatrix = finalM, alpha = layer.alpha)
+                    is CompositorLayer.Camera -> {
+                        // Кадр камеры (во время hold — УДЕРЖАННЫЙ последний кадр) ГАСНЕТ под заглушкой:
+                        // при полной заглушке кадра нет (Криник: «заглушка должна быть БЕЗ кадра»). Кросс-фейд:
+                        // hold → кадр виден, текста нет; после hold → кадр угасает, проявляется только текст.
+                        if (cameraOesTex != 0) {
+                            val frameAlpha = layer.alpha * (1f - standbyAlpha)
+                            if (frameAlpha > 0.001f)
+                                r.draw(cameraOesTex, oes = true, texMatrix = cameraDrawTexMatrix, posMatrix = finalM, alpha = frameAlpha)
+                        }
+                        // Заглушка (только текст) В КВАДРАТЕ ЭТОГО слоя (finalM) — двигается/масштабируется со
+                        // слоем, попадает в эфир/запись. Отвал одного источника не рушит остальную сцену.
+                        // Подпись — статична; ЗАГОЛОВОК — пульсирует альфой (standbyPulse), «дышит» как старое превью.
+                        if (standbyAlpha > 0.001f) {
+                            val base = standbyAlpha * layer.alpha
+                            if (standbyBodyTex != 0)
+                                r.draw(standbyBodyTex, oes = false, posMatrix = finalM, alpha = base)
+                            if (standbyTitleTex != 0)
+                                r.draw(standbyTitleTex, oes = false, posMatrix = finalM, alpha = base * standbyPulse)
+                        }
+                    }
                     is CompositorLayer.Image -> {
                         val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
                         if (texId != null) r.draw(texId, oes = false, posMatrix = finalM, alpha = layer.alpha)
@@ -467,6 +576,9 @@ class CompositorVideoSource : VideoSource() {
             runCatching { if (sceneFbo != 0) renderer?.deleteFramebuffer(sceneFbo) }
             runCatching { if (sceneTex != 0) renderer?.deleteTexture(sceneTex) }
             sceneFbo = 0; sceneTex = 0
+            runCatching { if (standbyTitleTex != 0) renderer?.deleteTexture(standbyTitleTex) }
+            runCatching { if (standbyBodyTex != 0) renderer?.deleteTexture(standbyBodyTex) }
+            standbyTitleTex = 0; standbyBodyTex = 0
             runCatching { cameraSurfaceTexture?.release() }
             cameraSurfaceTexture = null
             runCatching { if (cameraOesTex != 0) renderer?.deleteTexture(cameraOesTex) }

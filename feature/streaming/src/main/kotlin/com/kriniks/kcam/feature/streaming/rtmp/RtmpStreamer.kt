@@ -62,6 +62,7 @@ import com.kriniks.kcam.feature.streaming.model.isActive
 import com.kriniks.kcam.feature.streaming.scene.Layer
 import com.kriniks.kcam.feature.streaming.scene.LayerTransform
 import com.kriniks.kcam.feature.streaming.scene.Scene
+import com.kriniks.kcam.feature.streaming.scene.StandbyImage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -158,6 +159,10 @@ class RtmpStreamer @Inject constructor(
         // Когда композитор готовит OES-поверхность слоя-камеры — открываем туда текущий продюсер
         // (Camera2/USB/виртуалка через CameraOpener из :app); null = поверхность ушла, закрыть камеру.
         compositorSource.onCameraSurfaceReady = { st -> onCameraLayerSurfaceReady(st) }
+        // plans/sourses_timeout — бренд-заглушка «нет сигнала» как СОСТОЯНИЕ слоя-камеры: композитор
+        // сам рисует её В КВАДРАТЕ слоя, когда у камеры нет свежих кадров (hold→фейд). Не Compose-оверлей.
+        // Два слоя: заголовок (пульсирует) + подпись (статична).
+        compositorSource.setStandbyBitmaps(StandbyImage.title(), StandbyImage.body())
     }
 
     /** Открывает/закрывает камеру в SurfaceTexture слоя-камеры. Реализуется в :app (держит AUSBC/Camera2). */
@@ -186,6 +191,10 @@ class RtmpStreamer @Inject constructor(
         val old = cameraOpener
         if (old === opener) return
         cameraOpener = opener
+        // plans/sourses_timeout — заморозка/разморозка последнего кадра слоя-камеры при удалении/возврате
+        // источника. Удаляем источник (opener==null) → замораживаем OES ПЕРЕД old.close() (иначе закрытие
+        // AUSBC пушит чёрный кадр, и «замёрзнет» чернота, а не последний хороший кадр). Возврат → размораживаем.
+        if (opener == null) compositorSource.enterCameraStandby() else compositorSource.exitCameraStandby()
         scope.launch {
             // Plan 05: ВСЕГДА закрываем старый источник перед открытием нового — иначе при смене
             // источника (напр. UVC→фронталка) старая камера продолжает писать в ту же поверхность слоя

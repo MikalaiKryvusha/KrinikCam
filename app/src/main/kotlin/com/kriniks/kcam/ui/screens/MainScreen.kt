@@ -3,7 +3,8 @@
  *
  * Layout:
  *   Layer 0: fullscreen viewfinder — ВСЕГДА живой TextureView, зеркалит композит (сцена = слои)
- *   Layer 0.5: StandbyPlaceholder — оверлей-подсказка ПОВЕРХ превью, когда нет ни одного источника
+ *   Заглушка «нет сигнала» — ВНУТРИ слоя-камеры композитора (CompositorVideoSource/StandbyImage),
+ *     а не Compose-оверлей: живёт в квадрате слоя, попадает в эфир/запись (указание Криника)
  *   Layer 1: Rotation hot button (top-right, всегда) — глобальный поворот холста (interview_006)
  *   Layer 2: Live status indicator (top-left when streaming)
  *   Layer 4: FloatingRadialMenu (bottom-right FAB + radial actions)
@@ -75,7 +76,6 @@ import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import com.kriniks.kcam.feature.usb.ui.UvcPreviewView
 import com.kriniks.kcam.ui.overlay.FloatingRadialMenu
 import com.kriniks.kcam.ui.overlay.RotationMenu
-import com.kriniks.kcam.ui.overlay.StandbyPlaceholder
 
 private val LiveRed = Color(0xFFFF1A1A)
 
@@ -234,22 +234,14 @@ fun MainScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // ── Layer 0.5: подсказка «нет источника» ПОВЕРХ живого превью ────────
-        // Раньше StandbyPlaceholder ЗАМЕНЯЛ превью (рушил TextureView — bug 20/23); теперь это
-        // просто оверлей поверх живого чёрного холста, пока нет живого источника камеры.
-        // bug 47 — заглушка появляется и при HOT-DETACH: выбрана UVC, но объекта камеры нет
-        // (usbState.activeCamera == null — камера отвалилась нагорячую или ещё не открылась). Раньше
-        // при отвале источник оставался UvcCamera (bug 35), объект камеры пропадал → чёрный холст без
-        // подсказки. Теперь заглушка показывается, пока живого кадра нет. Во время эфира/записи —
-        // подавляется (isActive), чтобы не мигать при пере-открытии камеры на старте.
-        val noLiveCamera = activeSource is VideoSource.None ||
-            (activeSource is VideoSource.UvcCamera && usbState.activeCamera == null)
-        if (noLiveCamera && !streamState.isActive) {
-            StandbyPlaceholder(
-                message = stringResource(R.string.main_standby_hint),
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+        // ── Заглушка «нет сигнала» теперь ВНУТРИ слоя-камеры GL-композитора ──────
+        // Указание Криника: «заглушка живёт ВНУТРИ слоя, а не поверх экрана; отвал одного источника не
+        // рушит всю сцену». Раньше здесь был полноэкранный Compose-оверлей StandbyPlaceholder — он
+        // накрывал ВСЮ сцену, не двигался со слоем и жил только в превью (в эфир/запись не попадал).
+        // Теперь заглушку рисует сам композитор В КВАДРАТЕ слоя-камеры (CompositorVideoSource: hold
+        // последнего кадра STANDBY_HOLD_MS → плавный фейд STANDBY_FADE_MS; StandbyImage). Она двигается
+        // и масштабируется со слоем, попадает в эфир и запись, и появляется только в отвалившемся слое.
+        // Здесь, в Compose-слое поверх превью, заглушке делать больше нечего.
 
         // ── Layer 0.7: Жест-оверлей слоёв (plans/03 S2/S3/S4/S5) ──
         // ВСЕГДА активен. Тап (S5) — хиттест: выбрать верхний видимый слой под точкой (или снять).
