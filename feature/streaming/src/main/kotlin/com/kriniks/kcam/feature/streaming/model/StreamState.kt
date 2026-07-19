@@ -13,6 +13,9 @@ sealed class StreamState {
         val durationMs: Long = 0,
         val bitrateKbps: Int = 0,
         val droppedFrames: Int = 0,
+        // Криник — запись в файл переиспользует Live-состояние; этот флаг отличает ЗАПИСЬ от ЭФИРА,
+        // чтобы статус-виджет писал «ЗАПИСЬ», а не «ЭФИР» (запись ≠ стрим). copy() сохраняет флаг.
+        val isRecording: Boolean = false,
         // plans/09 S2 — статусы КАЖДОГО RTMP-выхода мультистрима (YouTube/Twitch/…) для UI.
         // Аддитивно (дефолт пуст) — одно-выходной путь и существующий `.copy(bitrateKbps=…)` целы.
         val outputs: List<OutputStatus> = emptyList(),

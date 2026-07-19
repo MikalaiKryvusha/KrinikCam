@@ -28,6 +28,7 @@ import android.view.TextureView
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -47,9 +48,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -75,7 +78,9 @@ import com.kriniks.kcam.streaming.VirtualCameraOpener
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import com.kriniks.kcam.feature.usb.ui.UvcPreviewView
-import com.kriniks.kcam.ui.overlay.FloatingRadialMenu
+import com.kriniks.kcam.ui.overlay.FloatingActionMenu
+import com.kriniks.kcam.ui.overlay.FloatingPanelMenu
+import com.kriniks.kcam.ui.overlay.PanelInfoRow
 import com.kriniks.kcam.ui.overlay.RotationMenu
 
 private val LiveRed = Color(0xFFFF1A1A)
@@ -138,6 +143,8 @@ fun MainScreen(
 
     var showPlatformsOverlay by remember { mutableStateOf(false) }
     var showLayersOverlay by remember { mutableStateOf(false) }
+    // idea 40 / plans/18 Ф0 — панель сцен (список в стиле слоёв, от левого края). Ф0: текущая сцена + сброс.
+    var showScenesOverlay by remember { mutableStateOf(false) }
     // plans/14 — менеджер профилей кодера (открывается из формы платформы кнопкой «Управление…»).
     var showEncoderOverlay by remember { mutableStateOf(false) }
     // plans/03 S7 — контекст-меню слоя (долгий тап на превью): id целевого слоя и точка вызова.
@@ -529,13 +536,23 @@ fun MainScreen(
         )
 
         // ── Layer 2: Live indicator (top-left) ───────────────────────
+        // idea 39 — сводка кодера для развёрнутого статус-виджета: «H.264 · 1080p30» (кодек резолвится как
+        // в стримере — по активному профилю с фолбэком на первый).
+        val activeEncoder = encoderProfiles.firstOrNull { it.id == activeProfile?.encoderProfileId }
+            ?: encoderProfiles.firstOrNull()
+        val encoderSummary = activeEncoder?.let {
+            // Криник — битрейт компактно к нотации: «H.264 • 1080p30 • 4M» (M = Mbps).
+            val mbps = it.videoBitrateBps / 1_000_000f
+            val mbpsStr = if (mbps == mbps.toInt().toFloat()) "${mbps.toInt()}" else "%.1f".format(mbps)
+            "${it.videoCodec.displayName.substringBefore(" /").trim()} • ${it.videoHeight}p${it.videoFps} • ${mbpsStr}M"
+        }
         AnimatedVisibility(
             visible = streamState.isLive,
             enter = fadeIn() + slideInHorizontally(),
             exit = fadeOut() + slideOutHorizontally(),
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
         ) {
-            LiveBadge(streamState)
+            StreamStatusWidget(streamState, encoderSummary)
         }
 
         // ── Layer 3: Snackbar for stream errors / warnings ───────────
@@ -554,8 +571,9 @@ fun MainScreen(
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 72.dp, start = 16.dp, end = 16.dp),
         )
 
-        // ── Layer 4: Radial FAB menu (bottom-right) ──────────────────
-        FloatingRadialMenu(
+        // ── Layer 4: Главное меню действий (FAB внизу-справа + список) ──
+        // Криник 2026-07-19: «всё в список, радиалка грузит» — веер заменён панелью-списком (FloatingPanelMenu).
+        FloatingActionMenu(
             streamState = streamState,
             onStartStream = { streamViewModel.startStream() },
             onStopStream = { streamViewModel.stopStream() },
@@ -563,7 +581,7 @@ fun MainScreen(
             onRecord = { streamViewModel.startRecording() },
             onPhoto = { streamViewModel.capturePhoto() },
             onOpenPlatforms = { showPlatformsOverlay = true },
-            // Криник — профили кодера прямо из радиалки (второй из трёх входов).
+            // Криник — профили кодера прямо из меню (второй из трёх входов).
             onOpenEncoderProfiles = { showEncoderOverlay = true },
             onOpenSettings = onNavigateToSettings,
             modifier = Modifier.fillMaxSize(),
@@ -579,6 +597,35 @@ fun MainScreen(
                 .padding(16.dp),
         ) {
             Icon(Icons.Default.Layers, contentDescription = stringResource(R.string.main_layers_desc))
+        }
+
+        // ── Layer 4.6: FAB «Сцены» РЯДОМ с FAB слоёв (idea 40 / plans/18 Ф0) ──
+        // Та же форма/тон, что у FAB слоёв. Тап → панель-список сцен (как у слоёв, от левого края).
+        SmallFloatingActionButton(
+            onClick = { showScenesOverlay = true },
+            containerColor = Color(0xFF232323),
+            contentColor = Color(0xFFFF1A8C),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 76.dp, bottom = 16.dp),
+        ) {
+            Icon(Icons.Default.Movie, contentDescription = stringResource(R.string.main_scenes_desc))
+        }
+    }
+
+    // ── Панель сцен (idea 40 / plans/18 Ф0) — список в стиле слоёв, от левого края ──
+    // Ф0: индикатор текущей сцены (сцена автосейвится и переживает рестарт под капотом). Фаза 1: список
+    // именованных сцен (тап = переключить) + «＋ Новая / Дублировать / Переименовать / Удалить».
+    if (showScenesOverlay) {
+        FloatingPanelMenu(
+            onDismiss = { showScenesOverlay = false },
+            alignment = Alignment.BottomStart,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            PanelInfoRow(
+                title = stringResource(R.string.scenes_current, scene.layers.size),
+                icon = Icons.Default.Movie,
+            )
         }
     }
 
@@ -688,49 +735,125 @@ fun MainScreen(
 }
 
 @Composable
-private fun LiveBadge(state: StreamState) {
-    // idea 37 — health-строка эфира: «LIVE 12:34 · 4.2 Mbps», цвет ТОЧКИ = здоровье канала:
-    // зелёный — все выходы живы, канал чист; жёлтый — затык (адаптер снижает битрейт);
-    // красный — выход реконнектится/упал. Белая обводка — чтобы точка читалась на красной пилюле.
-    val live = state as? StreamState.Live
-    val durationText = live?.let {
-        val totalSec = it.durationMs / 1000
-        "  %d:%02d".format(totalSec / 60, totalSec % 60)
-    } ?: ""
-    val bitrateText = live?.takeIf { it.bitrateKbps > 0 }
-        ?.let { " · %.1f Mbps".format(it.bitrateKbps / 1000f) } ?: ""
-    val healthColor = when {
-        live == null -> Color.White
-        live.outputs.any { it.phase == OutputPhase.Reconnecting || it.phase == OutputPhase.Failed } ->
-            Color(0xFFFF1744) // красный — деградация выхода
-        live.outputs.any { it.congested } -> Color(0xFFFFD600) // жёлтый — затык канала
-        else -> Color(0xFF00E676) // зелёный — здоров
-    }
+private fun StreamStatusWidget(state: StreamState, encoderSummary: String?) {
+    // idea 39 (Криник) — статус эфира/записи. СВЁРНУТ: компактная пилюля «● LIVE • 12:34 • 4.2 Mbps» —
+    // цвет точки = здоровье канала (зелёный/жёлтый/красный). Тап → РАЗВОРОТ (нежно-розовый низ): кодек/
+    // разрешение/FPS, дропы, статус КАЖДОЙ платформы мультистрима. Метка ЭФИР vs ЗАПИСЬ по isRecording.
+    val live = state as? StreamState.Live ?: return
+    var expanded by remember { mutableStateOf(false) }
 
-    Surface(
-        color = LiveRed,
-        shape = RoundedCornerShape(6.dp),
+    val sec = live.durationMs / 1000
+    val durationText =
+        if (sec >= 3600) "%d:%02d:%02d".format(sec / 3600, (sec % 3600) / 60, sec % 60)
+        else "%02d:%02d".format(sec / 60, sec % 60)
+    // Битрейт показываем ВСЕГДА (0.0 пока не измерен) — сегмент не появляется/исчезает → ширина стабильна.
+    val bitrateText = "%.1f Mbps".format(live.bitrateKbps / 1000f)
+    val healthColor = when {
+        live.outputs.any { it.phase == OutputPhase.Reconnecting || it.phase == OutputPhase.Failed } -> Color(0xFFFF1744)
+        live.outputs.any { it.congested } -> Color(0xFFFFD600)
+        else -> Color(0xFF00E676)
+    }
+    // bug 53 / Криник — табличные цифры: символы не пляшут при смене чисел.
+    val tnum = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
+    val label = stringResource(if (live.isRecording) R.string.fab_rec_badge else R.string.fab_live_badge)
+
+    // Криник — ХОЧУ так: шапка = самостоятельная скруглённая ПИЛЮЛЯ (все 4 угла), а развёрнутый низ —
+    // ОТДЕЛЬНАЯ карточка ЧУТЬ УЖЕ, «выпадающая» из-под шапки. От яркой шапки идём в ТЁМНЫЙ, БОРДОВО-красный
+    // тон (не светлее — темнее). Радиус постоянный (8dp). Свёрнут — компактно (tnum + битрейт всегда).
+    val detailBordeaux = Color(0xFF8A1524)
+
+    Column(
+        modifier = Modifier.width(IntrinsicSize.Max).clickable { expanded = !expanded },
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        // ── Шапка — скруглённая пилюля (кислый красный), во всю ширину виджета, ПОВЕРХ выпадайки (zIndex) ──
+        Surface(
+            color = LiveRed, shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().zIndex(1f),
         ) {
-            Box(
-                Modifier
-                    .size(9.dp)
-                    .border(1.dp, Color.White, androidx.compose.foundation.shape.CircleShape)
-                    .padding(1.dp)
-                    .background(healthColor, shape = androidx.compose.foundation.shape.CircleShape),
-            )
-            Text(
-                text = stringResource(R.string.fab_live_badge) + durationText + bitrateText,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                // bug 53 — табличные (моноширинные) цифры: ширина не скачет при смене цифр таймера/битрейта.
-                style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(
+                    Modifier.size(9.dp)
+                        .border(1.dp, Color.White, androidx.compose.foundation.shape.CircleShape)
+                        .padding(1.dp)
+                        .background(healthColor, androidx.compose.foundation.shape.CircleShape),
+                )
+                Text(
+                    text = "$label • $durationText • $bitrateText",
+                    color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, style = tnum,
+                    maxLines = 1,
+                )
+            }
+        }
+        // ── Выпадайка — ЧУТЬ уже шапки (по 6dp с боков), растёт вниз НЕОТДЕЛИМО: тукается ПОД шапку
+        //    (offset -6, шапка сверху по zIndex) → нет чёрной щели, шапка «держит» её сверху. ──
+        AnimatedVisibility(visible = expanded, modifier = Modifier.fillMaxWidth().zIndex(0f)) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
+                Surface(
+                    color = detailBordeaux, shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().offset(y = (-6).dp),
+                ) {
+                    Column(
+                        Modifier.padding(horizontal = 10.dp).padding(top = 11.dp, bottom = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                    encoderSummary?.let { StatusDetailRow(stringResource(R.string.status_encoder), it, tnum) }
+                    if (live.droppedFrames > 0)
+                        StatusDetailRow(stringResource(R.string.status_dropped), live.droppedFrames.toString(), tnum)
+                    // Статус каждой платформы мультистрима (для записи outputs пуст). Пункты через «•».
+                    live.outputs.sortedBy { it.index }.forEach { out ->
+                        val phaseLabel = outputPhaseLabel(out.phase)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.size(7.dp).background(outputColor(out.phase, out.congested), androidx.compose.foundation.shape.CircleShape))
+                            val parts = buildString {
+                                append(out.name); append(" • "); append(phaseLabel)
+                                if (out.phase == OutputPhase.Live) { append(" • "); append("%.1f Mbps".format(out.bitrateKbps / 1000f)) }
+                            }
+                            Text(parts, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, style = tnum, maxLines = 1)
+                            if (out.congested)
+                                Text("• " + stringResource(R.string.status_net_congested), color = Color(0xFFFFD600), fontSize = 11.sp)
+                        }
+                    }
+                    }
+                }
+            }
         }
     }
 }
+
+@Composable
+private fun StatusDetailRow(label: String, value: String, tnum: androidx.compose.ui.text.TextStyle) {
+    // На красном фоне: подпись — приглушённо-белая, значение — белое жирное. Пункты в значении — через «•».
+    // Криник — ЦЕНТРИРУЕМ по высоте (был дефолт Top → метка/значение несимметричны).
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        // Криник — важные поля с двоеточием («Кодер:»).
+        Text("$label:", color = Color(0xCCFFFFFF), fontSize = 11.sp)
+        Text(value, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, style = tnum)
+    }
+}
+
+// Цвет точки per-платформа: зелёный жив, жёлтый затык/подключение, красный реконнект/ошибка, серый стоп.
+private fun outputColor(phase: OutputPhase, congested: Boolean): Color = when (phase) {
+    OutputPhase.Live -> if (congested) Color(0xFFFFD600) else Color(0xFF00E676)
+    OutputPhase.Connecting -> Color(0xFFFFD600)
+    OutputPhase.Reconnecting, OutputPhase.Failed -> Color(0xFFFF1744)
+    OutputPhase.Stopped -> Color(0xFF888888)
+}
+
+@Composable
+private fun outputPhaseLabel(phase: OutputPhase): String = stringResource(
+    when (phase) {
+        OutputPhase.Live -> R.string.status_phase_live
+        OutputPhase.Connecting -> R.string.status_phase_connecting
+        OutputPhase.Reconnecting -> R.string.status_phase_reconnecting
+        OutputPhase.Failed -> R.string.status_phase_failed
+        OutputPhase.Stopped -> R.string.status_phase_stopped
+    },
+)

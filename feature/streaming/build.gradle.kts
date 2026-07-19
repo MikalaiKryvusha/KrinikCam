@@ -50,4 +50,7 @@ dependencies {
 
     // RTMP / streaming engine — api so :app can use VideoSource for UvcVideoSource
     api(libs.root.encoder)
+
+    // JVM-юниты (idea 40 / plans/18 Ф0 — round-trip персиста сцены). Pure-JVM, без Robolectric.
+    testImplementation(libs.junit)
 }

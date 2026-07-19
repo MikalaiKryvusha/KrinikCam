@@ -263,6 +263,11 @@ class MainActivity : ComponentActivity() {
                     // Мульти-источники (idea 21 Фаза B, Idea 22): добавить ещё слой видеозахвата / удалить слой по id.
                     "add-video-capture" -> streamingRepository.addVideoCaptureLayer()
                     "remove-layer" -> arg?.trim()?.takeIf { it.isNotEmpty() }?.let { streamingRepository.removeLayer(it) }
+                    // idea 40 / plans/18 Ф0 — персист сцены (автономная приёмка рестарта): форс-сейв (обойти
+                    // debounce), дамп персистнутого JSON в лог (сверка до/после), сброс к дефолту.
+                    "scene-save" -> streamingRepository.saveSceneNow()
+                    "scene-dump" -> streamingRepository.dumpSceneToLog()
+                    "scene-reset" -> streamingRepository.resetScene()
                     // Мульти-источники: задать источник КОНКРЕТНОГО слоя-камеры. arg = "<layerId> <front|rear|uvc|virtual|none|builtin <camId>>".
                     "set-layer-source" -> {
                         val parts = arg?.trim()?.split(Regex("[,\\s]+"))?.filter { it.isNotEmpty() } ?: emptyList()

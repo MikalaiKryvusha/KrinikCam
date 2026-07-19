@@ -38,5 +38,44 @@
 
 Родственно bug 27/31 (пересборка поверхности) и bug 35 (двойной мониторинг/UsbViewModel).
 
+## 🔬 СТЕКТРЕЙС СНЯТ (2026-07-19) — нативный HWUI-abort
+
+Краш воспроизведён (навигация Main↔Settings) и пойман:
+```
+F HWUI  : drawRenderNode called on a context with no surface!
+F libc  : Fatal signal 6 (SIGABRT) in tid RenderThread, pid niks.kcam.debug
+F DEBUG : Abort message: 'drawRenderNode called on a context with no surface!'
+  #04 libhwui.so android::uirenderer::skiapipeline::SkiaOpenGLPipeline::getFrame()
+  #05 libhwui.so android::uirenderer::renderthread::CanvasContext::draw(bool)
+  #06 libhwui.so ...DrawFrameTask::postAndWait()
+  #07 libhwui.so RenderThread::threadLoop()
+```
+Это НЕ Kotlin-исключение, а **abort ОКОННОГО HWUI RenderThread приложения** (не GL-поток RootEncoder):
+`CanvasContext::draw` вызван, когда у окна нет валидной поверхности. Триггер — обновления
+превью-**TextureView** (камера/GL шлёт кадры в его SurfaceTexture → инвалидация окна → redraw), которые
+попадают в момент, когда поверхность окна отсутствует (гонка жизненного цикла при навигации). Семья
+bug 27/31/48 (TextureView/EGL/HWUI). Интермиттентно: в серии из 6 циклов Main↔Settings упало 1 раз.
+
+## ❌ Гипотеза «анимация переходов Nav» — ОПРОВЕРГНУТА (2026-07-19)
+
+Пробовал отключить анимации Compose-Navigation (`enter/exit/popEnter/popExitTransition = None` у NavHost).
+**Краш ПОВТОРИЛСЯ** (тот же abort в серии Main↔Settings). Значит причина НЕ в анимации перехода —
+правка откачена. Сужает к: обновление TextureView во время смены композиции экрана (dispose/recreate
+AndroidView) гонится с redraw окна.
+
+## Кандидаты РЕАЛЬНОГО фикса (нужен focused-заход, не тривиально)
+
+1. **Превью выше NavHost:** держать viewfinder (TextureView) в MainActivity ПОД контентом навигации,
+   не диспоузить при уходе в Settings (сейчас MAIN-composable удаляется → AndroidView(TextureView)
+   пересоздаётся). Живёт одна поверхность — гонки dispose/recreate нет.
+2. **SurfaceView вместо TextureView:** SurfaceView рендерит в СВОЮ поверхность (не через HWUI-RenderNode
+   окна) → путь «no surface» окна не задевается; каноничный выбор для превью камеры. Крупная правка
+   пайплайна (RootEncoder умеет и SurfaceView).
+3. **Полная остановка продюсера ДО dispose:** гарантировать, что камера/GL не шлёт кадры в мёртвую
+   SurfaceTexture в окне гонки (усилить onSurfaceTextureDestroyed→stopPreview, синхронно).
+
 ## Статус
-🔴 ОТКРЫТ (высокий). Нужен стектрейс; план: лог → защита re-attach/навигации → приёмка серией.
+🔴 ОТКРЫТ (высокий). **Стектрейс снят, root cause сужен** (оконный HWUI-abort «no surface» от
+TextureView-превью при навигации). Быстрый фикс (отключить Nav-анимации) НЕ помог. Нужен focused-заход
+по одному из 3 кандидатов (превью выше NavHost / SurfaceView / синхронный stop продюсера). НЕ регрессия
+эпика сцен (правки сцен — Compose-оверлеи, поверхность превью не трогают).

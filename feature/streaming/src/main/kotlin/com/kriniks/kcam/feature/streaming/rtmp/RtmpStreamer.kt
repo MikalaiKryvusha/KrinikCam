@@ -63,20 +63,30 @@ import com.kriniks.kcam.feature.streaming.scene.Layer
 import com.kriniks.kcam.feature.streaming.scene.LayerTransform
 import com.kriniks.kcam.feature.streaming.scene.Scene
 import com.kriniks.kcam.feature.streaming.scene.StandbyImage
+import com.kriniks.kcam.feature.streaming.scene.persist.SceneSnapshotRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "RtmpStreamer"
+
+// idea 40 / plans/18 Ф0 — окно debounce автосейва сцены: работа не теряется, но записи редки (жест
+// трансформы шлёт правку каждый кадр — сохраняем только после паузы ~0.4с).
+private const val SCENE_AUTOSAVE_DEBOUNCE_MS = 400L
 
 // idea 37 — адаптивный битрейт: пол деградации (ниже не опускаемся — картинка теряет смысл),
 // шаг снижения при затыке канала и шаг плавного восстановления к целевому (проценты от значения).
@@ -89,6 +99,8 @@ private const val LIVE_TICK_MS = 1000L
 @Singleton
 class RtmpStreamer @Inject constructor(
     @ApplicationContext private val context: Context,
+    // idea 40 / plans/18 Ф0 — персист текущей сцены (restore на старте + автосейв).
+    private val snapshotRepo: SceneSnapshotRepository,
 ) {
     private val _state = MutableStateFlow<StreamState>(StreamState.Idle)
     val state: StateFlow<StreamState> = _state.asStateFlow()
@@ -293,6 +305,10 @@ class RtmpStreamer @Inject constructor(
 
     // Singleton lives for app lifetime — scope is appropriate here.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    // idea 40 / plans/18 Ф0 — персист сцены. ОТДЕЛЬНЫЙ init ПОСЛЕ [scope] (init-блоки и инициализаторы
+    // полей исполняются в порядке объявления — здесь scope уже создан, в отличие от init выше).
+    init { startScenePersistence() }
 
     /**
      * plans/09 S2 — ФАБРИКА per-output ConnectChecker'а. Каждый RTMP-выход `i` получает СВОЙ инстанс,
@@ -1130,7 +1146,7 @@ class RtmpStreamer @Inject constructor(
                 lastPreviewTextureView?.get()?.let { startPreview(it) }
                 return null
             }
-            _state.value = StreamState.Live()  // reuse Live state so the UI shows the LIVE badge
+            _state.value = StreamState.Live(isRecording = true)  // reuse Live-состояние, но помечаем как ЗАПИСЬ (Криник)
             lastRecordPath = path              // Idea 11: published to DCIM on STOPPED
             // idea 37/17 — тикер эфира нужен и ЗАПИСИ (таймер на бейдже; пойман приёмкой кнопки
             // Record: стоял 0:00). Адаптер битрейта при записи ВЫКЛЮЧЕН (target=0 → no-op: канала
@@ -1207,9 +1223,51 @@ class RtmpStreamer @Inject constructor(
         applySceneLayers()
     }
 
-    // Мульти-источники (idea 21 Фаза B): счётчик для УНИКАЛЬНЫХ id слоёв видеозахвата. Дефолтная
-    // камера сцены — id "camera"; добавляемые — "camera_1", "camera_2", … (не коллизят).
-    private var videoCaptureLayerCounter = 0
+    // ── idea 40 / plans/18 Ф0 — персист сцены (restore на старте + автосейв) ──────────────────
+    /**
+     * Запустить персист сцены: сначала ВОССТАНОВИТЬ сохранённую сцену (строго ДО автосейва — иначе
+     * дефолт перезапишет сохранённое), затем автосейв на каждую правку. Автосейв — с debounce (`mutateScene`
+     * зовётся каждый кадр жеста трансформы → без debounce был бы спам записи и просадка жестов), и с
+     * `drop(1)` (пропускаем восстановленное/дефолтное значение — его сохранять не нужно).
+     */
+    @OptIn(FlowPreview::class)
+    private fun startScenePersistence() {
+        scope.launch(Dispatchers.IO) {
+            snapshotRepo.loadOrNull()?.let { restored ->
+                withContext(Dispatchers.Main.immediate) {
+                    _scene.value = restored
+                    applySceneLayers()
+                    KLog.i(TAG, "Scene restored from snapshot: ${restored.layers.size} layers")
+                }
+            }
+            scene.drop(1).debounce(SCENE_AUTOSAVE_DEBOUNCE_MS).collect { snapshotRepo.save(it) }
+        }
+    }
+
+    /** Ф0 — сбросить сцену к дефолту (FAB «Сцены» → «Сбросить сцену»). Автосейв сохранит и почистит сироты. */
+    fun resetScene() = mutateScene { Scene.default() }
+
+    /** Ф0 — форс-сейв текущей сцены (харнес scene-save: детерминизм теста без ожидания debounce). */
+    fun saveSceneNow() { scope.launch(Dispatchers.IO) { snapshotRepo.save(_scene.value) } }
+
+    /** Ф0 — залогировать персистнутый снапшот (харнес scene-dump: объективная сверка до/после рестарта). */
+    fun dumpSceneToLog() {
+        scope.launch(Dispatchers.IO) {
+            KLog.i(TAG, "scene-dump: layers=${_scene.value.layers.size} persisted=${snapshotRepo.persistedJson()}")
+        }
+    }
+
+    // Мульти-источники (idea 21 Фаза B): УНИКАЛЬНЫЙ id слоя видеозахвата. Дефолтная камера сцены —
+    // id "camera"; добавляемые — "camera_1", "camera_2", … Считаем по СКАНУ текущей сцены (МАКС суффикс
+    // +1), а не монотонным счётчиком от 0 — иначе после restore (plans/18 Ф0) новый слой коллидил бы с
+    // восстановленными "camera_N".
+    private fun nextVideoCaptureLayerId(): String {
+        val max = _scene.value.layers
+            .filter { it.id.startsWith("camera_") }
+            .mapNotNull { it.id.removePrefix("camera_").toIntOrNull() }
+            .maxOrNull() ?: 0
+        return "camera_${max + 1}"
+    }
 
     /**
      * Добавить ещё один слой «Устройство захвата видео» НА ВЕРХ сцены (мульти-источники). bug 57 —
@@ -1220,7 +1278,7 @@ class RtmpStreamer @Inject constructor(
         source: com.kriniks.kcam.feature.streaming.scene.CaptureSource =
             com.kriniks.kcam.feature.streaming.scene.CaptureSource.None,
     ): String {
-        val id = "camera_${++videoCaptureLayerCounter}"
+        val id = nextVideoCaptureLayerId()
         mutateScene { it.addOnTop(Layer.VideoCapture(id = id, source = source)) }
         KLog.i(TAG, "Scene: added video-capture layer id=$id source=${source::class.simpleName} (мульти-источники)")
         return id

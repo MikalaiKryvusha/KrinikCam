@@ -71,6 +71,17 @@
     <string name="fab_encoder">Encoder</string>
     <string name="fab_settings">Settings</string>
     <string name="fab_live_badge">LIVE</string>
+    <!-- Криник — при записи в файл статус должен писать ЗАПИСЬ, а не ЭФИР (запись ≠ стрим). -->
+    <string name="fab_rec_badge">REC</string>
+    <!-- idea 39 — разворачиваемый статус-виджет эфира (детали по платформам/кодек/дропы). -->
+    <string name="status_encoder">Encoder</string>
+    <string name="status_dropped">Dropped</string>
+    <string name="status_net_congested">net lag</string>
+    <string name="status_phase_live">Live</string>
+    <string name="status_phase_connecting">Connecting</string>
+    <string name="status_phase_reconnecting">Reconnecting</string>
+    <string name="status_phase_failed">Failed</string>
+    <string name="status_phase_stopped">Stopped</string>
     <string name="fab_menu_desc">Menu</string>
     <string name="fab_record">Record</string>
     <string name="fab_photo">Photo</string>
@@ -78,6 +89,9 @@
     <!-- Main screen (plans/13) -->
     <string name="main_standby_hint">Connect a USB webcam via OTG,\nor check Settings for help</string>
     <string name="main_layers_desc">Layers</string>
+    <!-- Scenes FAB + panel (idea 40 / plans/18 Ф0) -->
+    <string name="main_scenes_desc">Scenes</string>
+    <string name="scenes_current">Current scene · %1$d layers</string>
     <string name="source_none">No source</string>
     <string name="source_virtual">Virtual camera (debug)</string>
 

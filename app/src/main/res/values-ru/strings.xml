@@ -65,6 +65,17 @@
     <string name="fab_encoder">Кодер</string>
     <string name="fab_settings">Настройки</string>
     <string name="fab_live_badge">ЭФИР</string>
+    <!-- Криник — при записи в файл статус пишет ЗАПИСЬ, а не ЭФИР (запись ≠ стрим). -->
+    <string name="fab_rec_badge">ЗАПИСЬ</string>
+    <!-- idea 39 — разворачиваемый статус-виджет эфира (детали по платформам/кодек/дропы). -->
+    <string name="status_encoder">Кодер</string>
+    <string name="status_dropped">Потеряно</string>
+    <string name="status_net_congested">затык сети</string>
+    <string name="status_phase_live">В эфире</string>
+    <string name="status_phase_connecting">Подключение</string>
+    <string name="status_phase_reconnecting">Реконнект</string>
+    <string name="status_phase_failed">Ошибка</string>
+    <string name="status_phase_stopped">Остановлен</string>
     <string name="fab_menu_desc">Меню</string>
     <string name="fab_record">Запись</string>
     <string name="fab_photo">Фото</string>
@@ -72,6 +83,9 @@
     <!-- Main screen (plans/13) -->
     <string name="main_standby_hint">Подключите USB-вебкамеру через OTG\nили загляните в Настройки за подсказкой</string>
     <string name="main_layers_desc">Слои</string>
+    <!-- FAB и панель сцен (idea 40 / plans/18 Ф0) -->
+    <string name="main_scenes_desc">Сцены</string>
+    <string name="scenes_current">Текущая сцена · %1$d сл.</string>
     <string name="source_none">Нет источника</string>
     <string name="source_virtual">Виртуальная камера (отладка)</string>
 

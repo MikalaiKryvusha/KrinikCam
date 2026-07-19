@@ -68,6 +68,14 @@ class StreamingRepository @Inject constructor(
     fun toggleLayerVisible(id: String) = rtmpStreamer.toggleLayerVisible(id)
     fun moveLayerUp(id: String) = rtmpStreamer.moveLayerUp(id)
     fun moveLayerDown(id: String) = rtmpStreamer.moveLayerDown(id)
+
+    // ── idea 40 / plans/18 Ф0 — персист сцены ───────────────────────────
+    /** FAB «Сцены» / харнес: сбросить сцену к дефолту (автосейв подхватит, сироты-оверлеи чистятся). */
+    fun resetScene() = rtmpStreamer.resetScene()
+    /** Харнес scene-save: форс-сейв снапшота (обойти debounce автосейва — детерминизм теста рестарта). */
+    fun saveSceneNow() = rtmpStreamer.saveSceneNow()
+    /** Харнес scene-dump: залогировать персистнутый JSON снапшота (сверка до/после рестарта). */
+    fun dumpSceneToLog() = rtmpStreamer.dumpSceneToLog()
     // interview_006 Q3: [rotation] — поворот СОДЕРЖИМОГО слоя внутри сцены (0/90/180/270 CW).
     fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f, rotation: Int = 0) =
         rtmpStreamer.setLayerTransform(id, scale, cx, cy, alpha, rotation)

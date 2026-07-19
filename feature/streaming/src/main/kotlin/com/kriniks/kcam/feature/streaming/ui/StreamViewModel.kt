@@ -143,9 +143,6 @@ class StreamViewModel @Inject constructor(
         return v
     }
 
-    // Монотонный счётчик ТОЛЬКО для уникальных id (id не должны повторяться даже после удалений).
-    private var overlayIdCounter = 0
-
     // Видимое ИМЯ нумеруем от количества уже существующих оверлеев-картинок (+1) — чтобы нумерация
     // начиналась заново с 1, когда оверлеев нет (Криник: «логично вновь начинать с единицы»).
     private fun nextOverlayName(): String {
@@ -153,11 +150,22 @@ class StreamViewModel @Inject constructor(
         return "Overlay $n"
     }
 
+    // idea 40 / plans/18 Ф0 — уникальный id "overlay_N" = МАКС существующего суффикса + 1. По СКАНУ
+    // текущей сцены (не монотонный счётчик от 0): после restore сохранённой сцены новый оверлей не
+    // коллидит с восстановленными (иначе перезаписал бы их PNG-файл в ImageOverlayStore).
+    private fun nextOverlayId(): String {
+        val max = scene.value.layers
+            .filter { it.id.startsWith("overlay_") }
+            .mapNotNull { it.id.removePrefix("overlay_").toIntOrNull() }
+            .maxOrNull() ?: 0
+        return "overlay_${max + 1}"
+    }
+
     /** Добавить тестовый PNG-оверлей поверх сцены (быстрая проверка пайплайна без файла). */
     fun addTestOverlay() {
-        overlayIdCounter += 1
-        repository.addTestOverlay(id = "overlay_$overlayIdCounter", name = nextOverlayName())
-        KLog.i(TAG, "Added test overlay (id #$overlayIdCounter)")
+        val id = nextOverlayId()
+        repository.addTestOverlay(id = id, name = nextOverlayName())
+        KLog.i(TAG, "Added test overlay (id=$id)")
     }
 
     /**
@@ -165,9 +173,9 @@ class StreamViewModel @Inject constructor(
      * (см. ImageOverlayLoader); декод/чтение файла делает UI off-main. [displayName] — имя файла.
      */
     fun addImageOverlay(displayName: String, bitmap: android.graphics.Bitmap) {
-        overlayIdCounter += 1
-        repository.addImageOverlay(id = "overlay_$overlayIdCounter", name = displayName, bitmap = bitmap)
-        KLog.i(TAG, "Added image overlay '$displayName' (id #$overlayIdCounter)")
+        val id = nextOverlayId()
+        repository.addImageOverlay(id = id, name = displayName, bitmap = bitmap)
+        KLog.i(TAG, "Added image overlay '$displayName' (id=$id)")
     }
 
     /** Мульти-источники (idea 21 Фаза B): добавить ещё один слой «Устройство захвата видео». */
@@ -179,6 +187,12 @@ class StreamViewModel @Inject constructor(
     fun removeLayer(id: String) {
         if (_selectedLayerId.value == id) _selectedLayerId.value = null // снять выбор с удаляемого слоя
         repository.removeLayer(id)
+    }
+
+    /** idea 40 / plans/18 Ф0 — FAB «Сцены» → «Сбросить сцену»: вернуть сцену к дефолту (одна камера). */
+    fun resetScene() {
+        _selectedLayerId.value = null
+        repository.resetScene()
     }
 
     /**
@@ -198,8 +212,7 @@ class StreamViewModel @Inject constructor(
     fun duplicateLayer(id: String) {
         val layer = scene.value.layers.firstOrNull { it.id == id } ?: return
         if (layer is com.kriniks.kcam.feature.streaming.scene.Layer.Image) {
-            overlayIdCounter += 1
-            val newId = "overlay_$overlayIdCounter"
+            val newId = nextOverlayId()
             repository.addImageOverlay(newId, layer.name + " copy", layer.bitmap)
             val t = layer.transform
             repository.setLayerTransform(
