@@ -103,11 +103,20 @@ class DeviceCameraOpener(
     // bug 19 — сообщить композитору ориентацию сенсора (CW-градусы) + зеркало (фронталка), чтобы
     // выпрямить кадр («камеру вращаем сами»). UVC/виртуалка передают (0, false).
     private val onOrientation: (Int, Boolean) -> Unit = { _, _ -> },
+    // bug 60 — вызвать, когда ЭТУ встроенную камеру нельзя открыть из-за занятости ДРУГОЙ встроенной
+    // (HAL-лимит: фронт+тыл на этом классе устройств одновременно не тянут; MAX_CAMERAS_IN_USE). :app
+    // покажет ЧЕСТНЫЙ статус (снэкбар) вместо молчаливой заглушки.
+    private val onConflict: () -> Unit = {},
 ) : RtmpStreamer.CameraOpener {
 
     // bug 58 — ключ физ-устройства ("builtin:<cameraId>"): не даёт открыть одну Camera2-камеру на двух
     // слоях (второй openCamera того же id = CameraAccessException/зависание).
     override val sourceKey: String get() = "builtin:$cameraId"
+
+    // bug 64 — жив ли продюсер: true, когда сессия сконфигурирована и идёт repeating-request; false на
+    // отвале/ошибке/закрытии/HAL-конфликте. На возврате в приложение мёртвые переоткрываем (reopenDeadCameras).
+    @Volatile private var alive = false
+    override val isAlive: Boolean get() = alive
 
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private var device: CameraDevice? = null
@@ -116,11 +125,30 @@ class DeviceCameraOpener(
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
 
+    private companion object Registry {
+        // bug 60 — реестр id ОТКРЫТЫХ (или открываемых) встроенных Camera2-камер. Только ОДНА может быть
+        // открыта разом (HAL: фронт+тыл на этом классе устройств не сосуществуют). Пока одна занята —
+        // вторую даже НЕ пытаемся открыть: иначе HAL отдаёт MAX_CAMERAS_IN_USE, а на go-live/stop это
+        // превращается в трэш open→error→close по кругу (переоткрытие обеих на каждом реините GL) —
+        // вероятный кормилец краша 63. Резервируем СИНХРОННО в open() (до асинхронного openCamera), поэтому
+        // победитель детерминирован порядком сцены (дефолтный слой "camera" открывается первым).
+        val openBuiltinIds = java.util.Collections.synchronizedSet(HashSet<String>())
+    }
+
     @SuppressLint("MissingPermission") // CAMERA выдаётся в MainActivity до старта превью
     override fun open(surfaceTexture: SurfaceTexture) {
         // close-before-open: слой может отдать НОВУЮ SurfaceTexture при реините GL (старая
         // «abandoned»). Закрываем предыдущие device/session/thread и открываемся на свежей поверхности.
         close()
+        // bug 60 — ДРУГАЯ встроенная камера уже занята → эту открыть нельзя (HAL-лимит фронт/тыл). Не
+        // долбимся впустую (иначе MAX_CAMERAS_IN_USE + churn → краш 63): честно сообщаем наверх и остаёмся
+        // с заглушкой в слое. Резерв синхронный, поэтому первый по порядку сцены слой-камера побеждает.
+        if (openBuiltinIds.any { it != cameraId }) {
+            KLog.w(TAG, "builtin $cameraId: другая встроенная камера уже открыта — HAL-конфликт, НЕ открываю (bug 60)")
+            runCatching { onConflict() }
+            return
+        }
+        openBuiltinIds.add(cameraId)
         try {
             // Bug 19/29.2: диагностика ориентации сенсора + выбор НАТИВНОГО 16:9-размера (иначе Camera2
             // тянет сенсор в чужой аспект → искажение). Интервью_006: физкамера отдаёт СЫРОЙ поток,
@@ -156,6 +184,7 @@ class DeviceCameraOpener(
                                 session = sess
                                 val req = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply { addTarget(s) }
                                 runCatching { sess.setRepeatingRequest(req.build(), null, h) }
+                                    .onSuccess { alive = true } // bug 64 — продюсер жив (идут кадры)
                                     .onFailure { KLog.e(TAG, "setRepeatingRequest failed", it) }
                                 KLog.i(TAG, "Device camera $cameraId streaming into layer (${width}x${height})")
                             }
@@ -167,11 +196,24 @@ class DeviceCameraOpener(
                         KLog.e(TAG, "createCaptureSession failed", e)
                     }
                 }
-                override fun onDisconnected(camera: CameraDevice) { KLog.w(TAG, "Device camera $cameraId disconnected"); camera.close(); device = null }
-                override fun onError(camera: CameraDevice, error: Int) { KLog.e(TAG, "Device camera $cameraId error $error"); camera.close(); device = null }
+                override fun onDisconnected(camera: CameraDevice) {
+                    KLog.w(TAG, "Device camera $cameraId disconnected"); camera.close(); device = null
+                    alive = false // bug 64 — продюсер отвалился (другое приложение забрало камеру)
+                    openBuiltinIds.remove(cameraId) // bug 60 — освободить резерв (камера отвалилась)
+                }
+                override fun onError(camera: CameraDevice, error: Int) {
+                    KLog.e(TAG, "Device camera $cameraId error $error"); camera.close(); device = null
+                    alive = false // bug 64 — продюсер мёртв
+                    // bug 60 — освобождаем резерв (иначе битая камера навсегда заблокирует другую); ошибки
+                    // «камера занята» (IN_USE=1 / MAX_CAMERAS_IN_USE=2) → честный статус наверх.
+                    openBuiltinIds.remove(cameraId)
+                    if (error == CameraDevice.StateCallback.ERROR_CAMERA_IN_USE ||
+                        error == CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE) runCatching { onConflict() }
+                }
             }, h)
         } catch (e: Exception) {
             KLog.e(TAG, "DeviceCameraOpener.open failed", e)
+            openBuiltinIds.remove(cameraId) // bug 60 — синхронный сбой openCamera: освободить резерв
         }
     }
 
@@ -220,6 +262,7 @@ class DeviceCameraOpener(
         runCatching { device?.close() }; device = null
         runCatching { surface?.release() }; surface = null
         thread?.quitSafely(); thread = null; handler = null
+        openBuiltinIds.remove(cameraId) // bug 60 — освободить резерв встроенной камеры (см. Registry)
         KLog.d(TAG, "Device camera $cameraId closed (layer)")
     }
 }

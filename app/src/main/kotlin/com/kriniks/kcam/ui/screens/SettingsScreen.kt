@@ -53,6 +53,7 @@ import com.kriniks.kcam.BuildConfig
 import com.kriniks.kcam.R
 import com.kriniks.kcam.core.logging.FileLogger
 import com.kriniks.kcam.feature.streaming.ui.EncoderProfilesOverlay
+import com.kriniks.kcam.feature.streaming.ui.ImportReportDialog
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
 
@@ -133,14 +134,16 @@ fun SettingsScreen(
                                else pluralStringResource(R.plurals.settings_platforms_count, profiles.size, profiles.size),
                     onClick = { showPlatforms = true },
                 )
-                if (activeProfile != null) {
-                    SettingsRow(
-                        icon = Icons.Default.PlayArrow,
-                        title = stringResource(R.string.settings_active_profile),
-                        subtitle = activeProfile!!.name,
-                        onClick = { showPlatforms = true },
-                    )
-                }
+                // Криник — строка «Активный профиль» УБРАНА: легаси одиночного стрима. При мультистриме
+                // вещают ВСЕ включённые платформы разом, «активного профиля» нет; строка дублировала вход
+                // в «Платформы» и путала.
+                // Криник — прямой вход в профили кодера (третий из трёх путей; большая кнопка из «Платформ» убрана).
+                SettingsRow(
+                    icon = Icons.Default.Memory, // Криник — «цифровая/кодек» иконка (см. FloatingRadialMenu)
+                    title = stringResource(R.string.settings_encoder_profiles),
+                    subtitle = stringResource(R.string.settings_encoder_profiles_sub),
+                    onClick = { showEncoderOverlay = true },
+                )
             }
 
             // ── Permissions ───────────────────────────────────────────
@@ -231,7 +234,16 @@ fun SettingsScreen(
             onDismiss = { showEncoderOverlay = false },
             onSaveProfile = { streamViewModel.saveEncoderProfile(it) },
             onDeleteProfile = { streamViewModel.deleteEncoderProfile(it) },
+            // Криник — экспорт/импорт профилей кодера (универсальный импорт с отчётом).
+            buildExportJson = { streamViewModel.buildEncoderExportJson() },
+            onImportJson = { streamViewModel.importEncoderProfilesFromJson(it) },
         )
+    }
+
+    // Криник — универсальный отчёт импорта: модалка «Понял» при замечаниях (недостающие/неизвестные значения).
+    val importReport by streamViewModel.importReport.collectAsStateWithLifecycle()
+    importReport?.let { rep ->
+        ImportReportDialog(report = rep, onDismiss = { streamViewModel.dismissImportReport() })
     }
 
     // Tap "KrinikCam" → project info + GitHub link.

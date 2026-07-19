@@ -66,6 +66,7 @@ import com.kriniks.kcam.feature.streaming.model.isLive
 import com.kriniks.kcam.feature.streaming.ui.StreamLayersOverlay
 import com.kriniks.kcam.feature.streaming.ui.SourceOption
 import com.kriniks.kcam.feature.streaming.ui.EncoderProfilesOverlay
+import com.kriniks.kcam.feature.streaming.ui.ImportReportDialog
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import androidx.compose.ui.platform.LocalContext
 import com.kriniks.kcam.streaming.DeviceCameraOpener
@@ -205,7 +206,12 @@ fun MainScreen(
                     onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) }))
             is VideoSource.PhoneCamera -> streamViewModel.setCameraOpener(lid,
                 DeviceCameraOpener(appContext, src.cameraId, onAspect = { streamViewModel.setCameraAspect(lid, it) },
-                    onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) }))
+                    onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) },
+                    // bug 60 — HAL не тянет фронт+тыл разом: конфликт → честный статус + откат источника слоя.
+                    onConflict = {
+                        streamViewModel.postWarning(com.kriniks.kcam.feature.streaming.ui.UiText.Res(R.string.camera_conflict_builtin))
+                        streamViewModel.onBuiltinCameraConflict(lid)
+                    }))
             is VideoSource.None -> streamViewModel.setCameraOpener(lid, null)
         }
     }
@@ -230,7 +236,12 @@ fun MainScreen(
                     }
                     is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin -> DeviceCameraOpener(
                         appContext, cs.cameraId, onAspect = { streamViewModel.setCameraAspect(lid, it) },
-                        onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) })
+                        onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) },
+                        // bug 60 — HAL не тянет две встроенные разом: конфликт → честный статус + откат источника слоя.
+                        onConflict = {
+                            streamViewModel.postWarning(com.kriniks.kcam.feature.streaming.ui.UiText.Res(R.string.camera_conflict_builtin))
+                            streamViewModel.onBuiltinCameraConflict(lid)
+                        })
                     is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Virtual -> VirtualCameraOpener(
                         onAspect = { streamViewModel.setCameraAspect(lid, it) },
                         onOrientation = { d, m -> streamViewModel.setCameraOrientation(lid, d, m) })
@@ -238,6 +249,13 @@ fun MainScreen(
                 }
             streamViewModel.setCameraOpener(lid, opener)
         }
+    }
+
+    // bug 64 (Криник) — приложение вернулось на передний план: если другое приложение (Instagram/камера)
+    // забрало камеру, пока KrinikCam был свёрнут, — переоткрываем её (мёртвые камеры), фид восстанавливается
+    // без заморозки/заглушки. Пока KrinikCam на переднем плане, ОС уже не даёт фоновым приложениям забрать камеру.
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        streamViewModel.onAppResumed()
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -529,9 +547,11 @@ fun MainScreen(
                 snackbarHostState.showSnackbar(msg.resolve(snackbarContext), duration = SnackbarDuration.Short)
             }
         }
+        // Криник — снэкбары ВВЕРХУ: внизу их перекрывали FAB/панели, было не видно. Ставим под строкой
+        // статуса (ниже LIVE-бейджа/кнопки поворота), по центру, с боковыми отступами.
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 72.dp, start = 16.dp, end = 16.dp),
         )
 
         // ── Layer 4: Radial FAB menu (bottom-right) ──────────────────
@@ -543,6 +563,8 @@ fun MainScreen(
             onRecord = { streamViewModel.startRecording() },
             onPhoto = { streamViewModel.capturePhoto() },
             onOpenPlatforms = { showPlatformsOverlay = true },
+            // Криник — профили кодера прямо из радиалки (второй из трёх входов).
+            onOpenEncoderProfiles = { showEncoderOverlay = true },
             onOpenSettings = onNavigateToSettings,
             modifier = Modifier.fillMaxSize(),
         )
@@ -585,7 +607,16 @@ fun MainScreen(
             onDismiss = { showEncoderOverlay = false },
             onSaveProfile = { streamViewModel.saveEncoderProfile(it) },
             onDeleteProfile = { streamViewModel.deleteEncoderProfile(it) },
+            // Криник — экспорт/импорт профилей кодера (универсальный импорт с отчётом).
+            buildExportJson = { streamViewModel.buildEncoderExportJson() },
+            onImportJson = { streamViewModel.importEncoderProfilesFromJson(it) },
         )
+    }
+
+    // Криник — универсальный отчёт импорта: модалка «Понял» при замечаниях (недостающие/неизвестные значения).
+    val importReport by streamViewModel.importReport.collectAsStateWithLifecycle()
+    importReport?.let { rep ->
+        ImportReportDialog(report = rep, onDismiss = { streamViewModel.dismissImportReport() })
     }
 
     // ── Layer 6: Scene layers modal overlay (Idea 19 — мульти-источники) ──

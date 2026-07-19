@@ -14,6 +14,8 @@
     <string name="settings_title">Настройки</string>
     <string name="settings_section_streaming">Трансляция</string>
     <string name="settings_platforms">Платформы</string>
+    <string name="settings_encoder_profiles">Профили кодера</string>
+    <string name="settings_encoder_profiles_sub">Кодек, разрешение, битрейт, FPS</string>
     <string name="settings_no_platforms">Платформы не настроены</string>
     <string name="settings_active_profile">Активный профиль</string>
     <string name="settings_section_debug">Отладка</string>
@@ -60,6 +62,7 @@
     <string name="fab_stop">Стоп</string>
     <string name="fab_go_live">В эфир</string>
     <string name="fab_platforms">Платформы</string>
+    <string name="fab_encoder">Кодер</string>
     <string name="fab_settings">Настройки</string>
     <string name="fab_live_badge">ЭФИР</string>
     <string name="fab_menu_desc">Меню</string>
@@ -80,6 +83,8 @@
     <string name="camera_external">Внешняя камера</string>
     <string name="camera_generic">Камера</string>
     <string name="camera_named">%1$s (id %2$s)</string>
+    <!-- bug 60 — HAL не тянет две встроенные камеры одновременно; честный статус вместо молчаливой заглушки. -->
+    <string name="camera_conflict_builtin">Это устройство не может использовать две встроенные камеры сразу — основную и селфи одновременно включить нельзя.</string>
     <string name="layer_menu_fullscreen">На весь экран</string>
     <string name="layer_menu_duplicate">Дублировать</string>
     <string name="layer_delete_title">Удалить слой?</string>

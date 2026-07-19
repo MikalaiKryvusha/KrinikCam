@@ -62,6 +62,8 @@ fun FloatingRadialMenu(
     // (всегда — снимок композита можно и во время эфира).
     onRecord: () -> Unit = {},
     onPhoto: () -> Unit = {},
+    // Криник — вход в менеджер профилей кодера (один из трёх путей: модалка платформы, эта радиалка, Settings).
+    onOpenEncoderProfiles: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -79,6 +81,10 @@ fun FloatingRadialMenu(
         add(RadialAction(Icons.Default.PhotoCamera, stringResource(R.string.fab_photo), Color.White, onPhoto))
         // Слои вынесены в ОТДЕЛЬНЫЙ FAB внизу-слева (Криник 2026-07-06) — здесь их больше нет.
         add(RadialAction(Icons.Default.Wifi, stringResource(R.string.fab_platforms), Color.White, onOpenPlatforms))
+        // Криник — профили кодера прямо из радиалки (было — только через кнопку в «Платформах», убрана).
+        // Иконка «цифровая/кодек» (Криник: «что-то с цифрами, типа матрица 10010010»): чип-память Memory —
+        // ближайшее в Material-наборе к «цифровому кодеку» (литерального «01010» глифа в наборе нет).
+        add(RadialAction(Icons.Default.Memory, stringResource(R.string.fab_encoder), Color.White, onOpenEncoderProfiles))
         add(RadialAction(Icons.Default.Settings, stringResource(R.string.fab_settings), Color.White, onOpenSettings))
     }
 

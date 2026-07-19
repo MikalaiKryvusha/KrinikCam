@@ -20,6 +20,8 @@
     <string name="settings_title">Settings</string>
     <string name="settings_section_streaming">Streaming</string>
     <string name="settings_platforms">Platforms</string>
+    <string name="settings_encoder_profiles">Encoder profiles</string>
+    <string name="settings_encoder_profiles_sub">Codec, resolution, bitrate, FPS</string>
     <string name="settings_no_platforms">No platforms configured</string>
     <string name="settings_active_profile">Active profile</string>
     <string name="settings_section_debug">Debug</string>
@@ -66,6 +68,7 @@
     <string name="fab_stop">Stop</string>
     <string name="fab_go_live">Go Live</string>
     <string name="fab_platforms">Platforms</string>
+    <string name="fab_encoder">Encoder</string>
     <string name="fab_settings">Settings</string>
     <string name="fab_live_badge">LIVE</string>
     <string name="fab_menu_desc">Menu</string>
@@ -86,6 +89,8 @@
     <string name="camera_external">External camera</string>
     <string name="camera_generic">Camera</string>
     <string name="camera_named">%1$s (id %2$s)</string>
+    <!-- bug 60 — HAL не тянет две встроенные камеры одновременно; честный статус вместо молчаливой заглушки. -->
+    <string name="camera_conflict_builtin">This device can\'t use two built-in cameras at once — the main and selfie cameras can\'t run together.</string>
     <string name="layer_menu_fullscreen">Fullscreen</string>
     <string name="layer_menu_duplicate">Duplicate</string>
     <string name="layer_delete_title">Delete layer?</string>
