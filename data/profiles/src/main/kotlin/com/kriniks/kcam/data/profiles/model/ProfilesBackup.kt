@@ -16,6 +16,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class ProfilesBackup(
@@ -46,6 +47,35 @@ object ProfilesBackupCodec {
      */
     fun decode(text: String): List<StreamProfile> =
         runCatching { json.decodeFromString<ProfilesBackup>(text).profiles }.getOrDefault(emptyList())
+
+    /**
+     * Криник — импорт С ОТЧЁТОМ (универсальный менеджер импорта): валидируем каждое поле через
+     * [JsonImportReader] (недостающее/кривое/неизвестное значение enum → fallback + замечание). Тот же
+     * контракт `decodeWithReport`, что у профилей кодера. id=0 (импорт вставляется как НОВЫЕ строки).
+     */
+    fun decodeWithReport(text: String): Pair<List<StreamProfile>, ImportReport> {
+        val root = runCatching { json.parseToJsonElement(text) }.getOrNull()
+            ?: return emptyList<StreamProfile>() to ImportReport()
+        val arr = JsonImportReader.arrayField(root, "profiles")
+            ?: return emptyList<StreamProfile>() to ImportReport()
+        val issues = mutableListOf<ImportIssue>()
+        val def = StreamProfile()
+        val profiles = arr.mapIndexedNotNull { i, el ->
+            val o = el as? JsonObject ?: return@mapIndexedNotNull null
+            val label = JsonImportReader.labelOf(o, i)
+            val r = JsonImportReader(o, label, issues)
+            StreamProfile(
+                id = 0,
+                name = r.string("name", def.name),
+                platform = r.enumByName("platform", StreamPlatform.values(), def.platform),
+                rtmpUrl = r.string("rtmpUrl", def.rtmpUrl),
+                streamKey = r.string("streamKey", def.streamKey),
+                isEnabled = r.bool("isEnabled", def.isEnabled),
+                encoderProfileId = r.long("encoderProfileId", def.encoderProfileId),
+            )
+        }
+        return profiles to ImportReport(issues = issues, imported = profiles.size)
+    }
 
     /**
      * plans/12 S5 — дедупликация импорта: повторный импорт того же файла не плодит копии.
