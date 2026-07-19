@@ -35,6 +35,10 @@ private const val FRAME_MS = 1000L / FPS
 
 // plans/sourses_timeout — заглушка «нет сигнала» как СОСТОЯНИЕ слоя-камеры (Криник: «живёт ВНУТРИ слоя»).
 private const val STANDBY_HOLD_MS = 10_000L   // держим последний кадр до показа заглушки (Криник: до 10с)
+// bug 62 — свежесозданному слоту (go-live/stop РЕИНИТит GL → слот пересоздаётся с hasEverHadFrame=false)
+// даём время догнать ПЕРВЫЙ кадр ПЕРЕД показом заглушки. Иначе на старте/стопе трансляции заглушка мигает,
+// пока камера-продюсер переоткрывается. Для слота без кадров это окно = время с момента его создания (initGl).
+private const val STANDBY_STARTUP_GRACE_MS = 2500L
 private const val STANDBY_FADE_MS = 500f      // плавный фейд появления/исчезновения заглушки
 private const val STANDBY_PULSE_MS = 1600f    // период «дыхания» заголовка (пульс альфы, как старое превью)
 private const val STANDBY_PULSE_MIN = 0.55f   // минимальная альфа заголовка в пульсе (макс = 1.0)
@@ -123,6 +127,14 @@ class CompositorVideoSource : VideoSource() {
     // Колбэк «отрисован первый кадр НОВОГО размера» — для синхронизации превью-GL RootEncoder с ресайзом
     // холста (портрет↔ландшафт) без прыжка: RootEncoder переключает вьюпорт только после готового кадра.
     @Volatile private var onResizedFrameReady: (() -> Unit)? = null
+
+    // #3 (Криник) — флаг «есть СВЕЖИЙ кадр хотя бы у одного слоя-камеры». Обновляется на GL-потоке в
+    // drawFrame; читается снаружи (schedulePreviewRestoreAfterStream), чтобы ОТЛОЖИТЬ re-attach превью до
+    // живого кадра и не цеплять его на чёрный кадр (интермиттентное мигание в чёрный на старте эфира).
+    @Volatile private var anyLiveCameraFrame = false
+
+    /** #3 — есть ли живой кадр камеры (или слоёв-камер нет вовсе — ждать нечего). Читается извне. */
+    fun hasLiveCameraContent(): Boolean = anyLiveCameraFrame
 
     /**
      * CameraSlot — ВСЁ per-слой состояние камеры (мульти-источники, idea 21 Фаза B). У каждого слоя-камеры
@@ -220,7 +232,11 @@ class CompositorVideoSource : VideoSource() {
             buildDrawTexMatrix()
             if (consumed) snapshot(r)
             // Заглушка: цель по свежести, плавный фейд + пульс «дыхания» (как было в едином варианте).
-            val wantStandby = !hasEverHadFrame || (nowMs - lastFrameAtMs) >= STANDBY_HOLD_MS
+            // bug 62 — свежий слот (после go-live/stop реинита GL) НЕ показывает заглушку сразу: даём
+            // камере STANDBY_STARTUP_GRACE_MS догнать первый кадр. Иначе на старте/стопе трансляции
+            // заглушка мигала, пока продюсер переоткрывается. lastFrameAtMs у слота без кадров = момент initGl.
+            val waited = nowMs - lastFrameAtMs
+            val wantStandby = if (hasEverHadFrame) waited >= STANDBY_HOLD_MS else waited >= STANDBY_STARTUP_GRACE_MS
             val target = if (wantStandby) 1f else 0f
             val dt = if (lastFadeClockMs == 0L) FRAME_MS.toFloat() else (nowMs - lastFadeClockMs).toFloat()
             lastFadeClockMs = nowMs
@@ -464,6 +480,7 @@ class CompositorVideoSource : VideoSource() {
         val h = Handler(t.looper)
         handler = h
         running = true
+        anyLiveCameraFrame = false // #3 — на рестарте нет живого кадра, пока камера не переоткрылась и не отдала
         h.post { initGl(s) }
         h.post(renderLoop)
         KLog.d(TAG, "Compositor started — ${encW}x${encH} @ ${FPS}fps (GL black base, шаг 1)")
@@ -519,6 +536,10 @@ class CompositorVideoSource : VideoSource() {
             // альфа/пульс заглушки) — независимо, ДО прохода 1. Слоты существуют per слой-камеру (по id).
             val nowMs = SystemClock.elapsedRealtime()
             for (slot in cameraSlots.values) slot.prepare(r, nowMs)
+            // #3 — считаем на GL-потоке: есть ли живой кадр (или слоёв-камер нет — ждать нечего). Флаг
+            // читает schedulePreviewRestoreAfterStream, чтобы не пере-цеплять превью на чёрный кадр.
+            anyLiveCameraFrame = cameraSlots.isEmpty() ||
+                cameraSlots.values.any { it.hasEverHadFrame && (nowMs - it.lastFrameAtMs) < 1000 }
 
             // ── ПРОХОД 1: сцена в 16:9 FBO (аспект-корректно, БЕЗ поворота холста) ──────────
             // Камера в нативном 16:9-буфере рисуется в 16:9 FBO → не сжимается. Поворот холста здесь
@@ -529,11 +550,12 @@ class CompositorVideoSource : VideoSource() {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
             android.opengl.Matrix.setIdentityM(canvasM, 0)     // в проходе 1 холст НЕ повёрнут
             for (layer in requestedLayers) {
-                layerMatrixOf(layer)                           // T·S·PhysRot слоя (в координатах сцены)
                 when (layer) {
                     is CompositorLayer.Camera -> {
                         // Шаринг фида (bug 58): зеркало рисует слот ПЕРВИЧНОГО (mirrorOf), первичный — свой.
                         val slot = cameraSlots[layer.mirrorOf ?: layer.id]
+                        // Видео камеры — в РОДНОМ аспекте источника (пилларбокс/леттербокс под квад, bug 32).
+                        layerMatrixOf(layer, slot?.aspect ?: SCENE_ASPECT)
                         // Рисуем СНАПШОТ ЭТОГО слота (read = предпоследний ХОРОШИЙ кадр), а НЕ сырой OES: при
                         // отвале держим хороший кадр (битый последний — в write, на экран не выходит), при
                         // реконнекте показываем его же, пока новый поток не обновит снапшот (без чёрной склейки).
@@ -547,6 +569,10 @@ class CompositorVideoSource : VideoSource() {
                         // вертикально правильным и в портрете. Заголовок пульсирует альфой (per-слой standbyPulse).
                         val sa = slot?.standbyAlpha ?: 0f
                         if (sa > 0.001f) {
+                            // bug 61 — ЗАГЛУШКА уже 16:9 (SCENE_ASPECT): рисуем её в аспекте СЦЕНЫ, а НЕ в
+                            // аспекте камеры. Иначе аспект-фит источника (напр. 4:3 основной камеры) сжимал
+                            // заглушку по горизонтали. finalM/standbyM пересчитываем под 16:9 ТОЛЬКО для неё.
+                            layerMatrixOf(layer, SCENE_ASPECT)
                             buildStandbyMatrix(layer.cx, layer.cy)
                             val base = sa * layer.alpha
                             if (standbyBodyTex != 0)
@@ -556,6 +582,9 @@ class CompositorVideoSource : VideoSource() {
                         }
                     }
                     is CompositorLayer.Image -> {
+                        // Картинка — в аспекте своего bitmap (idea 35), без растяга.
+                        val imgAspect = if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else SCENE_ASPECT
+                        layerMatrixOf(layer, imgAspect)
                         val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
                         if (texId != null) r.draw(texId, oes = false, posMatrix = finalM, alpha = layer.alpha)
                     }
@@ -640,7 +669,7 @@ class CompositorVideoSource : VideoSource() {
      * • R_canvas — поворот холста (уже в [canvasM], считается раз на кадр).
      * android.opengl.Matrix пост-умножает: цепочка I→translate→scale→rotate даёт T·S·R (R первым к вершине).
      */
-    private fun layerMatrixOf(layer: CompositorLayer) {
+    private fun layerMatrixOf(layer: CompositorLayer, contentAspect: Float) {
         val tx = 2f * layer.cx - 1f
         val ty = 1f - 2f * layer.cy
         android.opengl.Matrix.setIdentityM(layerM, 0)
@@ -651,19 +680,13 @@ class CompositorVideoSource : VideoSource() {
             android.opengl.Matrix.rotateM(layerM, 0, -layer.rotation.toFloat(), 0f, 0f, 1f)
             android.opengl.Matrix.scaleM(layerM, 0, SCENE_ASPECT, 1f, 1f)
         }
-        // bug 32 / idea 35 — вписываем слой в его квад с сохранением РОДНОГО аспекта (без растяга).
-        // Если аспект слоя ≠ 16:9 сцены — ужимаем квад по одной оси (полосы), а не тянем. Аспект:
-        // камера = cameraAspect; картинка = аспект bitmap (idea 35: картинки больше не letterbox'ятся
-        // в 16:9, ведём родной аспект). Innermost (к вершине первым): сырой квад → аспект-фит →
-        // [поворот] → масштаб → сдвиг. 16:9-слой → фактор 1, no-op.
-        val layerAspect = when (layer) {
-            // Зеркало наследует аспект источника у слота ПЕРВИЧНОГО (mirrorOf), иначе свой (шаринг, bug 58).
-            is CompositorLayer.Camera -> cameraSlots[layer.mirrorOf ?: layer.id]?.aspect ?: SCENE_ASPECT
-            is CompositorLayer.Image ->
-                if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else SCENE_ASPECT
-        }
-        if (kotlin.math.abs(layerAspect - SCENE_ASPECT) > 0.01f) {
-            val a = layerAspect / SCENE_ASPECT
+        // bug 32 / idea 35 — вписываем СОДЕРЖИМОЕ слоя в его квад с сохранением его РОДНОГО аспекта
+        // [contentAspect] (без растяга). Аспект передаёт ВЫЗЫВАЮЩИЙ: камера = аспект источника слота;
+        // картинка = аспект bitmap; ЗАГЛУШКА = 16:9 сцены (bug 61 — не сжимать её под аспект камеры).
+        // ≠16:9 → ужимаем квад по одной оси (полосы), а не тянем. Innermost (к вершине первым): сырой
+        // квад → аспект-фит → [поворот] → масштаб → сдвиг. 16:9-содержимое → фактор 1, no-op.
+        if (kotlin.math.abs(contentAspect - SCENE_ASPECT) > 0.01f) {
+            val a = contentAspect / SCENE_ASPECT
             if (a < 1f) android.opengl.Matrix.scaleM(layerM, 0, a, 1f, 1f)      // уже 16:9 → полосы по бокам
             else android.opengl.Matrix.scaleM(layerM, 0, 1f, 1f / a, 1f)        // шире 16:9 → полосы сверху/снизу
         }

@@ -6,6 +6,13 @@
     <string name="platforms_add_desc">Добавить платформу</string>
     <string name="platforms_export">Экспорт</string>
     <string name="platforms_import">Импорт</string>
+    <!-- Универсальный отчёт импорта (Криник) — честный fallback-отчёт, переиспользуется всеми импортами. -->
+    <string name="import_report_title">Импорт: обрати внимание</string>
+    <string name="import_report_intro">Файл импортирован, но часть значений оказалась не такой, как мы ждали. Честно показываем, что подставили:</string>
+    <string name="import_issue_missing">«%1$s» → «%2$s»: не было, поставили «%3$s»</string>
+    <string name="import_issue_malformed">«%1$s» → «%2$s»: получили «%3$s» (не прочитать), поставили «%4$s»</string>
+    <string name="import_issue_unknown">«%1$s» → «%2$s»: получили «%3$s» (неизвестно), поставили «%4$s»</string>
+    <string name="import_report_ok">Понял</string>
     <string name="platforms_keys_warning">Файл экспорта содержит секретные ключи трансляций — храните его надёжно</string>
     <string name="platforms_empty">Платформы не настроены.\nНажмите +, чтобы добавить YouTube, Twitch и другие.</string>
 

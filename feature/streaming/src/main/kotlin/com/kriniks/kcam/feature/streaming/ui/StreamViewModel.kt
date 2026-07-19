@@ -21,6 +21,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.data.profiles.model.EncoderProfile
+import com.kriniks.kcam.data.profiles.model.EncoderProfilesBackupCodec
+import com.kriniks.kcam.data.profiles.model.ImportReport
 import com.kriniks.kcam.data.profiles.model.ProfilesBackupCodec
 import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.data.profiles.model.VideoCodec
@@ -246,6 +248,45 @@ class StreamViewModel @Inject constructor(
     private val _snackbar = MutableSharedFlow<UiText>(extraBufferCapacity = 4)
     val snackbar: SharedFlow<UiText> = _snackbar.asSharedFlow()
 
+    // Криник — универсальный отчёт импорта: не-null → UI показывает ImportReportDialog («Понял» → сброс).
+    // Заполняется ЛЮБЫМ импортом (платформы/кодер/…), когда были замечания (недостающие/неизвестные значения).
+    private val _importReport = MutableStateFlow<ImportReport?>(null)
+    val importReport: StateFlow<ImportReport?> = _importReport.asStateFlow()
+    fun dismissImportReport() { _importReport.value = null }
+
+    // bug 60 — антиспам одинаковых предупреждений: конфликт встроенных камер тикает на КАЖДОМ реините GL
+    // (go-live/stop), без дедупа снэкбар бы мельтешил. Одинаковый текст не чаще раза в 4с.
+    private var lastWarningKey: String? = null
+    private var lastWarningAtMs = 0L
+
+    /**
+     * bug 60 — показать ЧЕСТНЫЙ статус-предупреждение (напр. «основную нельзя вместе с селфи на этом
+     * устройстве»). :app зовёт из колбэка конфликта камеры (DeviceCameraOpener.onConflict). Текст —
+     * [UiText.Res] из ресурсов :app (резолвится Context'ом UI). Дедуп выше.
+     */
+    fun postWarning(text: UiText) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val key = text.toString()
+        if (key == lastWarningKey && now - lastWarningAtMs < 4000L) return
+        lastWarningKey = key
+        lastWarningAtMs = now
+        viewModelScope.launch { _snackbar.emit(text) }
+    }
+
+    /**
+     * bug 60 (Криник) — вторую встроенную камеру подключить не удалось (HAL-конфликт фронт+тыл): НЕ
+     * оставляем слой назначенным на неё — откатываем источник к предыдущему/None. Зовётся из :app по
+     * колбэку конфликта опенера [DeviceCameraOpener.onConflict].
+     */
+    fun onBuiltinCameraConflict(layerId: String) = repository.revertConflictingCameraLayer(layerId)
+
+    /**
+     * bug 64 (Криник) — приложение вернулось на передний план. Если, пока KrinikCam был свёрнут, другое
+     * приложение забрало камеру (Camera2 отвалилась) — переоткрываем её здесь (мёртвые openers), чтобы фид
+     * восстановился без заморозки/заглушки. Живые камеры не трогаем.
+     */
+    fun onAppResumed() = repository.reopenDeadCameras()
+
     init {
         viewModelScope.launch {
             repository.enabledProfiles.collect { list ->
@@ -421,7 +462,8 @@ class StreamViewModel @Inject constructor(
      * profiles are never overwritten. Emits a snackbar with the result.
      */
     fun importProfilesFromJson(json: String) {
-        val imported = ProfilesBackupCodec.decode(json)
+        // Криник — импорт через УНИВЕРСАЛЬНЫЙ менеджер с отчётом (недостающие/неизвестные поля → fallback).
+        val (imported, report) = ProfilesBackupCodec.decodeWithReport(json)
         if (imported.isEmpty()) {
             viewModelScope.launch { _snackbar.emit(UiText.Res(R.string.snack_import_failed)) }
             return
@@ -431,11 +473,39 @@ class StreamViewModel @Inject constructor(
             val fresh = ProfilesBackupCodec.dedup(imported, profiles.value)
             val skipped = imported.size - fresh.size
             fresh.forEach { repository.saveProfile(it.copy(id = 0)) } // insert as new
-            KLog.i(TAG, "Imported ${fresh.size} profile(s), skipped $skipped duplicate(s)")
+            KLog.i(TAG, "Imported ${fresh.size} platform profile(s), skipped $skipped dup, issues=${report.issues.size}")
             _snackbar.emit(
                 if (skipped == 0) UiText.Res(R.string.snack_imported, listOf(fresh.size))
                 else UiText.Res(R.string.snack_imported_skipped, listOf(fresh.size, skipped))
             )
+            // Замечания при импорте → честный отчёт модалкой (ImportReportDialog).
+            if (report.hasIssues) _importReport.value = report.copy(imported = fresh.size, skippedDuplicates = skipped)
+        }
+    }
+
+    /** Криник — экспорт профилей КОДЕРА в JSON (как платформы). */
+    fun buildEncoderExportJson(): String = EncoderProfilesBackupCodec.encode(encoderProfiles.value)
+
+    /**
+     * Криник — импорт профилей КОДЕРА через тот же универсальный менеджер (отчёт + дедуп). Вставка как
+     * НОВЫЕ строки (id=0), снэкбар результата, модалка отчёта при замечаниях.
+     */
+    fun importEncoderProfilesFromJson(json: String) {
+        val (imported, report) = EncoderProfilesBackupCodec.decodeWithReport(json)
+        if (imported.isEmpty()) {
+            viewModelScope.launch { _snackbar.emit(UiText.Res(R.string.snack_import_failed)) }
+            return
+        }
+        viewModelScope.launch {
+            val fresh = EncoderProfilesBackupCodec.dedup(imported, encoderProfiles.value)
+            val skipped = imported.size - fresh.size
+            fresh.forEach { repository.saveEncoderProfile(it.copy(id = 0)) } // insert as new
+            KLog.i(TAG, "Imported ${fresh.size} encoder profile(s), skipped $skipped dup, issues=${report.issues.size}")
+            _snackbar.emit(
+                if (skipped == 0) UiText.Res(R.string.snack_imported, listOf(fresh.size))
+                else UiText.Res(R.string.snack_imported_skipped, listOf(fresh.size, skipped))
+            )
+            if (report.hasIssues) _importReport.value = report.copy(imported = fresh.size, skippedDuplicates = skipped)
         }
     }
 

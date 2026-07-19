@@ -174,6 +174,12 @@ class RtmpStreamer @Inject constructor(
          * двух слоях одновременно (второй open того же устройства = нативный краш/зависание).
          */
         val sourceKey: String? get() = null
+        /**
+         * bug 64 — жив ли продюсер (камера открыта и отдаёт кадры). false = отвалился: другое приложение
+         * (Instagram/камера) забрало камеру, пока KrinikCam был свёрнут. На ВОЗВРАТЕ такие переоткрываем
+         * ([reopenDeadCameras]); живые (UVC/виртуалка/работающая Camera2) НЕ трогаем. По умолчанию — жив.
+         */
+        val isAlive: Boolean get() = true
         fun open(surfaceTexture: SurfaceTexture)
         fun close()
     }
@@ -250,6 +256,23 @@ class RtmpStreamer @Inject constructor(
         scope.launch {
             if (st != null) { openedLayers.add(layerId); opener.open(st) }
             else if (openedLayers.remove(layerId)) opener.close()
+        }
+    }
+
+    /**
+     * bug 64 (Криник) — другое приложение (Instagram/камера) забрало камеру, пока KrinikCam был свёрнут →
+     * продюсер отвалился (`onDisconnected`), и на ВОЗВРАТЕ в приложение он сам не переоткрывается (поверхность
+     * превью в фоне не пересоздавалась → TextureView-путь reopen не срабатывает). Здесь на onResume переоткрываем
+     * ОТВАЛИВШИЕСЯ камеры первичных слоёв. `recreateCameraSurface` держит последний кадр в снапшоте → без
+     * чёрного/заглушки. Живые openers (UVC/виртуалка/работающая Camera2, `isAlive==true`) НЕ трогаем — без churn.
+     */
+    fun reopenDeadCameras() {
+        _scene.value.layers.filterIsInstance<Layer.VideoCapture>().forEach { layer ->
+            val opener = cameraOpeners[layer.id] ?: return@forEach
+            if (cameraLayerMirrors[layer.id] == null && !opener.isAlive) {
+                KLog.i(TAG, "reopenDeadCameras: слой ${layer.id} — камера отобрана другим приложением, переоткрываю")
+                compositorSource.recreateCameraSurface(layer.id)
+            }
         }
     }
 
@@ -402,7 +425,10 @@ class RtmpStreamer @Inject constructor(
                         outputs = outs,
                     )
                 }
-                if (tick % 2 == 0) adaptiveBitrateStep()
+                // bug 64 — пока идёт эфир/запись: если камеру ОТОБРАЛИ (Instagram и т.п.), непрерывно
+                // пытаемся её вернуть. Как только вор освободит камеру — фид восстановится САМ, не дожидаясь
+                // возврата в приложение. Гейт !isAlive внутри → на живой камере это no-op (без churn).
+                if (tick % 2 == 0) { adaptiveBitrateStep(); reopenDeadCameras() }
             }
             KLog.d(TAG, "liveTicker: эфир завершён, тикер остановлен (idea 37)")
         }
@@ -772,7 +798,14 @@ class RtmpStreamer @Inject constructor(
                 delay(50)
                 waited += 50
             }
-            KLog.d(TAG, "schedulePreviewRestoreAfterStream: GL ${if (gl.isRunning) "ready" else "NOT ready"} after ${waited}ms")
+            // #3 (Криник) — ждём ПЕРВЫЙ живой кадр камеры перед re-attach превью, чтобы оно не цеплялось
+            // на ЧЁРНЫЙ кадр (после go-live композитор реинитит GL → снапшот чёрный, пока камера-продюсер
+            // не переоткрылся). Интермиттентное мигание в чёрный на старте эфира. Кап 1200мс — не зависаем,
+            // если источник не отдаёт кадры (тогда цепляемся как раньше). TextureView держит последний кадр
+            // пока превью отцеплено, поэтому ожидание не показывает чёрного — только оттягивает live-картинку.
+            var wf = 0
+            while (!compositorSource.hasLiveCameraContent() && wf < 1200) { delay(50); wf += 50 }
+            KLog.d(TAG, "schedulePreviewRestoreAfterStream: GL ${if (gl.isRunning) "ready" else "NOT ready"} after ${waited}ms, live-frame wait ${wf}ms")
             val tv = lastPreviewTextureView?.get()
             if (tv != null && gl.isRunning && !stream.isOnPreview) {
                 try {
@@ -908,8 +941,28 @@ class RtmpStreamer @Inject constructor(
         activeRtmpOutputs.clear()
         outputStates.clear()   // plans/09 S2 — сбрасываем per-output состояние
         _state.value = StreamState.Idle
-        // Restore preview after stream stops — the compositor keeps rendering the scene
-        lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
+        // bug 48/63 — превью восстанавливаем ТОЛЬКО если оно отвалилось (не пере-цепляем живую поверхность).
+        restorePreviewIfDetached()
+    }
+
+    /**
+     * bug 48/63 — вернуть превью ТОЛЬКО если поверхность реально отвалилась. Во время эфира/записи превью
+     * уже вернул [schedulePreviewRestoreAfterStream] → на стопе оно ПРИВЯЗАНО. Повторный
+     * `startPreview(tv)` внутри делает `stopPreview()`+`startPreview()` на TextureView — пересборка её
+     * поверхности гонится с СИСТЕМНЫМ HWUI RenderThread → `EGL_BAD_SURFACE` (SIGABRT в RenderThread,
+     * краш на 2-3 цикле go-live/stop — семья bug 27/31/48). Композитор рисует в уже живую поверхность,
+     * поэтому если превью на месте — НЕ трогаем поверхность, лишь освежаем слои/аспект.
+     */
+    private fun restorePreviewIfDetached() {
+        val stream = rtmpStream
+        val tv = lastPreviewTextureView?.get()
+        if (stream != null && stream.isOnPreview) {
+            runCatching { stream.getGlInterface().setAspectRatioMode(AspectRatioMode.Adjust) }
+            applySceneLayers() // поверхность жива — без churn, только слои сцены
+            KLog.d(TAG, "restorePreviewIfDetached: превью уже привязано — поверхность НЕ трогаем (bug 48/63)")
+        } else if (tv != null) {
+            startPreview(tv)
+        }
     }
 
     /**
@@ -1105,7 +1158,8 @@ class RtmpStreamer @Inject constructor(
         _state.value = StreamState.Stopping
         rtmpStream?.let { if (it.isRecording) it.stopRecord() }
         _state.value = StreamState.Idle
-        lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
+        // bug 48/63 — превью восстанавливаем ТОЛЬКО если оно отвалилось (не пере-цепляем живую поверхность).
+        restorePreviewIfDetached()
     }
 
     // ── Операции над сценой (Idea 19/25) ─────────────────────────────────────
@@ -1172,10 +1226,33 @@ class RtmpStreamer @Inject constructor(
         return id
     }
 
+    // Криник / bug 60 — предыдущий источник слоя (для ОТКАТА, если новая встроенная камера не подключилась).
+    private val prevLayerSource = HashMap<String, com.kriniks.kcam.feature.streaming.scene.CaptureSource>()
+
     /** Мульти-источники: задать источник (CaptureSource) слоя «Устройство захвата видео» [layerId]. */
     fun setCameraLayerSource(layerId: String, source: com.kriniks.kcam.feature.streaming.scene.CaptureSource) {
+        // Запоминаем текущий источник ДО смены — на случай отката конфликтной встроенной камеры (bug 60).
+        val cur = _scene.value.layers.filterIsInstance<Layer.VideoCapture>().firstOrNull { it.id == layerId }?.source
+        if (cur != null && cur != source) prevLayerSource[layerId] = cur
         mutateScene { it.setSource(layerId, source) }
         KLog.i(TAG, "Scene: layer $layerId source → ${source::class.simpleName}")
+    }
+
+    /**
+     * Криник / bug 60 — вторую встроенную камеру подключить НЕЛЬЗЯ (HAL-лимит фронт+тыл): НЕ оставляем
+     * слой «висящим» на неподключаемой камере. Откатываем источник слоя к ПРЕДЫДУЩЕМУ (или None, если
+     * предыдущего нет / он тоже встроенная). Зовётся из :app по колбэку конфликта опенера (onConflict).
+     */
+    fun revertConflictingCameraLayer(layerId: String) {
+        val cur = _scene.value.layers.filterIsInstance<Layer.VideoCapture>().firstOrNull { it.id == layerId }?.source
+        // Откатываем ТОЛЬКО если сейчас на слое реально стоит встроенная камера (иначе конфликт уже снят —
+        // не зациклимся: safe-источник встроенной не бывает, значит повторный onConflict не придёт).
+        if (cur !is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin) return
+        val prev = prevLayerSource[layerId]
+        val safe = if (prev == null || prev is com.kriniks.kcam.feature.streaming.scene.CaptureSource.Builtin)
+            com.kriniks.kcam.feature.streaming.scene.CaptureSource.None else prev
+        KLog.i(TAG, "Scene: layer $layerId — встроенная не подключилась (конфликт), откат источника → ${safe::class.simpleName}")
+        mutateScene { it.setSource(layerId, safe) }
     }
 
     /**

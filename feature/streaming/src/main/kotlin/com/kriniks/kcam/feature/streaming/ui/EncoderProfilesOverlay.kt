@@ -32,6 +32,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.res.stringResource
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.kriniks.kcam.data.profiles.model.AudioChannelMode
 import com.kriniks.kcam.data.profiles.model.EncoderProfile
 import com.kriniks.kcam.data.profiles.model.VideoCodec
@@ -50,11 +55,37 @@ fun EncoderProfilesOverlay(
     onDismiss: () -> Unit,
     onSaveProfile: (EncoderProfile) -> Unit,
     onDeleteProfile: (EncoderProfile) -> Unit,
+    // Криник — экспорт/импорт профилей кодера (как у платформ), через SAF-файл.
+    buildExportJson: () -> String = { "" },
+    onImportJson: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val ioScope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<EncoderProfile?>(null) }
     var showAddNew by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<EncoderProfile?>(null) }
+
+    // SAF: сохранить экспорт JSON туда, куда укажет пользователь (без runtime-permission).
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            val payload = buildExportJson().toByteArray()
+            ioScope.launch(Dispatchers.IO) {
+                runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(payload) } }
+            }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) ioScope.launch(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { onImportJson(it.readBytes().decodeToString()) }
+            }
+        }
+    }
 
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(
@@ -81,11 +112,20 @@ fun EncoderProfilesOverlay(
             ) {
                 Text(stringResource(R.string.encoder_profiles_title), color = Color.White,
                     fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                // Заметная залитая кнопка «+» (как на листе платформ).
-                FilledIconButton(
-                    onClick = { showAddNew = true },
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = AcidPink, contentColor = Color.White),
-                ) { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.encoder_profiles_add_desc)) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    // Криник — экспорт/импорт профилей кодера иконками (как у платформ).
+                    IconButton(onClick = { exportLauncher.launch("krinikcam_encoder_profiles.json") }, enabled = profiles.isNotEmpty()) {
+                        Icon(Icons.Default.FileUpload, contentDescription = stringResource(R.string.platforms_export), tint = AcidPink)
+                    }
+                    IconButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/*", "application/octet-stream")) }) {
+                        Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.platforms_import), tint = AcidPink)
+                    }
+                    // Заметная залитая кнопка «+» (как на листе платформ).
+                    FilledIconButton(
+                        onClick = { showAddNew = true },
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = AcidPink, contentColor = Color.White),
+                    ) { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.encoder_profiles_add_desc)) }
+                }
             }
             Spacer(Modifier.height(12.dp))
 

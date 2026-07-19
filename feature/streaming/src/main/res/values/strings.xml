@@ -7,6 +7,13 @@
     <string name="platforms_add_desc">Add platform</string>
     <string name="platforms_export">Export</string>
     <string name="platforms_import">Import</string>
+    <!-- Универсальный отчёт импорта (Криник) — honest fallback report, переиспользуется всеми импортами. -->
+    <string name="import_report_title">Import: please check</string>
+    <string name="import_report_intro">The file was imported, but some values weren\'t what we expected. Here\'s honestly what we substituted:</string>
+    <string name="import_issue_missing">«%1$s» → «%2$s»: missing, set to «%3$s»</string>
+    <string name="import_issue_malformed">«%1$s» → «%2$s»: got «%3$s» (couldn\'t read), set to «%4$s»</string>
+    <string name="import_issue_unknown">«%1$s» → «%2$s»: got «%3$s» (unknown), set to «%4$s»</string>
+    <string name="import_report_ok">Got it</string>
     <string name="platforms_keys_warning">Export file contains your secret stream keys — store it safely</string>
     <string name="platforms_empty">No platforms configured.\nTap + to add YouTube, Twitch, etc.</string>
 

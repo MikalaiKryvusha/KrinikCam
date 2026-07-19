@@ -151,11 +151,9 @@ fun StreamPlatformsOverlay(
             Text(stringResource(R.string.platforms_keys_warning), color = Color.Gray, fontSize = 11.sp,
                 modifier = Modifier.padding(top = 4.dp))
 
-            // plans/14 — вход в менеджер профилей кодера (настройка «как кодировать»).
-            OutlinedButton(
-                onClick = onManageEncoders,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            ) { Text(stringResource(R.string.encoder_manage), color = AcidPink) }
+            // Криник — большая кнопка «Управление профилями кодера» отсюда УБРАНА. Вход в менеджер профилей
+            // кодера теперь в трёх местах: модалка настройки платформы (ниже, ProfileEditDialog), радиальное
+            // меню FAB и экран Settings. onManageEncoders всё ещё нужен модалке редактора платформы.
 
             Spacer(Modifier.height(12.dp))
 
@@ -169,8 +167,11 @@ fun StreamPlatformsOverlay(
                     profiles.forEach { profile ->
                         PlatformCard(
                             profile = profile,
-                            // Имя привязанного профиля кодера (или «—», если ещё не создан/не найден).
-                            encoderName = encoderProfiles.firstOrNull { it.id == profile.encoderProfileId }?.name ?: "—",
+                            // Имя профиля кодера. Криник — если id не найден (импорт с чужим/0 id), резолвим
+                            // так же, как редактор/стример: ФОЛБЭК на дефолтный (первый) профиль — тот, что
+                            // реально применится. Иначе карточка показывала «—», а редактор/эфир — дефолт (рассинхрон).
+                            encoderName = (encoderProfiles.firstOrNull { it.id == profile.encoderProfileId }
+                                ?: encoderProfiles.firstOrNull())?.name ?: "—",
                             isActive = profile.id == activeProfileId,
                             onSelect = { onSelectProfile(profile) },
                             onEdit = { editingProfile = profile },

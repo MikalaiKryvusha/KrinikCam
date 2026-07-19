@@ -219,6 +219,12 @@ class StreamingRepository @Inject constructor(
     fun setCameraLayerSource(layerId: String, source: com.kriniks.kcam.feature.streaming.scene.CaptureSource) =
         rtmpStreamer.setCameraLayerSource(layerId, source)
 
+    // bug 60 — откат источника слоя, если вторая встроенная камера не подключилась (HAL-конфликт).
+    fun revertConflictingCameraLayer(layerId: String) = rtmpStreamer.revertConflictingCameraLayer(layerId)
+
+    // bug 64 — на возврате в приложение переоткрыть камеры, отобранные другим приложением, пока был свёрнут.
+    fun reopenDeadCameras() = rtmpStreamer.reopenDeadCameras()
+
     fun stopPreview() {
         rtmpStreamer.stopPreview()
     }
