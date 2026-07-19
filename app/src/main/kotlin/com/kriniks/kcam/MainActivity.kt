@@ -18,7 +18,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import com.kriniks.kcam.feature.usb.ui.UvcPreviewView
 import com.kriniks.kcam.core.logging.FileLogger
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.core.ui.theme.KrinikCamTheme
@@ -81,14 +87,30 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             KrinikCamTheme {
-                KrinikCamNavGraph(
-                    deviceManager = deviceManager,
-                    fileLogger = fileLogger,
-                    // Dev menu toggle (Idea 07) applies the ADB-rotation mode live.
-                    onAdbRotationChanged = ::setAdbRotationEnabled,
-                    // Idea 10 — "stream to file" dev toggle → StreamingRepository.
-                    onVirtualStreamChanged = { streamingRepository.setVirtualStreamToFile(it) },
-                )
+                // bug 49 — превью-TextureView вынесено ВЫШЕ NavHost (не в MAIN-destination). Раньше
+                // viewfinder жил внутри MainScreen → навигация в Settings ДИСПОУЗИЛА AndroidView(TextureView),
+                // возврат — ПЕРЕСОЗДАВАЛ; гонка жизненного цикла поверхности роняла оконный HWUI RenderThread
+                // (SIGABRT «drawRenderNode called on a context with no surface», семья bug 27/31). Теперь
+                // превью НЕ диспоузится при навигации: Settings рисуется НЕПРОЗРАЧНО поверх и скрывает его,
+                // на возврате превью открывается мгновенно (без пересоздания поверхности). onSurfaceDestroyed
+                // теперь срабатывает только при РЕАЛЬНОМ уходе окна (сворачивание/уничтожение Activity).
+                // Репозиторий — @Singleton, зову напрямую (VM-делегаты были тонкими). Родня «ВСЕГДА живой
+                // TextureView» (Phase 3): превью и правда живёт всю сессию.
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                    UvcPreviewView(
+                        onTextureViewReady = { tv -> streamingRepository.startPreview(tv) },
+                        onSurfaceTextureSizeChanged = { _, w, h -> streamingRepository.onPreviewSurfaceResized(w, h) },
+                        onSurfaceDestroyed = { streamingRepository.stopPreview() },
+                    )
+                    KrinikCamNavGraph(
+                        deviceManager = deviceManager,
+                        fileLogger = fileLogger,
+                        // Dev menu toggle (Idea 07) applies the ADB-rotation mode live.
+                        onAdbRotationChanged = ::setAdbRotationEnabled,
+                        // Idea 10 — "stream to file" dev toggle → StreamingRepository.
+                        onVirtualStreamChanged = { streamingRepository.setVirtualStreamToFile(it) },
+                    )
+                }
             }
         }
 

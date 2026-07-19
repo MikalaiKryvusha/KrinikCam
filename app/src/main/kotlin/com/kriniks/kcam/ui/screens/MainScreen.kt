@@ -24,7 +24,6 @@
 
 package com.kriniks.kcam.ui.screens
 
-import android.view.TextureView
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -77,7 +76,6 @@ import com.kriniks.kcam.streaming.UvcCameraOpener
 import com.kriniks.kcam.streaming.VirtualCameraOpener
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
-import com.kriniks.kcam.feature.usb.ui.UvcPreviewView
 import com.kriniks.kcam.ui.overlay.FloatingActionMenu
 import com.kriniks.kcam.ui.overlay.FloatingPanelMenu
 import com.kriniks.kcam.ui.overlay.PanelInfoRow
@@ -153,8 +151,6 @@ fun MainScreen(
     // Слой, ожидающий подтверждения удаления из контекст-меню (модалка).
     var contextDeleteLayer by remember { mutableStateOf<Pair<String, String>?>(null) }
 
-    // TextureView from UvcPreviewView — held so we can re-start preview when camera connects
-    var previewTextureView by remember { mutableStateOf<TextureView?>(null) }
 
     // Bridge USB events → DeviceManager (keeps :feature:usb decoupled from :feature:capture)
     LaunchedEffect(usbState.activeCameraId) {
@@ -265,32 +261,14 @@ fun MainScreen(
         streamViewModel.onAppResumed()
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    // Фон ПРОЗРАЧНЫЙ (bug 49): вынесенное в MainActivity превью просвечивает из-под NavHost.
+    Box(modifier = Modifier.fillMaxSize()) {
 
-        // ── Layer 0: Viewfinder — ВСЕГДА живой (Phase 3) ─────────────────────
-        // Композитор рисует сцену всегда (чёрная база + слои), с камерой или без — превью-TextureView
-        // живёт постоянно и зеркалит композит. Это убирает ветвление when(activeSource), которое
-        // пересоздавало/рушило TextureView при смене источника — корень крашей bug 20/23 (EGL_BAD_ALLOC
-        // на системном RenderThread) и исчезновения превью (bug 22). Превью повёрнутого холста
-        // (портрет 9:16) леттербоксится самим GL (AspectRatioMode.Adjust) — матрицы TextureView нет.
-        UvcPreviewView(
-            onTextureViewReady = { tv ->
-                previewTextureView = tv
-                streamViewModel.startPreviewOnView(tv)
-            },
-            // bug 27 + bug 40: на ФИЗИЧЕСКОМ повороте (fullSensor) окно ресайзится → TextureView меняет
-            // размер, но её SurfaceTexture ЖИВА — пересоздавать/пере-подцеплять поверхность НЕЛЬЗЯ
-            // (гонка с системным HWUI RenderThread за EGL-контекст → SIGABRT EGL_BAD_CONTEXT, bug 27).
-            // Но и no-op недостаточно (bug 40, Криник 2026-07-12: композит «уезжает вниз и обрезается»):
-            // GL-превью считает вьюпорт из СВОИХ полей previewWidth/Height (байткод GlStreamInterface),
-            // а не из фактического размера поверхности. Обновляем ТОЛЬКО эти числа — setPreviewResolution.
-            onSurfaceTextureSizeChanged = { _, w, h -> streamViewModel.onPreviewSizeChanged(w, h) },
-            // Stop GL preview when surface is destroyed (navigation to Settings, backgrounding).
-            // Prevents GL_OUT_OF_MEMORY crash from drawing to a dead surface (bug 02). Safe during
-            // streaming: stopPreview() is a no-op when isOnPreview=false.
-            onSurfaceDestroyed = { streamViewModel.stopPreview() },
-            modifier = Modifier.fillMaxSize(),
-        )
+        // ── Layer 0: Viewfinder ВЫНЕСЕН в MainActivity (ВЫШЕ NavHost) — bug 49 ──
+        // Превью-TextureView здесь БОЛЬШЕ НЕТ: оно живёт в `MainActivity.setContent` ПОД NavHost, чтобы
+        // навигация в Settings и обратно не диспоузила/пересоздавала его поверхность (краш оконного HWUI
+        // «drawRenderNode ... no surface», bug 49, семья 27/31). Корневой Box здесь ПРОЗРАЧНЫЙ — превью
+        // просвечивает из-под NavHost, а контролы-слои ниже рисуются поверх него (тот же визуальный z-order).
 
         // ── Заглушка «нет сигнала» теперь ВНУТРИ слоя-камеры GL-композитора ──────
         // Указание Криника: «заглушка живёт ВНУТРИ слоя, а не поверх экрана; отвал одного источника не
