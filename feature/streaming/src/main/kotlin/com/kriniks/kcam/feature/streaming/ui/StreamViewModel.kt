@@ -59,6 +59,12 @@ class StreamViewModel @Inject constructor(
     /** Текущая сцена (слои) — для панели «Слои». */
     val scene: StateFlow<com.kriniks.kcam.feature.streaming.scene.Scene> = repository.scene
 
+    // ── idea 40 / plans/18 Фаза 1 — набор именованных сцен (панель-менеджер «Сцены») ──────────
+    /** Список именованных сцен (id+имя). */
+    val scenesList: StateFlow<List<com.kriniks.kcam.feature.streaming.scene.SceneProfileMeta>> = repository.scenesList
+    /** Активная сцена набора (id) — подсветка в списке. */
+    val activeSceneId: StateFlow<Long?> = repository.activeSceneId
+
     // plans/03 (жесты слоёв) S1 — какой слой сейчас ВЫБРАН для редактирования жестами (null = ничего).
     // Один активный слой за раз (interview_007 Q6=A). Выбор: тап по строке панели «Слои» ИЛИ (позже,
     // S5) тап по слою на превью. Подсветка выбранного — в панели и рамкой на превью.
@@ -193,6 +199,30 @@ class StreamViewModel @Inject constructor(
     fun resetScene() {
         _selectedLayerId.value = null
         repository.resetScene()
+    }
+
+    // ── idea 40 / plans/18 Фаза 1 — операции набора сцен (панель-менеджер) ──────────────────────
+    /** Переключить активную сцену (снимаем выбор слоя — сцена сменилась). */
+    fun switchScene(id: Long) {
+        _selectedLayerId.value = null
+        repository.switchScene(id)
+    }
+    /** Новая сцена (дефолтная, имя «Сцена N» если [name] пуст) и переключение на неё. */
+    fun createNewScene(name: String? = null) {
+        _selectedLayerId.value = null
+        repository.createNewScene(name)
+    }
+    /** Дублировать сцену [id] и переключиться на копию. */
+    fun duplicateScene(id: Long) {
+        _selectedLayerId.value = null
+        repository.duplicateScene(id)
+    }
+    /** Переименовать сцену. */
+    fun renameScene(id: Long, name: String) = repository.renameScene(id, name)
+    /** Удалить сцену (если активная — активной станет первая оставшаяся). */
+    fun deleteScene(id: Long) {
+        _selectedLayerId.value = null
+        repository.deleteScene(id)
     }
 
     /**

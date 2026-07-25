@@ -10,8 +10,9 @@
  *   3 — +videoCodec, +audioBitrateBps, +audioSampleRate, +audioStereo (профиль кодера, на stream_profiles)
  *   4 — профиль кодера ВЫНЕСЕН в отдельную таблицу encoder_profiles; stream_profiles теряет кодер-поля
  *       и получает encoderProfileId (bug 41 / plans/14) — MIGRATION_3_4
+ *   5 — +таблица scene_profiles (набор именованных сцен, idea 40 / plans/18 Фаза 1) — MIGRATION_4_5
  *
- * Related: StreamProfileDao, EncoderProfileDao, ProfilesModule (Hilt), DeviceProfile (DataStore)
+ * Related: StreamProfileDao, EncoderProfileDao, SceneProfileDao, ProfilesModule (Hilt), DeviceProfile (DataStore)
  */
 
 package com.kriniks.kcam.data.profiles.db
@@ -20,10 +21,11 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [StreamProfileEntity::class, EncoderProfileEntity::class],
+    entities = [StreamProfileEntity::class, EncoderProfileEntity::class, SceneProfileEntity::class],
     // v2 (idea 37): +adaptiveBitrate — MIGRATION_1_2. v3 (профиль кодера на платформе) — MIGRATION_2_3.
     // v4 (plans/14): профиль кодера = отдельная таблица encoder_profiles, платформа ссылается по id.
-    version = 4,
+    // v5 (idea 40): +scene_profiles — набор именованных сцен — MIGRATION_4_5.
+    version = 5,
     // bug 37 №1 — схема экспортируется (schemas/ в git): фундамент для честных миграций.
     // Меняешь entity → бампни version И напиши Migration(N,N+1) в ProfilesModule; destructive-
     // фолбэка больше НЕТ, забытая миграция уронит сборку/старт, а не данные Криника.
@@ -32,4 +34,5 @@ import androidx.room.RoomDatabase
 abstract class AppDatabase : RoomDatabase() {
     abstract fun streamProfileDao(): StreamProfileDao
     abstract fun encoderProfileDao(): EncoderProfileDao
+    abstract fun sceneProfileDao(): SceneProfileDao
 }

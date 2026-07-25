@@ -86,6 +86,18 @@
     <!-- FAB и панель сцен (idea 40 / plans/18 Ф0) -->
     <string name="main_scenes_desc">Сцены</string>
     <string name="scenes_current">Текущая сцена · %1$d сл.</string>
+    <!-- Панель-менеджер сцен (idea 40 / plans/18 Фаза 1, interview_010) -->
+    <string name="scenes_title">Сцены</string>
+    <string name="scenes_new">Новая сцена</string>
+    <string name="scenes_rename">Переименовать</string>
+    <string name="scenes_duplicate">Дублировать</string>
+    <string name="scenes_delete">Удалить</string>
+    <string name="scenes_rename_title">Переименовать сцену</string>
+    <string name="scenes_name_label">Имя сцены</string>
+    <string name="scenes_save">Сохранить</string>
+    <string name="scenes_cancel">Отмена</string>
+    <string name="scenes_delete_title">Удалить сцену</string>
+    <string name="scenes_delete_confirm">Удалить сцену «%1$s»?</string>
     <string name="source_none">Нет источника</string>
     <string name="source_virtual">Виртуальная камера (отладка)</string>
 

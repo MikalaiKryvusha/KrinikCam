@@ -619,12 +619,18 @@ switch (cmd) {
     //   node tools/ui.mjs cmd add-overlay              — добавить тестовый PNG-оверлей
     //   node tools/ui.mjs cmd rotation-mode on|off     — режим «вращение по ADB» (для orient)
     //   node tools/ui.mjs cmd set-transform <id> <scale> <cx> <cy> [alpha] [rotation] — трансформа слоя (+поворот содержимого)
+    //   node tools/ui.mjs cmd scene-new [имя]           — создать новую именованную сцену (Фаза 1)
+    //   node tools/ui.mjs cmd scene-list                — залогировать набор сцен (id:имя, активная *)
+    //   node tools/ui.mjs cmd scene-switch <id>         — переключить активную сцену
+    //   node tools/ui.mjs cmd scene-duplicate <id>      — дублировать сцену
+    //   node tools/ui.mjs cmd scene-rename <id> <имя>   — переименовать сцену
+    //   node tools/ui.mjs cmd scene-delete <id>         — удалить сцену
     const action = rest[0];
     // Хвост аргументов склеиваем в один токен ЧЕРЕЗ ЗАПЯТУЮ (без пробелов: иначе `am broadcast --es arg`
     // на устройстве расщепит значение по пробелам). Приёмник в MainActivity парсит по [,\s]+.
     const arg = rest.length > 1 ? rest.slice(1).join(',') : undefined;
     if (!action) {
-      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|go-live-rtmp|stop|photo|set-rotation|add-overlay|rotation-mode|device-camera|select-source|toggle-layer|layer-up|layer-down|set-transform|gesture-drag|gesture-scale|gesture-rotate|gesture-pinch|gesture-twist|simulate-congestion)');
+      console.error('Usage: ui.mjs cmd <action> [arg]  (virtual-camera|stream-to-file|go-live|go-live-rtmp|stop|photo|set-rotation|add-overlay|rotation-mode|device-camera|select-source|toggle-layer|layer-up|layer-down|set-transform|gesture-drag|gesture-scale|gesture-rotate|gesture-pinch|gesture-twist|simulate-congestion|scene-new|scene-list|scene-switch|scene-duplicate|scene-rename|scene-delete)');
       process.exit(1);
     }
     const pkg = PKG_DEBUG; // CMD-receiver только в debug

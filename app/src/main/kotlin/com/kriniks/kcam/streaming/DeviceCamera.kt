@@ -116,6 +116,11 @@ class DeviceCameraOpener(
     // bug 64 — жив ли продюсер: true, когда сессия сконфигурирована и идёт repeating-request; false на
     // отвале/ошибке/закрытии/HAL-конфликте. На возврате в приложение мёртвые переоткрываем (reopenDeadCameras).
     @Volatile private var alive = false
+    // bug (Фаза 1 сцен): опенер мог быть закрыт (смена источника/сцены) ПОКА камера асинхронно
+    // открывалась — колбэки onOpened/onConfigured приходят позже на handler-треде и НЕ обёрнуты в
+    // синхронный try. Обращение к закрытому CameraDevice → IllegalStateException «already closed» валит
+    // тред DeviceCam (FATAL). Флаг + ранний выход + runCatching в колбэках закрывают гонку.
+    @Volatile private var closed = false
     override val isAlive: Boolean get() = alive
 
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -176,17 +181,25 @@ class DeviceCameraOpener(
 
             cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
+                    // Опенер уже закрыт (сцена/источник сменились пока камера открывалась) → закрываем
+                    // камеру и выходим, иначе повиснет открытый CameraDevice (утечка + блок камеры).
+                    if (closed) { runCatching { camera.close() }; return }
                     device = camera
                     try {
                         @Suppress("DEPRECATION")
                         camera.createCaptureSession(listOf(s), object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(sess: CameraCaptureSession) {
                                 session = sess
-                                val req = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply { addTarget(s) }
-                                runCatching { sess.setRepeatingRequest(req.build(), null, h) }
-                                    .onSuccess { alive = true } // bug 64 — продюсер жив (идут кадры)
-                                    .onFailure { KLog.e(TAG, "setRepeatingRequest failed", it) }
-                                KLog.i(TAG, "Device camera $cameraId streaming into layer (${width}x${height})")
+                                // Гонка: между onOpened и onConfigured опенер могли закрыть → createCaptureRequest
+                                // на закрытом device кидает IllegalStateException. runCatching + проверка closed
+                                // не дают необёрнутому колбэку уронить тред DeviceCam (FATAL).
+                                if (closed || device == null) { runCatching { sess.close() }; return }
+                                runCatching {
+                                    val req = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply { addTarget(s) }
+                                    sess.setRepeatingRequest(req.build(), null, h)
+                                }
+                                    .onSuccess { alive = true; KLog.i(TAG, "Device camera $cameraId streaming into layer (${width}x${height})") }
+                                    .onFailure { KLog.e(TAG, "onConfigured setup failed (камера закрыта на гонке?)", it) }
                             }
                             override fun onConfigureFailed(sess: CameraCaptureSession) {
                                 KLog.e(TAG, "Capture session configure failed (camera $cameraId)")
@@ -258,6 +271,7 @@ class DeviceCameraOpener(
     }
 
     override fun close() {
+        closed = true   // застолбить ДО закрытия — асинхронные onOpened/onConfigured увидят и не тронут закрытый device
         runCatching { session?.close() }; session = null
         runCatching { device?.close() }; device = null
         runCatching { surface?.release() }; surface = null

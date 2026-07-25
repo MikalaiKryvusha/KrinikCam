@@ -35,6 +35,9 @@ class ProfilesDataStore @Inject constructor(
 ) {
     private val KEY_DEVICE_PROFILE = stringPreferencesKey("device_profile")
     private val KEY_ACTIVE_PROFILE_ID = longPreferencesKey("active_profile_id")
+    // idea 40 / plans/18 Фаза 1 — активная сцена набора (id строки scene_profiles). Тот же паттерн,
+    // что active_profile_id: null → сцены нет/удалена → fallback на первую (SceneProfileRepository).
+    private val KEY_ACTIVE_SCENE_ID = longPreferencesKey("active_scene_id")
 
     val deviceProfile: Flow<DeviceProfile?> = context.dataStore.data
         .catch { emit(emptyPreferences()) }
@@ -47,6 +50,11 @@ class ProfilesDataStore @Inject constructor(
     val activeProfileId: Flow<Long?> = context.dataStore.data
         .catch { emit(emptyPreferences()) }
         .map { it[KEY_ACTIVE_PROFILE_ID] }
+
+    // idea 40 / plans/18 Фаза 1 — активная сцена набора.
+    val activeSceneId: Flow<Long?> = context.dataStore.data
+        .catch { emit(emptyPreferences()) }
+        .map { it[KEY_ACTIVE_SCENE_ID] }
 
     suspend fun saveDeviceProfile(profile: DeviceProfile) {
         context.dataStore.edit { it[KEY_DEVICE_PROFILE] = Json.encodeToString(profile) }
@@ -61,5 +69,14 @@ class ProfilesDataStore @Inject constructor(
     // висячим id в DataStore.
     suspend fun clearActiveProfileId() {
         context.dataStore.edit { it.remove(KEY_ACTIVE_PROFILE_ID) }
+    }
+
+    suspend fun setActiveSceneId(id: Long) {
+        context.dataStore.edit { it[KEY_ACTIVE_SCENE_ID] = id }
+    }
+
+    // Снять выбор активной сцены (удалена и набор пуст) — подписчики activeSceneId получают null.
+    suspend fun clearActiveSceneId() {
+        context.dataStore.edit { it.remove(KEY_ACTIVE_SCENE_ID) }
     }
 }

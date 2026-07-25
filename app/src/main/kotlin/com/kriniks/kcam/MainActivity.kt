@@ -290,6 +290,20 @@ class MainActivity : ComponentActivity() {
                     "scene-save" -> streamingRepository.saveSceneNow()
                     "scene-dump" -> streamingRepository.dumpSceneToLog()
                     "scene-reset" -> streamingRepository.resetScene()
+                    // idea 40 / plans/18 Фаза 1 — набор именованных сцен (автономная приёмка CRUD+рестарт):
+                    // scene-new [имя], scene-list (лог id:имя, активная *), scene-switch/duplicate/delete <id>,
+                    // scene-rename <id> <имя>. id — из scene-list.
+                    "scene-new" -> streamingRepository.createNewScene(arg?.trim()?.takeIf { it.isNotEmpty() })
+                    "scene-list" -> streamingRepository.dumpScenesToLog()
+                    "scene-switch" -> arg?.trim()?.toLongOrNull()?.let { streamingRepository.switchScene(it) }
+                    "scene-duplicate" -> arg?.trim()?.toLongOrNull()?.let { streamingRepository.duplicateScene(it) }
+                    "scene-delete" -> arg?.trim()?.toLongOrNull()?.let { streamingRepository.deleteScene(it) }
+                    "scene-rename" -> {
+                        val parts = arg?.trim()?.split(Regex("[,\\s]+"), limit = 2)?.filter { it.isNotEmpty() } ?: emptyList()
+                        val id = parts.getOrNull(0)?.toLongOrNull()
+                        val name = parts.getOrNull(1)
+                        if (id != null && name != null) streamingRepository.renameScene(id, name)
+                    }
                     // Мульти-источники: задать источник КОНКРЕТНОГО слоя-камеры. arg = "<layerId> <front|rear|uvc|virtual|none|builtin <camId>>".
                     "set-layer-source" -> {
                         val parts = arg?.trim()?.split(Regex("[,\\s]+"))?.filter { it.isNotEmpty() } ?: emptyList()

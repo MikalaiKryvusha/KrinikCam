@@ -92,6 +92,18 @@
     <!-- Scenes FAB + panel (idea 40 / plans/18 Ф0) -->
     <string name="main_scenes_desc">Scenes</string>
     <string name="scenes_current">Current scene · %1$d layers</string>
+    <!-- Scenes manager panel (idea 40 / plans/18 Фаза 1, interview_010) -->
+    <string name="scenes_title">Scenes</string>
+    <string name="scenes_new">New scene</string>
+    <string name="scenes_rename">Rename</string>
+    <string name="scenes_duplicate">Duplicate</string>
+    <string name="scenes_delete">Delete</string>
+    <string name="scenes_rename_title">Rename scene</string>
+    <string name="scenes_name_label">Scene name</string>
+    <string name="scenes_save">Save</string>
+    <string name="scenes_cancel">Cancel</string>
+    <string name="scenes_delete_title">Delete scene</string>
+    <string name="scenes_delete_confirm">Delete scene «%1$s»?</string>
     <string name="source_none">No source</string>
     <string name="source_virtual">Virtual camera (debug)</string>
 

@@ -77,9 +77,8 @@ import com.kriniks.kcam.streaming.VirtualCameraOpener
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
 import com.kriniks.kcam.ui.overlay.FloatingActionMenu
-import com.kriniks.kcam.ui.overlay.FloatingPanelMenu
-import com.kriniks.kcam.ui.overlay.PanelInfoRow
 import com.kriniks.kcam.ui.overlay.RotationMenu
+import com.kriniks.kcam.ui.overlay.ScenesManagerOverlay
 
 private val LiveRed = Color(0xFFFF1A1A)
 
@@ -128,6 +127,9 @@ fun MainScreen(
     val videoRotation by streamViewModel.videoRotation.collectAsStateWithLifecycle()
     // Idea 19 — текущая сцена (слои) для панели «Слои».
     val scene by streamViewModel.scene.collectAsStateWithLifecycle()
+    // idea 40 / plans/18 Фаза 1 — набор именованных сцен + активная (для панели-менеджера сцен).
+    val scenesList by streamViewModel.scenesList.collectAsStateWithLifecycle()
+    val activeSceneId by streamViewModel.activeSceneId.collectAsStateWithLifecycle()
     // plans/03 — выбранный для жестов слой (подсветка в панели «Слои», позже — рамка на превью).
     val selectedLayerId by streamViewModel.selectedLayerId.collectAsStateWithLifecycle()
     // idea 35 — аспект источника камеры для АДАПТИВНОЙ рамки выделения камера-слоя (картинки — по bitmap).
@@ -591,20 +593,20 @@ fun MainScreen(
         }
     }
 
-    // ── Панель сцен (idea 40 / plans/18 Ф0) — список в стиле слоёв, от левого края ──
-    // Ф0: индикатор текущей сцены (сцена автосейвится и переживает рестарт под капотом). Фаза 1: список
-    // именованных сцен (тап = переключить) + «＋ Новая / Дублировать / Переименовать / Удалить».
+    // ── Панель-менеджер сцен (idea 40 / plans/18 Фаза 1, interview_010) — список в стиле слоёв ──
+    // Список именованных сцен (тап = переключить активную) + Переименовать / Дублировать / Удалить +
+    // «＋ Новая сцена». Автосейв активной сцены и восстановление на старте — под капотом (RtmpStreamer).
     if (showScenesOverlay) {
-        FloatingPanelMenu(
+        ScenesManagerOverlay(
+            scenes = scenesList,
+            activeSceneId = activeSceneId,
+            onSwitch = { streamViewModel.switchScene(it) },
+            onNew = { streamViewModel.createNewScene() },
+            onDuplicate = { streamViewModel.duplicateScene(it) },
+            onRename = { id, name -> streamViewModel.renameScene(id, name) },
+            onDelete = { streamViewModel.deleteScene(it) },
             onDismiss = { showScenesOverlay = false },
-            alignment = Alignment.BottomStart,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            PanelInfoRow(
-                title = stringResource(R.string.scenes_current, scene.layers.size),
-                icon = Icons.Default.Movie,
-            )
-        }
+        )
     }
 
     // ── Layer 5: Platforms modal overlay ────────────────────────────

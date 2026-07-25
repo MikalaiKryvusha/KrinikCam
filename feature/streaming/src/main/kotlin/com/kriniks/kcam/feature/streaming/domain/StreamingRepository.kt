@@ -76,6 +76,19 @@ class StreamingRepository @Inject constructor(
     fun saveSceneNow() = rtmpStreamer.saveSceneNow()
     /** Харнес scene-dump: залогировать персистнутый JSON снапшота (сверка до/после рестарта). */
     fun dumpSceneToLog() = rtmpStreamer.dumpSceneToLog()
+
+    // ── idea 40 / plans/18 Фаза 1 — набор ИМЕНОВАННЫХ сцен ──────────────
+    /** Список именованных сцен (id+имя) для панели-менеджера. */
+    val scenesList: StateFlow<List<com.kriniks.kcam.feature.streaming.scene.SceneProfileMeta>> = rtmpStreamer.scenesList
+    /** Активная сцена набора (id). */
+    val activeSceneId: StateFlow<Long?> = rtmpStreamer.activeSceneId
+    fun switchScene(id: Long) = rtmpStreamer.switchScene(id)
+    fun createNewScene(name: String? = null) = rtmpStreamer.createNewScene(name)
+    fun duplicateScene(id: Long) = rtmpStreamer.duplicateScene(id)
+    fun renameScene(id: Long, name: String) = rtmpStreamer.renameScene(id, name)
+    fun deleteScene(id: Long) = rtmpStreamer.deleteScene(id)
+    /** Харнес scene-list — залогировать набор сцен (id:имя, активная *). */
+    fun dumpScenesToLog() = rtmpStreamer.dumpScenesToLog()
     // interview_006 Q3: [rotation] — поворот СОДЕРЖИМОГО слоя внутри сцены (0/90/180/270 CW).
     fun setLayerTransform(id: String, scale: Float, cx: Float, cy: Float, alpha: Float = 1f, rotation: Int = 0) =
         rtmpStreamer.setLayerTransform(id, scale, cx, cy, alpha, rotation)

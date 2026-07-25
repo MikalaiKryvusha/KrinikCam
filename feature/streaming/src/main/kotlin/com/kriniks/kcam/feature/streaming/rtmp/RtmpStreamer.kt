@@ -63,7 +63,8 @@ import com.kriniks.kcam.feature.streaming.scene.Layer
 import com.kriniks.kcam.feature.streaming.scene.LayerTransform
 import com.kriniks.kcam.feature.streaming.scene.Scene
 import com.kriniks.kcam.feature.streaming.scene.StandbyImage
-import com.kriniks.kcam.feature.streaming.scene.persist.SceneSnapshotRepository
+import com.kriniks.kcam.feature.streaming.scene.SceneProfileMeta
+import com.kriniks.kcam.feature.streaming.scene.persist.SceneProfileRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,8 +78,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -99,8 +103,9 @@ private const val LIVE_TICK_MS = 1000L
 @Singleton
 class RtmpStreamer @Inject constructor(
     @ApplicationContext private val context: Context,
-    // idea 40 / plans/18 Ф0 — персист текущей сцены (restore на старте + автосейв).
-    private val snapshotRepo: SceneSnapshotRepository,
+    // idea 40 / plans/18 Фаза 1 — набор ИМЕНОВАННЫХ сцен: restore активной на старте, автосейв, переключение,
+    // CRUD. Разовый сев первой сцены из легаси Ф0-снапшота — внутри репозитория (SceneSnapshotRepository).
+    private val sceneProfileRepo: SceneProfileRepository,
 ) {
     private val _state = MutableStateFlow<StreamState>(StreamState.Idle)
     val state: StateFlow<StreamState> = _state.asStateFlow()
@@ -306,7 +311,14 @@ class RtmpStreamer @Inject constructor(
     // Singleton lives for app lifetime — scope is appropriate here.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    // idea 40 / plans/18 Ф0 — персист сцены. ОТДЕЛЬНЫЙ init ПОСЛЕ [scope] (init-блоки и инициализаторы
+    // idea 40 / plans/18 Фаза 1 — набор именованных сцен для UI: список сцен + активная. stateIn на [scope]
+    // (Singleton живёт всё время приложения). Панель-менеджер и харнес читают отсюда.
+    val scenesList: StateFlow<List<SceneProfileMeta>> =
+        sceneProfileRepo.observeScenes().stateIn(scope, SharingStarted.Eagerly, emptyList())
+    val activeSceneId: StateFlow<Long?> =
+        sceneProfileRepo.activeSceneId.stateIn(scope, SharingStarted.Eagerly, null)
+
+    // idea 40 / plans/18 Ф0/Ф1 — персист сцены. ОТДЕЛЬНЫЙ init ПОСЛЕ [scope] (init-блоки и инициализаторы
     // полей исполняются в порядке объявления — здесь scope уже создан, в отличие от init выше).
     init { startScenePersistence() }
 
@@ -1233,27 +1245,115 @@ class RtmpStreamer @Inject constructor(
     @OptIn(FlowPreview::class)
     private fun startScenePersistence() {
         scope.launch(Dispatchers.IO) {
-            snapshotRepo.loadOrNull()?.let { restored ->
+            // Фаза 1: гарантируем непустой набор именованных сцен (первый запуск — сеем сцену из
+            // легаси Ф0-снапшота, чтобы не потерять текущую работу Криника), затем восстанавливаем АКТИВНУЮ.
+            sceneProfileRepo.ensureSeeded()
+            sceneProfileRepo.loadActive()?.let { restored ->
                 withContext(Dispatchers.Main.immediate) {
                     _scene.value = restored
                     applySceneLayers()
-                    KLog.i(TAG, "Scene restored from snapshot: ${restored.layers.size} layers")
+                    KLog.i(TAG, "Scene restored from active profile: ${restored.layers.size} layers")
                 }
             }
-            scene.drop(1).debounce(SCENE_AUTOSAVE_DEBOUNCE_MS).collect { snapshotRepo.save(it) }
+            // Автосейв активной сцены. drop(1) — не сохранять восстановленное/дефолтное значение;
+            // debounce — жест трансформы шлёт правку каждый кадр (иначе спам записи и просадка жестов).
+            scene.drop(1).debounce(SCENE_AUTOSAVE_DEBOUNCE_MS).collect { sceneProfileRepo.saveActive(it) }
         }
     }
 
-    /** Ф0 — сбросить сцену к дефолту (FAB «Сцены» → «Сбросить сцену»). Автосейв сохранит и почистит сироты. */
+    /** Ф0 — сбросить АКТИВНУЮ сцену к дефолту. Автосейв сохранит и почистит сироты-оверлеи сцены. */
     fun resetScene() = mutateScene { Scene.default() }
 
-    /** Ф0 — форс-сейв текущей сцены (харнес scene-save: детерминизм теста без ожидания debounce). */
-    fun saveSceneNow() { scope.launch(Dispatchers.IO) { snapshotRepo.save(_scene.value) } }
+    /** Ф0 — форс-сейв активной сцены (харнес scene-save: детерминизм теста без ожидания debounce). */
+    fun saveSceneNow() { scope.launch(Dispatchers.IO) { sceneProfileRepo.saveActive(_scene.value) } }
 
-    /** Ф0 — залогировать персистнутый снапшот (харнес scene-dump: объективная сверка до/после рестарта). */
+    /** Ф0 — залогировать активную сцену (харнес scene-dump: объективная сверка до/после рестарта). */
     fun dumpSceneToLog() {
         scope.launch(Dispatchers.IO) {
-            KLog.i(TAG, "scene-dump: layers=${_scene.value.layers.size} persisted=${snapshotRepo.persistedJson()}")
+            KLog.i(TAG, "scene-dump: layers=${_scene.value.layers.size} activeId=${sceneProfileRepo.activeSceneId.first()}")
+        }
+    }
+
+    /** Фаза 1 — залогировать набор сцен (харнес scene-list): id:имя (активная помечена *). */
+    fun dumpScenesToLog() {
+        scope.launch(Dispatchers.IO) {
+            val active = sceneProfileRepo.activeSceneId.first()
+            val list = scenesList.value.joinToString(", ") { "${it.id}:${it.name}${if (it.id == active) "*" else ""}" }
+            KLog.i(TAG, "scene-list: active=$active count=${scenesList.value.size} [$list]")
+        }
+    }
+
+    // ── idea 40 / plans/18 Фаза 1 — управление НАБОРОМ именованных сцен ────────────────────────
+    /**
+     * Переключить активную сцену на [id]. Сначала ФЛАШИМ текущую активную (её последние правки могли ещё
+     * не сброситься debounce'ом), затем меняем активную и загружаем целевую в композитор. Бесшовность в
+     * эфире (без разрыва энкодера) — задача Фазы 2; здесь смена происходит через тот же live `setLayers`.
+     */
+    fun switchScene(id: Long) {
+        scope.launch(Dispatchers.IO) {
+            sceneProfileRepo.saveActive(_scene.value)   // флаш текущей (active ещё старая)
+            val loaded = sceneProfileRepo.load(id) ?: Scene.default()
+            sceneProfileRepo.setActive(id)
+            withContext(Dispatchers.Main.immediate) {
+                _scene.value = loaded
+                applySceneLayers()
+                KLog.i(TAG, "Scene switched → id=$id (${loaded.layers.size} layers)")
+            }
+        }
+    }
+
+    /** Создать НОВУЮ сцену (дефолтная, имя «Сцена N») и переключиться на неё. Флашим текущую до создания. */
+    fun createNewScene(name: String? = null) {
+        scope.launch(Dispatchers.IO) {
+            sceneProfileRepo.saveActive(_scene.value)
+            val sceneName = name?.takeIf { it.isNotBlank() } ?: sceneProfileRepo.defaultNewName()
+            sceneProfileRepo.createScene(sceneName, Scene.default())  // createScene делает её активной
+            withContext(Dispatchers.Main.immediate) {
+                _scene.value = Scene.default()
+                applySceneLayers()
+                KLog.i(TAG, "Scene created: '$sceneName' (активная)")
+            }
+        }
+    }
+
+    /** Дублировать сцену [id] (копия оверлеев в свой сабдир) и переключиться на копию. */
+    fun duplicateScene(id: Long) {
+        scope.launch(Dispatchers.IO) {
+            sceneProfileRepo.saveActive(_scene.value)                 // флаш текущей активной (её актуальное состояние)
+            val newId = sceneProfileRepo.duplicate(id) ?: return@launch
+            val loaded = sceneProfileRepo.load(newId) ?: _scene.value
+            withContext(Dispatchers.Main.immediate) {
+                _scene.value = loaded
+                applySceneLayers()
+                KLog.i(TAG, "Scene duplicated: $id → $newId (активная)")
+            }
+        }
+    }
+
+    /** Переименовать сцену [id] в [name] (только имя, содержимое не трогаем). */
+    fun renameScene(id: Long, name: String) {
+        scope.launch(Dispatchers.IO) { sceneProfileRepo.rename(id, name) }
+    }
+
+    /**
+     * Удалить сцену [id] (строка + сабдир оверлеев). Если удаляли активную — активной становится первая
+     * оставшаяся; загружаем её в композитор. Набор не должен пустеть (ensureSeeded на следующем старте
+     * пересеет), но на всякий случай при опустевшем наборе создаём дефолтную.
+     */
+    fun deleteScene(id: Long) {
+        scope.launch(Dispatchers.IO) {
+            val wasActive = sceneProfileRepo.activeSceneId.first() == id
+            val newActive = sceneProfileRepo.delete(id)
+            if (!wasActive) return@launch
+            val loaded = when {
+                newActive != null -> sceneProfileRepo.load(newActive) ?: Scene.default()
+                else -> { sceneProfileRepo.createScene(sceneProfileRepo.defaultNewName(), Scene.default()); Scene.default() }
+            }
+            withContext(Dispatchers.Main.immediate) {
+                _scene.value = loaded
+                applySceneLayers()
+                KLog.i(TAG, "Scene deleted: $id → active=$newActive")
+            }
         }
     }
 

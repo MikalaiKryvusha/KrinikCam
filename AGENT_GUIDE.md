@@ -197,6 +197,14 @@ node tools/build.mjs --no-ui        # headless (для скриптов)
 node tools/build.mjs                # с UI прогресс-баром в браузере
 ```
 
+> ⚠️ **ДВА требования к Java (EXP-0020, 2026-07-25):** `JAVA_HOME=JBR` задаёт JVM ЗАПУСКА Gradle, но
+> проект компилится ТУЛЧЕЙНОМ `jvmToolchain(17)` — нужен ОТДЕЛЬНЫЙ **JDK 17**. Android Studio обновил
+> встроенный JBR до 21 → если сборка падает `Cannot find a Java installation matching {languageVersion=17}`
+> / `No locally installed toolchains match`, значит JDK 17 нет. Поставить без sudo: скачать tar.gz с
+> Adoptium (`api.adoptium.net/v3/binary/latest/17/ga/mac/aarch64/jdk/hotspot/normal/eclipse`) и распаковать
+> в `~/Library/Java/JavaVirtualMachines/` (стандартное место автодетекта — и для CLI, и для VS Code Gradle).
+> Проверка: `/usr/libexec/java_home -V | grep 17`.
+
 Проверить только ошибки:
 ```bash
 export JAVA_HOME="..." && node tools/build.mjs --no-ui 2>&1 | grep "^e:"

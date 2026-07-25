@@ -11,6 +11,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kriniks.kcam.data.profiles.db.AppDatabase
 import com.kriniks.kcam.data.profiles.db.EncoderProfileDao
+import com.kriniks.kcam.data.profiles.db.SceneProfileDao
 import com.kriniks.kcam.data.profiles.db.StreamProfileDao
 import dagger.Module
 import dagger.Provides
@@ -103,6 +104,24 @@ object ProfilesModule {
         }
     }
 
+    // idea 40 / plans/18 Фаза 1 — v5: добавляем таблицу набора именованных сцен. Чисто аддитивная
+    // миграция (новая таблица, существующие данные не трогаются). Форма = SceneProfileEntity
+    // (exportSchema сверит хеш schemas/5.json). Ф0-персист «одной текущей сцены» (DataStore
+    // kcam_scene) остаётся — из него SceneProfileRepository ОДИН РАЗ засевает первую именованную сцену.
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """CREATE TABLE IF NOT EXISTS scene_profiles (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    snapshotJson TEXT NOT NULL,
+                    createdAt INTEGER NOT NULL,
+                    updatedAt INTEGER NOT NULL
+                )""".trimIndent()
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
@@ -111,7 +130,7 @@ object ProfilesModule {
             // (включая stream-ключи) при первом же бампе версии БД. Теперь при изменении схемы
             // ОБЯЗАТЕЛЬНА явная Migration(N,N+1) через .addMigrations(...) — забытая миграция
             // даст IllegalStateException на старте (заметно в первом же тесте), а не потерю данных.
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
 
     @Provides
@@ -119,4 +138,7 @@ object ProfilesModule {
 
     @Provides
     fun provideEncoderProfileDao(db: AppDatabase): EncoderProfileDao = db.encoderProfileDao()
+
+    @Provides
+    fun provideSceneProfileDao(db: AppDatabase): SceneProfileDao = db.sceneProfileDao()
 }
