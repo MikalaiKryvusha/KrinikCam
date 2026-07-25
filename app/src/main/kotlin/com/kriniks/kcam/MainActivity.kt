@@ -211,8 +211,10 @@ class MainActivity : ComponentActivity() {
                         // вмешается в кейс с реальной камерой (лишний virtual→UVC close-churn →
                         // провоцирует нативный краш AUSBC на закрытии 2K-камеры, bug 28).
                         val on = arg == "on"
-                        deviceManager.setVirtualCamera(on)
+                        deviceManager.setVirtualCamera(on)               // доступность виртуалки в пикере/enum
                         DevSettings.setVirtualCamera(this@MainActivity, on)
+                        // fix bug 67 — базовый источник scene-owned: пишем базу слоя "camera" В СЦЕНУ.
+                        streamingRepository.setCameraLayerSource("camera", if (on) CaptureSource.Virtual else CaptureSource.None)
                     }
                     "stream-to-file" -> {
                         val on = arg == "on"
@@ -359,28 +361,37 @@ class MainActivity : ComponentActivity() {
                         ) else KLog.w("MainActivity", "set-transform: need '<id> <scale> <cx> <cy> [alpha] [rotation]'")
                     }
                     // Idea 24 — выбрать встроенную камеру устройства как источник (front|back|off).
-                    "device-camera" -> when (arg) {
-                        "front" -> deviceManager.selectPhoneCamera(isFront = true)
-                        "off" -> deviceManager.selectVideoSource(com.kriniks.kcam.feature.capture.model.VideoSource.None)
-                        else -> deviceManager.selectPhoneCamera(isFront = false) // back / default
+                    // fix bug 67 — база scene-owned: пишем базу слоя "camera" В СЦЕНУ (не в глобальный DeviceManager).
+                    "device-camera" -> {
+                        val phones = deviceManager.phoneCameras.value
+                        val src = when (arg) {
+                            "front" -> phones.firstOrNull { it.isFront }?.let { CaptureSource.Builtin(it.cameraId, it.displayName) } ?: CaptureSource.None
+                            "off" -> CaptureSource.None
+                            else -> phones.firstOrNull { !it.isFront }?.let { CaptureSource.Builtin(it.cameraId, it.displayName) } ?: CaptureSource.None
+                        }
+                        streamingRepository.setCameraLayerSource("camera", src)
                     }
-                    // Plan 05 (S5) — явный выбор источника слоя «Устройство захвата видео» для тестов
+                    // Plan 05 (S5) — явный выбор источника БАЗОВОГО слоя «Устройство захвата видео» для тестов
                     // автоматизацией. front — селфи · rear — тыл · uvc — вебка · virtual — дебаг-паттерн ·
                     // none — нет источника · builtin <cameraId> — конкретная встроенная камера ОС по id.
+                    // fix bug 67 — пишем базу слоя "camera" В СЦЕНУ (пер-сценово), не в глобальный DeviceManager.
                     "select-source" -> {
                         // bug 39 — разделитель ЕДИНЫЙ для всего CMD-протокола: [,\s]+ (ui.mjs клеит
                         // хвост аргументов запятой, т.к. `am broadcast --es` рвёт значение по пробелам).
                         val parts = arg?.trim()?.split(Regex("[,\\s]+"))?.filter { it.isNotEmpty() } ?: emptyList()
-                        when (parts.firstOrNull()) {
-                            "front" -> deviceManager.selectPhoneCamera(isFront = true)
-                            "rear" -> deviceManager.selectPhoneCamera(isFront = false)
-                            "uvc" -> deviceManager.selectUvc()
-                            "virtual" -> deviceManager.selectVirtual()
-                            "none" -> deviceManager.selectVideoSource(com.kriniks.kcam.feature.capture.model.VideoSource.None)
-                            "builtin" -> parts.getOrNull(1)?.let { deviceManager.selectPhoneCameraById(it) }
-                                ?: KLog.w("MainActivity", "select-source builtin <cameraId>")
-                            else -> KLog.w("MainActivity", "select-source: front|rear|uvc|virtual|none|builtin <id>")
+                        val phones = deviceManager.phoneCameras.value
+                        val uvcs = deviceManager.uvcSources.value
+                        val src: CaptureSource? = when (parts.firstOrNull()) {
+                            "front" -> phones.firstOrNull { it.isFront }?.let { CaptureSource.Builtin(it.cameraId, it.displayName) } ?: CaptureSource.None
+                            "rear" -> phones.firstOrNull { !it.isFront }?.let { CaptureSource.Builtin(it.cameraId, it.displayName) } ?: CaptureSource.None
+                            "uvc" -> uvcs.firstOrNull()?.let { CaptureSource.Uvc(it.id, it.displayName) } ?: CaptureSource.None
+                            "virtual" -> CaptureSource.Virtual
+                            "none" -> CaptureSource.None
+                            "builtin" -> parts.getOrNull(1)?.let { CaptureSource.Builtin(it, "Камера $it") } ?: CaptureSource.None
+                            else -> null
                         }
+                        if (src != null) streamingRepository.setCameraLayerSource("camera", src)
+                        else KLog.w("MainActivity", "select-source: front|rear|uvc|virtual|none|builtin <id>")
                     }
                     // plans/03 S8 — двухпальцевые жесты для АГЕНТА (устройство без рута, sendevent
                     // запрещён → инъектируем синтетические 2-пальцевые MotionEvent в СВОЙ decorView,
