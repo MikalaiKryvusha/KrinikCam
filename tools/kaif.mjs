@@ -46,8 +46,11 @@ function check() {
 
   const m = marker();
   if (m) {
-    for (const f of ['framework', 'version', 'released', 'origin', 'tracking', 'sphere', 'agent'])
+    for (const f of ['framework', 'version', 'released', 'origin', 'tracking', 'sphere'])
       if (!m[f]) problems.push(`.kaif/kaif.json: field "${f}" is empty/missing`);
+    // Маркер 1.5+ несёт МАССИВ агентских систем `agents`; до-1.5 — скаляр `agent`. Валидны оба.
+    if (!m.agent && !(Array.isArray(m.agents) && m.agents.length))
+      problems.push(`.kaif/kaif.json: field "agent"/"agents" is empty/missing`);
   }
 
   if (problems.length) {
@@ -62,8 +65,9 @@ switch (cmd) {
   case 'version': {
     const m = marker();
     if (m) {
+      const agents = m.agent || (Array.isArray(m.agents) ? m.agents.join(',') : '');
       console.log(`KAIF ${m.version} (${m.released}) · tracking=${m.tracking} · origin=${m.origin}` +
-        (m.sphere ? ` · sphere=${m.sphere}` : '') + (m.agent ? ` · agent=${m.agent}` : ''));
+        (m.sphere ? ` · sphere=${m.sphere}` : '') + (agents ? ` · agents=${agents}` : ''));
     } else {
       console.log('KAIF version unknown — нет маркера .kaif/kaif.json (KAIF не развёрнут или маркер потерян).');
     }

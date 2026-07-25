@@ -57,6 +57,26 @@ Markers are the persistent memory of verification: fable-method's Step 5 verifie
 marker preserves that fact **across sessions**, for future agents and posterity — who else will know the
 foundation was load-tested?
 
+## Green tests ≠ working — the observation gates
+
+A green suite is one observation, not the verdict (principle 1): whole classes of defects are invisible
+to every test and obvious to one minute of looking. Before "done" on anything that runs, renders, or
+ships, walk the gates that apply:
+
+1. **Live smoke with your eyes on the log.** Run the real process (not only the tests) and read its
+   first working cycle in the log — startup, the key operation, no silent error spam.
+2. **Self-sufficiency of the shipped artifact.** The image/bundle/package must start in isolation (a
+   fresh container/directory) — a build that only works inside your working tree is not shipped.
+3. **Domain invariants, before/after.** Before the work, write down the numbers that must not change
+   (counts, sums, sizes); after, compare. Comparing two numbers is the one check any session performs
+   perfectly — and its signal is among the highest there is.
+4. **Countable quality proxies.** Where quality is visual or subjective, find what can be counted
+   (animations per screen, panel-opacity checks, bundle growth): a zero on the counter is a stop-defect.
+   A proxy never replaces the owner's eye — it catches the zeros *before* the owner has to.
+5. **A check that has never failed proves nothing.** Every new guard/check is verified on a broken
+   version first (see `BUG_FIXING_FRAMEWORK.md` → Guards); goldens for refactors are byte-exact —
+   an empty diff is proof, "the numbers look the same" is not.
+
 ## How this composes with the rest of KAIF
 
 - **fable-method** — Step 5 (verify by observation) is HOW a single check is performed; this framework

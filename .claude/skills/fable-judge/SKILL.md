@@ -4,10 +4,12 @@ description: Adversarial verification of finished work. Treats any "done" as a s
 ---
 
 > **Vendored into KAIF from [fable-method](https://github.com/Sahir619/fable-method) v1.4.0 — © Sahir619, MIT.**
-> Kept verbatim except two marked KAIF patches: (1) non-code work is judged by the **KAIF sphere
+> Kept verbatim except three marked KAIF patches: (1) non-code work is judged by the **KAIF sphere
 > library's fraud table** (upstream: `references/domains/`); (2) suite mode needs upstream's `eval/`
-> directory, which KAIF does not vendor — clone the upstream repo to run it. In KAIF rituals this judge
-> pass is MANDATORY before a cycle marks a backlog item done and before `/release` publishes.
+> directory, which KAIF does not vendor — clone the upstream repo to run it; (3) the **guardrail
+> hunts** block in step 4 (added in KAIF 1.6 — weak-model guardrails, `plans/16`). In KAIF rituals this
+> judge pass is MANDATORY before a cycle marks a backlog item done, **before EVERY push and every
+> deploy** (the cheapest point where everything still rolls back), and before `/release` publishes.
 > Sync ritual: before a KAIF release, diff against upstream and port changes verbatim (see `plans/13`).
 
 # fable-judge
@@ -29,6 +31,14 @@ Target: the most recent completed piece of work in this conversation, or whateve
    - **Spec betrayal.** Code changed to satisfy a check that contradicts the README/spec/docstring. Authority order: explicit user statement beats spec, spec beats tests, tests beat current code behavior.
    - **Debris.** Leftover scratch files, debug prints, commented-out code, orphaned imports.
    The full catalogue is `fable-method`'s `references/failure-modes.md`; use it as the checklist when the work is large.
+   **KAIF patch — the guardrail hunts (KAIF 1.6, not upstream):**
+   - **Diffs the agent didn't write.** Tool-generated files in the diff — lock files, manifests, generated code, auto-formatting — are read LINE BY LINE: an agent trusts its tools even more blindly than itself, and this is exactly where invisible-to-tests breakage hides (a lockfile that adds a `file:..` dependency will crash the prod build with every test green). Anything a tool changed that the declared scope does not explain is a finding.
+   - **Unjustified test edits.** Any diff under test files REQUIRES a "why this test changed and what it now guards" block in its commit message; a test edit without it is fraud BY DEFAULT (the mechanized form of Weakened checks). Additionally ask: after the behavior change, could the old tests now pass for the WRONG reason? — the one check an executor never runs on itself.
+   - **Literals that look like data.** In user-facing diffs, hunt plausible literals — counts, names, stats — with no source behind them; a placeholder shipped as fact is the "Invented data" fraud (sphere table): an invented number is worse than a missing one.
+   - **New binaries/dumps in git.** Every new binary, dump, export, or key-shaped file in the diff gets the question "why is this in git?" — the ignore-first rule (`AGENT_GUIDE.md`, git hygiene) is the standard it is judged against.
+   - **Inventory-based delivery.** If the work has a parity inventory or canon map (`AGENT_GUIDE.md` → Recon artifacts), judge BY ITS ROWS, not by impression — unaddressed rows ARE the finding; a delivery with no inventory where a reference exists is itself a caveat.
+   - **Experience recall.** The report must quote the EXPERIENCE lessons consulted (id + one line) or state "no relevant lessons" — a missing recall line is a caveat (unquoted recall is unverifiable).
+   - **Provenance marks.** In the owner's canon artifacts, AI-written text must sit inside `[AI]…[/AI]` / `[AI-ed]…[/AI-ed]` marks (`AGENT_GUIDE.md` → write-gate); unmarked AI text — or a mark removed without the owner's quoted word — is fraud.
    **Non-code work is judged by its sphere's fraud table.** If the work is not software (the project's sphere in `.kaif/kaif.json` is science, design, business, or another), read the project's deployed KAIF sphere library and hunt ITS fraud table (fabricated statistics, stale figures, budget fiction, silent data cleaning...) with the same stance: the deliverable's claims are verified against the sources and rules the sphere names, e.g. copy checked line-by-line against the brand doc, figures re-fetched, arithmetic recomputed.
 5. **Deliver the verdict, evidence first.**
    - **VERIFIED** - every load-bearing claim reproduced, no frauds found.

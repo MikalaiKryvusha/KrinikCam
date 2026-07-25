@@ -1,6 +1,6 @@
 # KrinikCam — контекст для Claude Code
 
-Проект обвязан фреймворком **KAIF 1.5 — Tested KAIF** (см. `KAIF_FRAMEWORK.md`). Канон здесь НЕ
+Проект обвязан фреймворком **KAIF 1.6 — Homeostatic KAIF** (см. `KAIF_FRAMEWORK.md`). Канон здесь НЕ
 дублируется — читай первоисточники:
 
 1. **`AGENT_GUIDE.md`** — КАНОН: правила, имена, команды, соглашения (+контекст-роутер: какой срез
@@ -22,5 +22,7 @@ README с правилами. Закрытое помечается тегом `
 Навыки (`.claude/skills/`): `/resume` `/pause` `/autoloop` `/dayloop` `/nightloop` `/refresh-context`
 `/check-backlog` `/report-bug` `/bug-research` `/propose-idea` `/experience` `/interview` `/revision` `/fix-vision` `/what-next` `/help-kaif`
 `/release` `/fable-method` `/fable-loop` `/fable-judge` `/fable-domain` (дисциплина исполнения, 1.5:
-задачи — по fable-циклу, judge-проход обязателен в лупах и `/release`)
+задачи — по fable-циклу, judge-проход обязателен в лупах и `/release`; 1.6: и перед КАЖДЫМ push/деплоем,
++6 guardrail-охот судьи, разведартефакты до кода, правило одного шага, git-гигиена, провенанс-марки
+`[AI]…[/AI]`, секция «Решения, принятые без владельца» при закрытии задач)
 `/kaif-version` `/kaif-update` `/kaif-fork` `/kaif-switch-origin` `/kaif-remove`.

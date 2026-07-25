@@ -1,6 +1,6 @@
 # KrinikCam — context for AI agents (universal fallback)
 
-This project is wrapped by the **KAIF 1.5 — Tested KAIF** framework (see `KAIF_FRAMEWORK.md`). The
+This project is wrapped by the **KAIF 1.6 — Homeostatic KAIF** framework (see `KAIF_FRAMEWORK.md`). The
 canon is NOT duplicated here — read the sources:
 
 1. **`AGENT_GUIDE.md`** — THE canon: rules, names, commands, conventions (+context router: which doc
@@ -25,7 +25,9 @@ Skills (Claude Code format, `.claude/skills/`; other systems have their own copi
 `/resume` `/pause` `/autoloop` `/dayloop` `/nightloop` `/refresh-context` `/check-backlog`
 `/report-bug` `/bug-research` `/propose-idea` `/experience` `/interview` `/revision` `/fix-vision`
 `/what-next` `/help-kaif` `/release` · execution discipline (1.5, judge pass mandatory in the loops and
-`/release`): `/fable-method` `/fable-loop` `/fable-judge` `/fable-domain` · lifecycle:
+`/release`; 1.6 — also before EVERY push/deploy, +6 guardrail hunts, recon-before-code, the one-step
+rule, git hygiene, `[AI]…[/AI]` provenance marks): `/fable-method` `/fable-loop` `/fable-judge`
+`/fable-domain` · lifecycle:
 `/kaif-version` `/kaif-update` `/kaif-fork` `/kaif-switch-origin` `/kaif-remove`.
 
 Working language of the project docs: Russian. The owner is Krinik (Mikalai Kryvusha).
