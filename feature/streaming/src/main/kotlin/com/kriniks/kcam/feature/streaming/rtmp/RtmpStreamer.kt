@@ -229,6 +229,17 @@ class RtmpStreamer @Inject constructor(
     fun setCameraOpener(layerId: String, opener: CameraOpener?) {
         val old = cameraOpeners[layerId]
         if (old === opener) return
+        // bug 68 — БЕСШОВНОЕ переключение сцен: :app пересоздаёт опенер на каждую смену набора слоёв
+        // (switchScene), и для UVC/встроенной это раньше значило close()+open() ФИЗ-камеры (AUSBC-реинит
+        // ~1.5с и флакий → чёрный прямоугольник / заглушка Pico+, редко успевает стартовать). Если НОВЫЙ
+        // опенер целит в ТОТ ЖЕ физ-источник (sourceKey совпал), а старый ещё ЖИВ — НЕ переоткрываем:
+        // оставляем живого продюсера, его слот продолжает получать кадры без разрыва. Так две сцены на одном
+        // Pico+ переключаются бесшовно. (Смена физ-источника или мёртвый продюсер — идём обычным путём ниже.)
+        if (opener != null && old != null && old.isAlive &&
+            opener.sourceKey != null && opener.sourceKey == old.sourceKey) {
+            KLog.d(TAG, "setCameraOpener[$layerId]: тот же физ-источник (${opener.sourceKey}) и продюсер жив — БЕЗ переоткрытия (bug 68)")
+            return
+        }
         if (opener == null) cameraOpeners.remove(layerId) else cameraOpeners[layerId] = opener
         // bug 58 / ШАРИНГ ФИДА — запоминаем ФИЗ-ключ источника слоя (из опенера) и пересчитываем карту
         // первичный/зеркало: слои с ОДИНАКОВЫМ ключом делят ОДНОГО продюсера (первый в порядке сцены —
