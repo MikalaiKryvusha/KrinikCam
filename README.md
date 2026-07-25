@@ -41,6 +41,7 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 | **Multiple independent camera feeds** on separate layers (UVC + selfie at once) | ✅ v0.8 |
 | **Feed sharing** — one camera on several layers (OBS-style "duplicate source", PiP) | ✅ v0.8 |
 | Source picker modal when adding a video layer + per-layer source selection | ✅ v0.8 |
+| **Scene profiles** — named scenes, save/restore across restart, switch, duplicate, rename (manager panel) | ✅ v0.8 |
 | **Encoder profiles** — separate manager (H.264 / HEVC / AV1, bitrate in Mbps, stereo / mono / joined audio) | ✅ v0.7 |
 | **Adaptive bitrate** + live stream telemetry (health badge, −20% on congestion / +10% recovery) | ✅ v0.7 |
 | **Record composite to gallery** (DCIM/KrinikCam .mp4) + photo capture | ✅ v0.7 |
@@ -188,6 +189,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | Встроенное руководство пользователя (Настройки) | ✅ Phase 3 |
 | **Несколько независимых камер** на разных слоях (UVC + селфи одновременно) | ✅ v0.8 |
 | **Шаринг фида** — одна камера на нескольких слоях (как OBS «дублировать источник», PiP) | ✅ v0.8 |
+| **Профили сцен** — именованные сцены, сохранение/восстановление между запусками, переключение, дублирование, переименование (панель-менеджер) | ✅ v0.8 |
 | Модалка выбора источника при добавлении слоя + выбор источника пер-слой | ✅ v0.8 |
 | **Профили кодера** — отдельный менеджер (H.264 / HEVC / AV1, битрейт в Мбит/с, стерео / моно / объединённый звук) | ✅ v0.7 |
 | **Адаптивный битрейт** + живая телеметрия эфира (health-бейдж, −20% при затыке / +10% восстановление) | ✅ v0.7 |
