@@ -97,6 +97,13 @@
     <string name="scenes_duplicate">Дублировать</string>
     <string name="scenes_delete">Удалить</string>
     <string name="scenes_rename_title">Переименовать сцену</string>
+    <!-- plans/18 Фаза 2 (Криник) — модалка редактирования сцены: имя + переход (тип и длительность). -->
+    <string name="scenes_edit_title">Редактировать сцену</string>
+    <string name="scenes_transition_label">Переход</string>
+    <string name="scenes_transition_duration_label">Длительность</string>
+    <string name="scenes_transition_none">Мгновенно</string>
+    <string name="scenes_transition_fade">Плавно</string>
+    <string name="scenes_transition_slide">Выезд</string>
     <string name="scenes_name_label">Имя сцены</string>
     <string name="scenes_save">Сохранить</string>
     <string name="scenes_cancel">Отмена</string>

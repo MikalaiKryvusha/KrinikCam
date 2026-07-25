@@ -11,6 +11,8 @@
  *   4 — профиль кодера ВЫНЕСЕН в отдельную таблицу encoder_profiles; stream_profiles теряет кодер-поля
  *       и получает encoderProfileId (bug 41 / plans/14) — MIGRATION_3_4
  *   5 — +таблица scene_profiles (набор именованных сцен, idea 40 / plans/18 Фаза 1) — MIGRATION_4_5
+ *   6 — +transitionType/+transitionDurationMs у scene_profiles (переходы между сценами, Криник,
+ *       plans/18 Фаза 2) — MIGRATION_5_6
  *
  * Related: StreamProfileDao, EncoderProfileDao, SceneProfileDao, ProfilesModule (Hilt), DeviceProfile (DataStore)
  */
@@ -25,7 +27,8 @@ import androidx.room.RoomDatabase
     // v2 (idea 37): +adaptiveBitrate — MIGRATION_1_2. v3 (профиль кодера на платформе) — MIGRATION_2_3.
     // v4 (plans/14): профиль кодера = отдельная таблица encoder_profiles, платформа ссылается по id.
     // v5 (idea 40): +scene_profiles — набор именованных сцен — MIGRATION_4_5.
-    version = 5,
+    // v6 (plans/18 Ф2): +transitionType/+transitionDurationMs на сцене — MIGRATION_5_6.
+    version = 6,
     // bug 37 №1 — схема экспортируется (schemas/ в git): фундамент для честных миграций.
     // Меняешь entity → бампни version И напиши Migration(N,N+1) в ProfilesModule; destructive-
     // фолбэка больше НЕТ, забытая миграция уронит сборку/старт, а не данные Криника.

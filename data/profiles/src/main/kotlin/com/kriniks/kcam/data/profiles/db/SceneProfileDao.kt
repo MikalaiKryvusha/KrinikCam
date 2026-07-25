@@ -42,6 +42,11 @@ interface SceneProfileDao {
     @Query("UPDATE scene_profiles SET snapshotJson = :json, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateSnapshot(id: Long, json: String, updatedAt: Long)
 
+    // plans/18 Фаза 2 — переход сцены (тип + длительность) правится отдельно от снапшота: автосейв
+    // сцены идёт часто и не должен затирать настройку, сделанную в модалке.
+    @Query("UPDATE scene_profiles SET transitionType = :type, transitionDurationMs = :durationMs, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateTransition(id: Long, type: String, durationMs: Int, updatedAt: Long)
+
     @Query("DELETE FROM scene_profiles WHERE id = :id")
     suspend fun deleteById(id: Long)
 }

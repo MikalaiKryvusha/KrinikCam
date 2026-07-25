@@ -122,6 +122,16 @@ object ProfilesModule {
         }
     }
 
+    // plans/18 Фаза 2 (Криник) — переходы между сценами: у каждой сцены свой тип эффекта и его
+    // длительность. Аддитивная миграция с ДЕФОЛТАМИ = существующие сцены Криника переживают апгрейд
+    // без потери и сразу получают мягкий фейд вместо чёрной склейки. [NOT-TESTED]
+    private val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE scene_profiles ADD COLUMN transitionType TEXT NOT NULL DEFAULT 'FADE'")
+            db.execSQL("ALTER TABLE scene_profiles ADD COLUMN transitionDurationMs INTEGER NOT NULL DEFAULT 400")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
@@ -130,7 +140,7 @@ object ProfilesModule {
             // (включая stream-ключи) при первом же бампе версии БД. Теперь при изменении схемы
             // ОБЯЗАТЕЛЬНА явная Migration(N,N+1) через .addMigrations(...) — забытая миграция
             // даст IllegalStateException на старте (заметно в первом же тесте), а не потерю данных.
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
 
     @Provides

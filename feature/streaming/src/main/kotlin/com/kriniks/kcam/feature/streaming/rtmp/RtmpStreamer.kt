@@ -64,6 +64,8 @@ import com.kriniks.kcam.feature.streaming.scene.LayerTransform
 import com.kriniks.kcam.feature.streaming.scene.Scene
 import com.kriniks.kcam.feature.streaming.scene.StandbyImage
 import com.kriniks.kcam.feature.streaming.scene.SceneProfileMeta
+// plans/18 Ф2 — тип перехода сцены (модалка редактирования → сюда → композитор).
+import com.kriniks.kcam.feature.streaming.scene.SceneTransition
 import com.kriniks.kcam.feature.streaming.scene.persist.SceneProfileRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -1381,12 +1383,30 @@ class RtmpStreamer @Inject constructor(
         scope.launch(Dispatchers.IO) {
             sceneProfileRepo.saveActive(_scene.value)   // флаш текущей (active ещё старая)
             val loaded = sceneProfileRepo.load(id) ?: Scene.default()
+            // plans/18 Фаза 2 (Криник) — переход принадлежит сцене, НА которую переключаемся (как в OBS).
+            val (transition, durationMs) = sceneProfileRepo.transitionOf(id)
             sceneProfileRepo.setActive(id)
             withContext(Dispatchers.Main.immediate) {
+                // ВАЖЕН ПОРЯДОК: снимок старого композита берём ДО отдачи новых слоёв — обе операции
+                // летят в один GL-handler, поэтому FIFO гарантирует «снял старое → показал новое».
+                // Этот же снимок держится, пока новая сцена не отдаст первый кадр → нет чёрного
+                // прямоугольника на время открытия камеры (жалоба Криника 2026-07-25).
+                compositorSource.beginTransition(transition, durationMs)
                 _scene.value = loaded
                 applySceneLayers()
-                KLog.i(TAG, "Scene switched → id=$id (${loaded.layers.size} layers)")
+                KLog.i(TAG, "Scene switched → id=$id (${loaded.layers.size} layers, переход=$transition ${durationMs}мс)")
             }
+        }
+    }
+
+    /**
+     * plans/18 Фаза 2 — задать ПЕРЕХОД сцены (тип + длительность) из модалки редактирования сцены.
+     * Пишется отдельным апдейтом, чтобы частый автосейв снапшота не затирал настройку.
+     */
+    fun setSceneTransition(id: Long, transition: SceneTransition, durationMs: Int) {
+        scope.launch(Dispatchers.IO) {
+            sceneProfileRepo.setTransition(id, transition, durationMs)
+            KLog.i(TAG, "Scene $id: переход = $transition, ${durationMs}мс")
         }
     }
 

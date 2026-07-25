@@ -34,6 +34,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kriniks.kcam.R
 import com.kriniks.kcam.feature.streaming.scene.SceneProfileMeta
+// plans/18 Ф2 — тип перехода сцены (модалка редактирования).
+import com.kriniks.kcam.feature.streaming.scene.SceneTransition
+
+// Пресеты длительности перехода: быстрый / средний / плавный. Ручной ввод не нужен — Криник выбирает
+// тапом, а границы всё равно зажимает репозиторий (SCENE_TRANSITION_MIN/MAX_MS).
+private val DURATION_PRESETS_MS = listOf(200, 400, 800, 1500)
+
+/** Подпись типа перехода в UI. Локализованные строки — в strings.xml (EN/RU). */
+@Composable
+private fun transitionLabel(t: SceneTransition): String = stringResource(
+    when (t) {
+        SceneTransition.NONE -> R.string.scenes_transition_none
+        SceneTransition.FADE -> R.string.scenes_transition_fade
+        SceneTransition.SLIDE -> R.string.scenes_transition_slide
+    }
+)
 
 private val ScenesAccent = Color(0xFFFF1A8C)
 private val ScenesItemBg = Color(0x66151515)
@@ -47,6 +63,8 @@ fun ScenesManagerOverlay(
     onNew: () -> Unit,
     onDuplicate: (Long) -> Unit,
     onRename: (Long, String) -> Unit,
+    // plans/18 Ф2 (Криник) — сохранить ПЕРЕХОД сцены: тип эффекта + длительность (модалка редактирования).
+    onSetTransition: (Long, SceneTransition, Int) -> Unit,
     onDelete: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -83,23 +101,59 @@ fun ScenesManagerOverlay(
         )
     }
 
-    // Диалог переименования (модальный, поле ввода с текущим именем).
+    // Модалка РЕДАКТИРОВАНИЯ сцены (Криник, plans/18 Ф2): имя + ПЕРЕХОД (тип эффекта и его
+    // длительность). Переход принадлежит сцене, на которую переключаются — как в OBS.
     renameTarget?.let { target ->
         var text by remember(target.id) { mutableStateOf(target.name) }
+        var transition by remember(target.id) { mutableStateOf(target.transition) }
+        var durationMs by remember(target.id) { mutableIntStateOf(target.transitionDurationMs) }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text(stringResource(R.string.scenes_rename_title)) },
+            title = { Text(stringResource(R.string.scenes_edit_title)) },
             text = {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    singleLine = true,
-                    label = { Text(stringResource(R.string.scenes_name_label)) },
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.scenes_name_label)) },
+                    )
+                    // Тип перехода — три чипа в ряд (без дропдауна: вариантов мало, тап в один шаг).
+                    Text(
+                        stringResource(R.string.scenes_transition_label),
+                        color = Color(0xCCFFFFFF), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SceneTransition.entries.forEach { t ->
+                            FilterChip(
+                                selected = transition == t,
+                                onClick = { transition = t },
+                                label = { Text(transitionLabel(t), fontSize = 12.sp) },
+                            )
+                        }
+                    }
+                    // Длительность — пресеты в секундах; для NONE неактуальна (эффекта нет).
+                    Text(
+                        stringResource(R.string.scenes_transition_duration_label),
+                        color = Color(0xCCFFFFFF), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DURATION_PRESETS_MS.forEach { ms ->
+                            FilterChip(
+                                selected = durationMs == ms,
+                                onClick = { durationMs = ms },
+                                enabled = transition != SceneTransition.NONE,
+                                label = { Text("%.1f с".format(ms / 1000f), fontSize = 12.sp) },
+                            )
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (text.isNotBlank()) onRename(target.id, text.trim())
+                    if (text.isNotBlank() && text.trim() != target.name) onRename(target.id, text.trim())
+                    if (transition != target.transition || durationMs != target.transitionDurationMs)
+                        onSetTransition(target.id, transition, durationMs)
                     renameTarget = null
                 }) { Text(stringResource(R.string.scenes_save)) }
             },

@@ -23,6 +23,10 @@ import com.kriniks.kcam.data.profiles.db.SceneProfileDao
 import com.kriniks.kcam.data.profiles.db.SceneProfileEntity
 import com.kriniks.kcam.feature.streaming.scene.Scene
 import com.kriniks.kcam.feature.streaming.scene.SceneProfileMeta
+// plans/18 Ф2 — тип перехода сцены и границы его длительности.
+import com.kriniks.kcam.feature.streaming.scene.SceneTransition
+import com.kriniks.kcam.feature.streaming.scene.SCENE_TRANSITION_MIN_MS
+import com.kriniks.kcam.feature.streaming.scene.SCENE_TRANSITION_MAX_MS
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -41,7 +45,17 @@ class SceneProfileRepository @Inject constructor(
 
     /** Список сцен для UI (реактивно). */
     fun observeScenes(): Flow<List<SceneProfileMeta>> =
-        sceneDao.observeAll().map { rows -> rows.map { SceneProfileMeta(it.id, it.name) } }
+        sceneDao.observeAll().map { rows ->
+            rows.map {
+                // plans/18 Ф2 — настройки перехода едут в UI вместе с метой (модалка редактирования сцены).
+                SceneProfileMeta(
+                    id = it.id,
+                    name = it.name,
+                    transition = SceneTransition.fromStorage(it.transitionType),
+                    transitionDurationMs = it.transitionDurationMs,
+                )
+            }
+        }
 
     /** Активная сцена набора (id). */
     val activeSceneId: Flow<Long?> = dataStore.activeSceneId
@@ -139,6 +153,23 @@ class SceneProfileRepository @Inject constructor(
     /** Переименовать сцену. */
     suspend fun rename(id: Long, name: String) {
         sceneDao.rename(id, name.ifBlank { defaultNewName() }, now())
+    }
+
+    /**
+     * plans/18 Фаза 2 (Криник) — задать ПЕРЕХОД сцены: тип эффекта + длительность. Правится в модалке
+     * редактирования сцены рядом с именем. Длительность зажимается в разумные границы, чтобы кривое
+     * значение (0 / 10с) не превратило переключение в мельтешение или в застывший экран.
+     */
+    suspend fun setTransition(id: Long, transition: SceneTransition, durationMs: Int) {
+        val clamped = durationMs.coerceIn(SCENE_TRANSITION_MIN_MS, SCENE_TRANSITION_MAX_MS)
+        runCatching { sceneDao.updateTransition(id, transition.name, clamped, now()) }
+            .onFailure { KLog.e(TAG, "setTransition failed: ${it.message}") }
+    }
+
+    /** Настройки перехода сцены [id] (для композитора в момент переключения). Нет строки → дефолт. */
+    suspend fun transitionOf(id: Long): Pair<SceneTransition, Int> {
+        val row = sceneDao.getById(id) ?: return SceneTransition.FADE to 400
+        return SceneTransition.fromStorage(row.transitionType) to row.transitionDurationMs
     }
 
     /**

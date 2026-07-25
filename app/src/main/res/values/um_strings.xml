@@ -34,6 +34,11 @@
         <item>The order of layers in the list defines the stacking order: the top layer is displayed above the others.</item>
         <item>Each layer offers visibility control, transformation (position, size, rotation) and deletion.</item>
         <item>The “Layers” panel contains the list of layers and a button for adding a new layer; deletion is confirmed by a separate prompt.</item>
+        <!-- idea 40 / plans/18 Фазы 1-2 — набор именованных сцен и переходы между ними. -->
+        <item>A SCENE is a saved composition of layers together with their sources and transformations. The application maintains a set of named scenes: the “Scenes” panel lists them, a tap switches the active scene, and per-scene actions allow renaming, duplicating and deleting. The set never becomes empty — deleting the last scene recreates a default one.</item>
+        <item>Scenes are independent: the source of each layer, including the base one, belongs to the scene, so changing a source in one scene does not affect the others. Image overlays are stored per scene as well. The active scene and its contents survive an application restart.</item>
+        <item>Each scene defines its own TRANSITION — the effect played when that scene is switched on (as in OBS, the effect belongs to the scene being switched to). The type (instant, fade, slide) and the duration are chosen in the scene editing dialog.</item>
+        <item>A switch never shows a black frame: the last frame of the previous scene is held until the new scene actually produces an image (a built-in or USB camera needs time to open), and only then the transition is played.</item>
     </string-array>
 
     <string name="um_title_5">5. Arranging layers with gestures</string>

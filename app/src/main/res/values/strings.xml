@@ -103,6 +103,13 @@
     <string name="scenes_duplicate">Duplicate</string>
     <string name="scenes_delete">Delete</string>
     <string name="scenes_rename_title">Rename scene</string>
+    <!-- plans/18 Фаза 2 (Криник) — модалка редактирования сцены: имя + переход (тип и длительность). -->
+    <string name="scenes_edit_title">Edit scene</string>
+    <string name="scenes_transition_label">Transition</string>
+    <string name="scenes_transition_duration_label">Duration</string>
+    <string name="scenes_transition_none">Instant</string>
+    <string name="scenes_transition_fade">Fade</string>
+    <string name="scenes_transition_slide">Slide</string>
     <string name="scenes_name_label">Scene name</string>
     <string name="scenes_save">Save</string>
     <string name="scenes_cancel">Cancel</string>

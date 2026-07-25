@@ -219,6 +219,10 @@ class StreamViewModel @Inject constructor(
     }
     /** Переименовать сцену. */
     fun renameScene(id: Long, name: String) = repository.renameScene(id, name)
+
+    // plans/18 Ф2 — сохранить переход сцены (тип эффекта + длительность) из модалки редактирования.
+    fun setSceneTransition(id: Long, transition: com.kriniks.kcam.feature.streaming.scene.SceneTransition, durationMs: Int) =
+        repository.setSceneTransition(id, transition, durationMs)
     /** Удалить сцену (если активная — активной станет первая оставшаяся). */
     fun deleteScene(id: Long) {
         _selectedLayerId.value = null

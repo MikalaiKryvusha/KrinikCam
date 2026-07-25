@@ -86,6 +86,9 @@ class StreamingRepository @Inject constructor(
     fun createNewScene(name: String? = null) = rtmpStreamer.createNewScene(name)
     fun duplicateScene(id: Long) = rtmpStreamer.duplicateScene(id)
     fun renameScene(id: Long, name: String) = rtmpStreamer.renameScene(id, name)
+    // plans/18 Ф2 — переход сцены (тип + длительность) из модалки редактирования.
+    fun setSceneTransition(id: Long, transition: com.kriniks.kcam.feature.streaming.scene.SceneTransition, durationMs: Int) =
+        rtmpStreamer.setSceneTransition(id, transition, durationMs)
     fun deleteScene(id: Long) = rtmpStreamer.deleteScene(id)
     /** Харнес scene-list — залогировать набор сцен (id:имя, активная *). */
     fun dumpScenesToLog() = rtmpStreamer.dumpScenesToLog()

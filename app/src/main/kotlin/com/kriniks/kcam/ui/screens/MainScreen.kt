@@ -592,6 +592,8 @@ fun MainScreen(
             onSwitch = { streamViewModel.switchScene(it) },
             onNew = { streamViewModel.createNewScene() },
             onDuplicate = { streamViewModel.duplicateScene(it) },
+            // plans/18 Ф2 (Криник) — переход сцены (тип + длительность) из модалки редактирования.
+            onSetTransition = { id, t, ms -> streamViewModel.setSceneTransition(id, t, ms) },
             onRename = { id, name -> streamViewModel.renameScene(id, name) },
             onDelete = { streamViewModel.deleteScene(it) },
             onDismiss = { showScenesOverlay = false },

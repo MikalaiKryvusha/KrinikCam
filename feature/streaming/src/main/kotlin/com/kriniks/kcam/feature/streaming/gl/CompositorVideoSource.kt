@@ -25,6 +25,8 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import android.view.Surface
 import com.kriniks.kcam.core.logging.KLog
+// plans/18 Ф2 — тип перехода между сценами (домен сцен того же модуля).
+import com.kriniks.kcam.feature.streaming.scene.SceneTransition
 import com.pedro.library.util.sources.video.VideoSource
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -111,6 +113,25 @@ class CompositorVideoSource : VideoSource() {
     // 1:1, без искажения). Камера ВСЕГДА 16:9, не сжимается; поворот — отдельный финальный шаг.
     private var sceneFbo = 0
     private var sceneTex = 0
+
+    // ── plans/18 Фаза 2 (Криник) — ПЕРЕХОДЫ МЕЖДУ СЦЕНАМИ ────────────────────────────────────────
+    // Держим СНИМОК СТАРОЙ сцены (весь композит целиком) в своём FBO и рисуем его ПОВЕРХ новой сцены,
+    // пока идёт переход. Это решает две задачи разом:
+    //   1) эффект (фейд/выезд), который просил Криник — тип и длительность живут в профиле сцены;
+    //   2) ЧЁРНОЕ ОКНО при смене физ-камеры: у новой сцены свои слоты-камеры (другие id слоёв), их
+    //      снапшоты пусты, а встроенная камера открывается ~1-2с → зритель видел чёрный прямоугольник.
+    //      Теперь снимок старой сцены ДЕРЖИТСЯ, пока новая не отдаст первый кадр, и только потом
+    //      начинается сам эффект. Чернота исчезает как класс.
+    private var transFbo = 0
+    private var transTex = 0
+    private var transHasFrame = false                 // снимок старой сцены реально снят
+    private var transActive = false
+    private var transStarted = false                  // фаза эффекта пошла (новая сцена готова)
+    private var transType = SceneTransition.FADE
+    private var transDurationMs = 0
+    private var transStartMs = 0L
+    private var transHoldStartMs = 0L
+    private val transPosM = FloatArray(16)
     private val canvasTexM = FloatArray(16) // матрица поворота тексов для прохода 2 (переиспользуем)
 
     // Упорядоченный список слоёв (z-order СНИЗУ ВВЕРХ) — из Scene. Камера и картинки РАВНОПРАВНЫ
@@ -161,6 +182,10 @@ class CompositorVideoSource : VideoSource() {
         // Свежесть/заглушка per-слой.
         var lastFrameAtMs = 0L
         var hasEverHadFrame = false
+        // plans/18 Ф2 — сколько кадров слот реально забрал с момента создания. Нужен именно СЧЁТЧИК, а
+        // не флаг: на экран идёт ПРЕДПОСЛЕДНИЙ кадр (пинг-понг снапшота), поэтому после ПЕРВОГО кадра
+        // видимая текстура ещё чёрная-стартовая. Готовым слой считается с ДВУХ кадров.
+        var framesConsumed = 0
         @Volatile var frozen = false
         var standbyAlpha = 0f
         var standbyPulse = 1f
@@ -183,7 +208,7 @@ class CompositorVideoSource : VideoSource() {
                 GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
             }
             lastFrameAtMs = SystemClock.elapsedRealtime()
-            hasEverHadFrame = false; standbyAlpha = 0f; lastFadeClockMs = 0L; frozen = false
+            hasEverHadFrame = false; framesConsumed = 0; standbyAlpha = 0f; lastFadeClockMs = 0L; frozen = false
         }
 
         /** Пересоздать OES+SurfaceTexture (чистое окно новому продюсеру; bug 31/реконнект). Снапшот держит кадр. */
@@ -197,6 +222,9 @@ class CompositorVideoSource : VideoSource() {
             st.setOnFrameAvailableListener { newFrame = true }
             surfaceTexture = st
             newFrame = false; frozen = false
+            // plans/18 Ф2 — окно новое: кадры этого продюсера ещё не приходили (снапшот держит СТАРЫЙ кадр,
+            // поэтому hasEverHadFrame НЕ сбрасываем — картинка на экране есть, а вот счётчик обнуляем).
+            framesConsumed = 0
         }
 
         private fun buildDrawTexMatrix() {
@@ -227,6 +255,7 @@ class CompositorVideoSource : VideoSource() {
                 newFrame = false
                 lastFrameAtMs = nowMs
                 hasEverHadFrame = true
+                framesConsumed++
                 consumed = true
             }
             buildDrawTexMatrix()
@@ -446,6 +475,44 @@ class CompositorVideoSource : VideoSource() {
     }
 
     /**
+     * plans/18 Фаза 2 (Криник) — начать ПЕРЕХОД на новую сцену. Зовётся ПЕРЕД [setLayers] новой сцены:
+     * снимаем текущий композит целиком в свой FBO, дальше рендер-цикл держит этот снимок поверх новой
+     * сцены — сперва «на паузе», пока новая сцена не отдаст первый живой кадр (иначе зритель увидит
+     * чёрный прямоугольник, пока открывается камера), затем проигрывает эффект [type] за [durationMs].
+     *
+     * [SceneTransition.NONE] тоже проходит через удержание — просто без эффекта: мгновенная склейка,
+     * но уже по ГОТОВОЙ сцене, а не по чёрной. [NOT-TESTED]
+     */
+    fun beginTransition(type: SceneTransition, durationMs: Int) {
+        val h = handler ?: return
+        h.post {
+            if (!running) return@post
+            val r = renderer ?: return@post
+            if (transFbo == 0 || transTex == 0 || sceneTex == 0) return@post
+            runCatching { eglSurface?.let { eglCore?.makeCurrent(it) } }
+            // Снимок СТАРОГО композита: рисуем текущий sceneTex в свой FBO (полный кадр, без поворота
+            // холста — поворот делает проход 2 уже над результатом перехода).
+            r.setFramebufferColor(transFbo, transTex)
+            GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
+            GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            r.draw(sceneTex, oes = false, texMatrix = snapIdentity, posMatrix = null, alpha = 1f)
+            transHasFrame = true
+            transActive = true
+            transStarted = false
+            transType = type
+            transDurationMs = durationMs.coerceAtLeast(0)
+            transHoldStartMs = SystemClock.elapsedRealtime()
+            KLog.i(TAG, "переход: снят кадр старой сцены, тип=$type длительность=${durationMs}мс — " +
+                    "держим, пока новая сцена не отдаст кадр (plans/18 Ф2)")
+        }
+    }
+
+    // Готова ли НОВАЯ сцена показываться: у каждого ПЕРВИЧНОГО слоя-камеры уже был живой кадр. Слоёв-камер
+    // нет (картинки/пустая сцена) — готова сразу. Именно это условие снимает чёрное окно смены камеры.
+    private fun newSceneHasContent(): Boolean =
+        cameraSlots.isEmpty() || cameraSlots.values.all { it.framesConsumed >= VISIBLE_FRAME_LAG }
+
+    /**
      * Пересоздать OES+SurfaceTexture КОНКРЕТНОГО слоя-камеры [layerId] для НОВОГО продюсера (чистый
      * BufferQueue): при закрытии/отвале старый продюсер оставляет очередь поверхности в состоянии, из
      * которого новый не доставляет кадры (bug 31/реконнект). Бесшовность держит снапшот слота (свежую
@@ -502,6 +569,11 @@ class CompositorVideoSource : VideoSource() {
             val (fbo, tex) = r.createFramebuffer(SCENE_W, SCENE_H)
             sceneFbo = fbo
             sceneTex = tex
+            // plans/18 Ф2 — FBO для снимка СТАРОЙ сцены (переходы + удержание кадра на смене камеры).
+            val (tfbo, ttex) = r.createFramebuffer(SCENE_W, SCENE_H)
+            transFbo = tfbo
+            transTex = ttex
+            transHasFrame = false; transActive = false
             syncTextures() // залить уже запрошенные слои-картинки
             uploadStandby() // залить текстуры бренд-заглушки (общие для всех слоёв)
             // Мульти-источники: создать CameraSlot для КАЖДОГО текущего слоя-камеры + сообщить наверх, что
@@ -591,6 +663,45 @@ class CompositorVideoSource : VideoSource() {
                 }
             }
 
+            // ── ПЕРЕХОД МЕЖДУ СЦЕНАМИ (plans/18 Ф2): снимок СТАРОЙ сцены поверх новой ──────────
+            // Рисуем ещё в sceneFbo (до поворота холста), чтобы переход поворачивался вместе со сценой.
+            if (transActive && transHasFrame && transTex != 0) {
+                // Фаза 1 — УДЕРЖАНИЕ: пока новая сцена не отдала кадр, показываем старую целиком. Кап
+                // страхует от источника, который не оживёт вовсе (тогда покажется заглушка новой сцены).
+                if (!transStarted) {
+                    val heldMs = nowMs - transHoldStartMs
+                    if (newSceneHasContent() || heldMs >= TRANSITION_HOLD_CAP_MS) {
+                        transStarted = true
+                        transStartMs = nowMs
+                        KLog.i(TAG, "переход: новая сцена готова через ${heldMs}мс " +
+                                (if (heldMs >= TRANSITION_HOLD_CAP_MS) "(КАП — источник не ожил) " else "") +
+                                "— играем эффект $transType ${transDurationMs}мс")
+                    }
+                }
+                // Фаза 2 — ЭФФЕКТ: p = 0→1. NONE/нулевая длительность = мгновенная склейка по готовой сцене.
+                val p = when {
+                    !transStarted -> 0f
+                    transDurationMs <= 0 || transType == SceneTransition.NONE -> 1f
+                    else -> ((nowMs - transStartMs).toFloat() / transDurationMs).coerceIn(0f, 1f)
+                }
+                if (p < 1f) {
+                    when (transType) {
+                        // Кросс-фейд: старая сцена гаснет, проявляя новую под ней.
+                        SceneTransition.FADE, SceneTransition.NONE ->
+                            r.draw(transTex, oes = false, texMatrix = snapIdentity, posMatrix = null, alpha = 1f - p)
+                        // Выезд: старая сцена уезжает влево (clip-координаты: сдвиг на -2 = ровно ширина кадра).
+                        SceneTransition.SLIDE -> {
+                            android.opengl.Matrix.setIdentityM(transPosM, 0)
+                            android.opengl.Matrix.translateM(transPosM, 0, -2f * p, 0f, 0f)
+                            r.draw(transTex, oes = false, texMatrix = snapIdentity, posMatrix = transPosM, alpha = 1f)
+                        }
+                    }
+                } else {
+                    transActive = false
+                    KLog.d(TAG, "переход: завершён (plans/18 Ф2)")
+                }
+            }
+
             // ── ПРОХОД 2: блит FBO в выходной кадр (encW×encH) с поворотом ХОЛСТА ────────────
             // Поворачиваем ТЕКСТУРНЫЕ координаты FBO на canvasRotation вокруг центра. FBO 1920×1080,
             // повёрнутый на 90°, точно = 1080×1920 = портретный выход → 1:1, без искажения. Квад — во
@@ -654,6 +765,13 @@ class CompositorVideoSource : VideoSource() {
         // НЕ зависит от ориентации выходного кадра. Отсюда камера не сжимается ни в портрете, ни в пейзаже.
         const val SCENE_W = 1920
         const val SCENE_H = 1080
+        // plans/18 Ф2 — потолок УДЕРЖАНИЯ старой сцены, пока новая не отдаст первый кадр. Встроенная
+        // камера открывается ~1-2с, UVC бывает дольше; 3с хватает с запасом, а источник, который не
+        // ожил вовсе, не морозит картинку навсегда — переход доигрывается, показывая заглушку слоя.
+        const val TRANSITION_HOLD_CAP_MS = 3000L
+        // Пинг-понг снапшота отдаёт на экран ПРЕДпоследний кадр (bugs 17/47 — не показывать битый
+        // последний кадр отвалившегося источника), поэтому «видимая картинка есть» = 2 забранных кадра.
+        const val VISIBLE_FRAME_LAG = 2
     }
 
     /**
@@ -721,6 +839,10 @@ class CompositorVideoSource : VideoSource() {
             runCatching { if (sceneFbo != 0) renderer?.deleteFramebuffer(sceneFbo) }
             runCatching { if (sceneTex != 0) renderer?.deleteTexture(sceneTex) }
             sceneFbo = 0; sceneTex = 0
+            // plans/18 Ф2 — освободить FBO перехода вместе со сценой (GL-ресурсы одного контекста).
+            runCatching { if (transFbo != 0) renderer?.deleteFramebuffer(transFbo) }
+            runCatching { if (transTex != 0) renderer?.deleteTexture(transTex) }
+            transFbo = 0; transTex = 0; transHasFrame = false; transActive = false
             runCatching { if (standbyTitleTex != 0) renderer?.deleteTexture(standbyTitleTex) }
             runCatching { if (standbyBodyTex != 0) renderer?.deleteTexture(standbyBodyTex) }
             standbyTitleTex = 0; standbyBodyTex = 0
