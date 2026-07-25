@@ -8,7 +8,13 @@ package com.kriniks.kcam.feature.streaming.model
 
 sealed class StreamState {
     object Idle : StreamState()                     // not streaming
-    object Connecting : StreamState()               // TCP handshake in progress
+    // bug 45 — ФАЗА ПОДГОТОВКИ (эфир: TCP/RTMP-хендшейк; запись: prepare энкодера/звука до первого
+    // реально записанного семпла). Раньше был `object`; стал data class с флагом [isRecording], чтобы
+    // UI мог честно подписать пилюлю («ПОДГОТОВКА» для записи vs «ПОДКЛЮЧЕНИЕ» для эфира) — индикация
+    // по ФАКТУ, а не по намерению (юзер не должен говорить в пустоту).
+    // [TESTED: 2026-07-25 · живьём на планшете: обе пилюли сняты видеозахватом экрана — «ПОДГОТОВКА»
+    //  при записи и «ПОДКЛЮЧЕНИЕ» при эфире на кривой URL]
+    data class Connecting(val isRecording: Boolean = false) : StreamState()
     data class Live(                                // streaming successfully
         val durationMs: Long = 0,
         val bitrateKbps: Int = 0,

@@ -100,6 +100,19 @@ private const val ADAPTIVE_RECOVER_PERCENT = 10
 // Период тикера телеметрии эфира; шаг адаптера — каждый второй тик (2с), чтобы не дёргать энкодер.
 private const val LIVE_TICK_MS = 1000L
 
+// bug 45 — через сколько после нажатия «Запись» отсутствие первого записанного семпла считается
+// подозрительным и попадает в лог предупреждением (сам бейдж при этом честно висит «ПОДГОТОВКА»).
+private const val RECORD_START_WARN_MS = 5000L
+
+// bug 45 S3 — «подталкивание» ключевого кадра на старте записи. MediaMuxer добавляет видеотрек ТОЛЬКО
+// на КЛЮЧЕВОМ кадре и лишь когда известны ОБА формата (видео+аудио) — сверено байткодом
+// AndroidMuxerRecordController.recordVideo. Первый IDR энкодера проскакивает, пока аудиоформат ещё не
+// пришёл, а следующий по GOP — через iFrameInterval (2с) → запись реально начиналась на ~2.3с позже
+// нажатия. Поэтому дёргаем requestKeyframe() серией коротких попыток, пока статус не станет RECORDING:
+// как только оба формата на месте, ближайший запрошенный IDR открывает файл.
+private const val KEYFRAME_NUDGE_ATTEMPTS = 12
+private const val KEYFRAME_NUDGE_INTERVAL_MS = 150L
+
 @Singleton
 class RtmpStreamer @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -127,6 +140,9 @@ class RtmpStreamer @Inject constructor(
     // поллит hasCongestion() по живым выходам, каждый второй тик — шаг адаптера битрейта.
     private var liveTicker: Job? = null
     private var streamStartedAtMs = 0L
+    // bug 45 — момент НАЖАТИЯ «Запись» (elapsedRealtime). Живёт от startRecordToFile до первого
+    // RECORDING: по нему считается честный прогрев старта записи в лог. 0 = записи не запрашивали.
+    private var recordStartRequestedAtMs = 0L
     // Текущий/целевой битрейт видео (бит/с). target = из профиля; current ходит вниз при затыке
     // канала и плавно восстанавливается к target на свободном канале (setVideoBitrateOnFly).
     private var currentVideoBitrateBps = 0
@@ -419,7 +435,7 @@ class RtmpStreamer @Inject constructor(
                 bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.sumOf { it.bitrateKbps },
                 outputs = outs,
             )
-            anyPending -> StreamState.Connecting
+            anyPending -> StreamState.Connecting()   // bug 45 — Connecting стал data class (эфир: isRecording=false)
             outs.isNotEmpty() && outs.all { it.phase == OutputPhase.Failed } ->
                 StreamState.Error(outs.firstOrNull { it.reason != null }?.reason ?: "All outputs failed")
             else -> _state.value
@@ -935,7 +951,7 @@ class RtmpStreamer @Inject constructor(
                 return false
             }
 
-            _state.value = StreamState.Connecting
+            _state.value = StreamState.Connecting()  // bug 45 — эфир: подготовка/хендшейк (isRecording=false)
             // plans/09 S2 — свежая сессия: сбрасываем per-output состояние прошлого эфира.
             activeRtmpOutputs.clear()
             outputStates.clear()
@@ -1035,6 +1051,24 @@ class RtmpStreamer @Inject constructor(
     private val recordListener = object : RecordController.Listener {
         override fun onStatusChange(status: RecordController.Status) {
             KLog.i(TAG, "Record status: $status")
+            // bug 45 S2 — ЧЕСТНАЯ ИНДИКАЦИЯ ЗАПИСИ. RECORDING = мухер стартовал и ПЕРВЫЙ семпл реально
+            // записан (байткод AndroidMuxerRecordController: статус выставляется в recordVideo() перед
+            // первым write). Только ЗДЕСЬ поднимаем бейдж «ЗАПИСЬ» и запускаем таймер — до этого висит
+            // «ПОДГОТОВКА», поэтому Криник не начинает фразу в пустоту. Идемпотентно: промоутим только
+            // из фазы подготовки записи (повторный RECORDING/RESUMED не обнулит таймер).
+            // [TESTED: 2026-07-25 · живьём: таймер бейджа пошёл с 00:00 в момент реального старта]
+            if (status == RecordController.Status.RECORDING) {
+                val st = _state.value
+                if (st is StreamState.Connecting && st.isRecording) {
+                    val warmupMs = if (recordStartRequestedAtMs > 0)
+                        android.os.SystemClock.elapsedRealtime() - recordStartRequestedAtMs else -1
+                    KLog.i(TAG, "Record: первый семпл записан — бейдж ЗАПИСЬ поднят по ФАКТУ " +
+                            "(прогрев ${warmupMs}ms от нажатия, bug 45)")
+                    recordStartRequestedAtMs = 0L
+                    _state.value = StreamState.Live(isRecording = true)
+                    startLiveTicker()   // таймер считает РЕАЛЬНОЕ время записи, а не время подготовки
+                }
+            }
             // Idea 11: the file is finalized (moov written) when status becomes STOPPED — only then
             // copy it to the PUBLIC DCIM/KrinikCam so Krinik can see/analyse recordings in the gallery.
             if (status == RecordController.Status.STOPPED) {
@@ -1159,27 +1193,69 @@ class RtmpStreamer @Inject constructor(
 
         isStreamSetupInProgress = true
         try {
+            // bug 45 S1 — ЗАМЕР прогрева записи по ФАЗАМ. Криник жал «Запись», бейдж загорался, а файл
+            // начинался позже → начало фразы терялось. Чтобы чинить причину, а не гадать, каждая
+            // дорогая фаза старта отмечается временем; итоговая Δ до первого реально записанного
+            // семпла считается в recordListener (RECORDING). Логи постоянные — дешёвые и диагностические.
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            fun since() = android.os.SystemClock.elapsedRealtime() - t0
+            recordStartRequestedAtMs = t0
+
             if (stream.isOnPreview) stream.stopPreview()
+            val tStopPreview = since()
             // bug 51 — запись кодируется ВЫБРАННЫМ профилем кодера (тот же путь, что эфир: record == stream).
             val vp = configureCaptureRotation(stream, encoder)
+            val tVideo = since()
             val ap = prepareAudioFor(stream, encoder)
+            val tAudio = since()
             if (!vp || !ap) {
                 KLog.e(TAG, "startRecordToFile: prepare failed (video=$vp audio=$ap)")
                 isStreamSetupInProgress = false
+                recordStartRequestedAtMs = 0L
                 lastPreviewTextureView?.get()?.let { startPreview(it) }
                 return null
             }
-            _state.value = StreamState.Live(isRecording = true)  // reuse Live-состояние, но помечаем как ЗАПИСЬ (Криник)
+            // bug 45 S2 — ЧЕСТНАЯ ИНДИКАЦИЯ: здесь запись ещё НЕ идёт (мухер не получил ни одного
+            // семпла), поэтому состояние = ПОДГОТОВКА, а не Live. В Live (бейдж «ЗАПИСЬ» + таймер)
+            // переводит ТОЛЬКО recordListener по первому реальному RecordController.Status.RECORDING
+            // — библиотека отдаёт его из recordVideo() ровно когда первый видеосемпл записан
+            // (сверено байткодом AndroidMuxerRecordController 2.4.7).
+            // [TESTED: 2026-07-25 · видеозахват экрана: пилюля «ПОДГОТОВКА» → бейдж «ЗАПИСЬ • 00:00»]
+            _state.value = StreamState.Connecting(isRecording = true)
             lastRecordPath = path              // Idea 11: published to DCIM on STOPPED
             // idea 37/17 — тикер эфира нужен и ЗАПИСИ (таймер на бейдже; пойман приёмкой кнопки
             // Record: стоял 0:00). Адаптер битрейта при записи ВЫКЛЮЧЕН (target=0 → no-op: канала
             // нет, RTMP-клиентов нет — congestion-поллинг по пустым outputStates безопасен).
+            // bug 45 — тикер стартует НЕ здесь, а по факту RECORDING: иначе таймер считал бы время
+            // подготовки, т.е. врал бы вместе с бейджем.
             targetVideoBitrateBps = 0
             adaptiveBitrateEnabled = false
-            startLiveTicker()
             stream.startRecord(path, recordListener)
-            KLog.i(TAG, "startRecordToFile → $path (canvas=${_videoRotation.value}°)")
+            KLog.i(TAG, "startRecordToFile → $path (canvas=${_videoRotation.value}°) · прогрев: " +
+                    "stopPreview=${tStopPreview}ms video(prepare+changeSource)=${tVideo - tStopPreview}ms " +
+                    "audio=${tAudio - tVideo}ms startRecord=${since() - tAudio}ms — ждём первый семпл (bug 45)")
             schedulePreviewRestoreAfterStream(stream)
+            // bug 45 S3 — СОКРАЩЕНИЕ ПРОГРЕВА: не ждём следующий ключевой кадр по GOP (2с), а просим его
+            // сами. Серия коротких попыток нужна из-за гонки с аудиоформатом: IDR, пришедший раньше
+            // аудиоформата, мухер выбрасывает. Цикл сам останавливается, когда состояние ушло из фазы
+            // подготовки записи (т.е. RECORDING пришёл).
+            // [TESTED: 2026-07-25 · замер по логам на виртуалке: прогрев 2769/2468ms → 559/605ms]
+            scope.launch {
+                repeat(KEYFRAME_NUDGE_ATTEMPTS) {
+                    if (_state.value.let { st -> st !is StreamState.Connecting || !st.isRecording }) return@launch
+                    runCatching { stream.requestKeyframe() }
+                        .onFailure { KLog.w(TAG, "requestKeyframe failed (bug 45)", it) }
+                    delay(KEYFRAME_NUDGE_INTERVAL_MS)
+                }
+            }
+            // bug 45 — страховка наблюдаемости: если первый семпл не пришёл за RECORD_START_WARN_MS,
+            // это НЕ молчаливая ложь бейджа (он честно висит «ПОДГОТОВКА»), но в логе будет след.
+            scope.launch {
+                delay(RECORD_START_WARN_MS)
+                if (_state.value.let { it is StreamState.Connecting && it.isRecording })
+                    KLog.w(TAG, "startRecordToFile: за ${RECORD_START_WARN_MS}ms не пришёл RECORDING — " +
+                            "мухер не получил ни видео, ни аудио семплов (bug 45)")
+            }
             return path
         } catch (e: Exception) {
             KLog.e(TAG, "startRecordToFile: exception", e)
@@ -1194,6 +1270,7 @@ class RtmpStreamer @Inject constructor(
     fun stopRecordToFile() {
         KLog.i(TAG, "stopRecordToFile: stopping record")
         isStreamSetupInProgress = false
+        recordStartRequestedAtMs = 0L   // bug 45 — сессия записи закрыта, замер прогрева сброшен
         _state.value = StreamState.Stopping
         rtmpStream?.let { if (it.isRecording) it.stopRecord() }
         _state.value = StreamState.Idle

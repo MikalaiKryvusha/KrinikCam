@@ -25,6 +25,8 @@
 package com.kriniks.kcam.ui.screens
 
 import androidx.compose.animation.*
+// bug 45 — «дыхание» точки в пилюле ПОДГОТОВКИ (rememberInfiniteTransition/animateFloat/tween).
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -509,8 +511,12 @@ fun MainScreen(
             val mbpsStr = if (mbps == mbps.toInt().toFloat()) "${mbps.toInt()}" else "%.1f".format(mbps)
             "${it.videoCodec.displayName.substringBefore(" /").trim()} • ${it.videoHeight}p${it.videoFps} • ${mbpsStr}M"
         }
+        // bug 45 — виджет виден и в фазе ПОДГОТОВКИ (isActive = Live | Connecting), а не только в Live:
+        // пока запись/эфир прогреваются, юзер видит честное «ПОДГОТОВКА», а не пустой экран и не
+        // преждевременный бейдж «ЗАПИСЬ».
+        // [TESTED: 2026-07-25 · видеозахват экрана планшета: пилюля видна в фазе подготовки]
         AnimatedVisibility(
-            visible = streamState.isLive,
+            visible = streamState.isActive,
             enter = fadeIn() + slideInHorizontally(),
             exit = fadeOut() + slideOutHorizontally(),
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
@@ -696,6 +702,13 @@ private fun StreamStatusWidget(state: StreamState, encoderSummary: String?) {
     // idea 39 (Криник) — статус эфира/записи. СВЁРНУТ: компактная пилюля «● LIVE • 12:34 • 4.2 Mbps» —
     // цвет точки = здоровье канала (зелёный/жёлтый/красный). Тап → РАЗВОРОТ (нежно-розовый низ): кодек/
     // разрешение/FPS, дропы, статус КАЖДОЙ платформы мультистрима. Метка ЭФИР vs ЗАПИСЬ по isRecording.
+    // bug 45 — ФАЗА ПОДГОТОВКИ: запись/эфир запрошены, но реальных данных ещё нет (для записи — мухер
+    // не получил ни одного семпла). Показываем ОТДЕЛЬНУЮ пилюлю «ПОДГОТОВКА…» без таймера и битрейта
+    // (нечего показывать — врать нечем), чтобы стример не начинал говорить в пустоту.
+    if (state is StreamState.Connecting) {
+        PreparingStatusPill(isRecording = state.isRecording)
+        return
+    }
     val live = state as? StreamState.Live ?: return
     var expanded by remember { mutableStateOf(false) }
 
@@ -778,6 +791,46 @@ private fun StreamStatusWidget(state: StreamState, encoderSummary: String?) {
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * bug 45 — пилюля ФАЗЫ ПОДГОТОВКИ: «⋯ ПОДГОТОВКА» (запись) / «⋯ ПОДКЛЮЧЕНИЕ» (эфир).
+ *
+ * Смысл — честность индикации: до первого реально записанного семпла (или до успешного RTMP-хендшейка)
+ * приложение НЕ имеет права показывать «ЗАПИСЬ»/«ЭФИР» — иначе стример говорит в пустоту и начало
+ * фразы теряется. Форма/типографика те же, что у live-пилюли (узнаваемо), но тон приглушённо-янтарный,
+ * без таймера и битрейта (их ещё не существует). Точка дышит — видно, что процесс идёт.
+ * [TESTED: 2026-07-25 · живьём: «● ПОДГОТОВКА» (запись) и «○ ПОДКЛЮЧЕНИЕ» (эфир, кривой URL)]
+ */
+@Composable
+private fun PreparingStatusPill(isRecording: Boolean) {
+    val amber = Color(0xFFB26A00)
+    // Дыхание точки: 0.35→1.0 и обратно — признак «идёт работа», без покадровой нагрузки на превью.
+    val pulse by rememberInfiniteTransition(label = "prep").animateFloat(
+        initialValue = 0.35f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "prepPulse",
+    )
+    val label = stringResource(
+        if (isRecording) R.string.status_preparing_record else R.string.status_preparing_stream
+    )
+    Surface(color = amber, shape = RoundedCornerShape(8.dp)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(
+                Modifier.size(9.dp)
+                    .border(1.dp, Color.White, androidx.compose.foundation.shape.CircleShape)
+                    .padding(1.dp)
+                    .background(Color.White.copy(alpha = pulse), androidx.compose.foundation.shape.CircleShape),
+            )
+            Text(
+                text = label, color = Color.White, fontSize = 12.sp,
+                fontWeight = FontWeight.Bold, maxLines = 1,
+            )
         }
     }
 }

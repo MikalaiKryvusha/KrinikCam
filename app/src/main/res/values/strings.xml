@@ -73,6 +73,10 @@
     <string name="fab_live_badge">LIVE</string>
     <!-- Криник — при записи в файл статус должен писать ЗАПИСЬ, а не ЭФИР (запись ≠ стрим). -->
     <string name="fab_rec_badge">REC</string>
+    <!-- bug 45 — фаза ПОДГОТОВКИ: индикация до первого реально записанного семпла / до RTMP-хендшейка,
+         чтобы бейдж «REC»/«LIVE» не загорался раньше, чем запись/эфир действительно начались. -->
+    <string name="status_preparing_record">PREPARING</string>
+    <string name="status_preparing_stream">CONNECTING</string>
     <!-- idea 39 — разворачиваемый статус-виджет эфира (детали по платформам/кодек/дропы). -->
     <string name="status_encoder">Encoder</string>
     <string name="status_dropped">Dropped</string>

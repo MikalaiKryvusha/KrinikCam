@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kriniks.kcam.R
 import com.kriniks.kcam.feature.streaming.model.StreamState
+import com.kriniks.kcam.feature.streaming.model.isActive   // bug 45 — «Стоп» и в фазе подготовки
 import com.kriniks.kcam.feature.streaming.model.isLive
 
 private val AcidPink = Color(0xFFFF1A8C)
@@ -69,7 +70,9 @@ fun FloatingActionMenu(
         // (60dp) → поднимаем меню выше (bottomPadding), чтобы нижний ряд не цеплял FAB (Криник).
         if (expanded) {
             FloatingPanelMenu(onDismiss = { expanded = false }, alignment = Alignment.BottomEnd, bottomPadding = 108.dp) {
-                if (streamState.isLive) {
+                // bug 45 — во время ПОДГОТОВКИ (Connecting) меню тоже даёт «Стоп», а не «В эфир»/«Запись»:
+                // сессия уже запущена, повторный старт бессмыслен (стример иначе жмёт вслепую).
+                if (streamState.isActive) {
                     PanelActionRow(
                         Icons.Default.StopCircle, stringResource(R.string.fab_stop),
                         onClick = { onStopStream(); expanded = false }, accent = LiveRed, primary = true,
