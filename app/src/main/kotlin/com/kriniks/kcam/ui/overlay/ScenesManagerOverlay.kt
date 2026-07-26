@@ -51,6 +51,26 @@ private fun transitionLabel(t: SceneTransition): String = stringResource(
     }
 )
 
+/**
+ * Криник 2026-07-26: ВЫБРАННЫЙ пункт диалога — брендовый кислотный розовый (дефолтный M3-чип красил
+ * выбор бледно-серым и выпадал из стиля приложения). Невыбранный остаётся тёмным-прозрачным.
+ * [TESTED: 2026-07-26 · скриншот модалки на планшете: выбранные «Плавно» и «0,4 с» — кислотный розовый,
+ *  невыбранные с приглушённой розовой обводкой]
+ */
+@Composable
+private fun scenesChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = Color(0x66151515),
+    labelColor = Color(0xCCFFFFFF),
+    selectedContainerColor = Color(0xFFFF1A8C),
+    selectedLabelColor = Color.White,
+)
+
+/** Обводка чипа: у выбранного её нет (заливка сама акцент), у невыбранного — приглушённая. */
+@Composable
+private fun scenesChipBorder(selected: Boolean) =
+    if (selected) null
+    else androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FF1A8C))
+
 private val ScenesAccent = Color(0xFFFF1A8C)
 private val ScenesItemBg = Color(0x66151515)
 private val ScenesActiveBg = Color(0x33FF1A8C)   // активная сцена — лёгкая акцентная подложка
@@ -129,6 +149,8 @@ fun ScenesManagerOverlay(
                                 selected = transition == t,
                                 onClick = { transition = t },
                                 label = { Text(transitionLabel(t), fontSize = 12.sp) },
+                                colors = scenesChipColors(),
+                                border = scenesChipBorder(transition == t),
                             )
                         }
                     }
@@ -144,6 +166,8 @@ fun ScenesManagerOverlay(
                                 onClick = { durationMs = ms },
                                 enabled = transition != SceneTransition.NONE,
                                 label = { Text("%.1f с".format(ms / 1000f), fontSize = 12.sp) },
+                                colors = scenesChipColors(),
+                                border = scenesChipBorder(durationMs == ms),
                             )
                         }
                     }

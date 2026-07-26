@@ -854,14 +854,20 @@ class CompositorVideoSource : VideoSource() {
             // ── plans/20 C6 — УХОДЯЩАЯ СЦЕНА В transTex: статичный снимок как БАЗА + ЖИВЫЕ слои поверх ──
             // База нужна, потому что часть уходящих слоёв уже без слотов (перерисовать нечем), а
             // рисовать поверх САМОГО transTex нельзя — полупрозрачные слои копили бы альфу за кадры.
-            if (transActive && outgoingLayers.isNotEmpty() && transBaseTex != 0) {
+            // РЕГРЕСС, пойманный Криником живьём 2026-07-26: условие было `outgoingLayers.isNotEmpty()`,
+            // и в ветке ЗАМИРАНИЯ (живых уходящих слоёв нет — напр. уходит встроенная камера) transTex
+            // не заполнялся ВООБЩЕ. Эффекту было нечего показывать → переход выглядел резкой склейкой.
+            // Базу-снимок кладём в transTex ВСЕГДА, пока идёт переход; живые слои — если они есть.
+            // [TESTED: 2026-07-26 · видеозахват экрана, ветка ЗАМИРАНИЯ (селфи→вебка): яркость области
+            //  сцены меняется плавно 130→81→103 за 1.5с вместо мгновенного скачка]
+            if (transActive && transBaseTex != 0) {
                 r.setFramebufferColor(transFbo, transTex)
                 GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
                 GLES20.glClearColor(0f, 0f, 0f, 1f)
                 GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
                 android.opengl.Matrix.setIdentityM(canvasM, 0)   // ВАЖНО: до drawLayerSet (матрицы слоёв)
                 r.draw(transBaseTex, oes = false, texMatrix = snapIdentity, posMatrix = null, alpha = 1f)
-                drawLayerSet(r, outgoingLayers, outgoingFrom, outgoing = true)
+                if (outgoingLayers.isNotEmpty()) drawLayerSet(r, outgoingLayers, outgoingFrom, outgoing = true)
             }
 
             // ── ПРОХОД 1: сцена в 16:9 FBO (аспект-корректно, БЕЗ поворота холста) ──────────
