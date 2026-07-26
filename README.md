@@ -42,6 +42,9 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 | **Feed sharing** — one camera on several layers (OBS-style "duplicate source", PiP) | ✅ v0.8 |
 | Source picker modal when adding a video layer + per-layer source selection | ✅ v0.8 |
 | **Scene profiles** — named scenes, save/restore across restart, switch, duplicate, rename (manager panel) | ✅ v0.8 |
+| **Scene transitions** — per-scene effect played when the scene is switched on: instant / fade / slide, duration 0.2–1.5 s (chosen in the scene editing dialog) | ✅ v0.8 |
+| No black frame on scene switch — the last frame of the previous scene is held until the new scene actually produces an image | ✅ v0.8 |
+| Honest recording indicator — “PREPARING” until the first frame is really written; the REC badge and timer start at the real start | ✅ v0.8 |
 | **Encoder profiles** — separate manager (H.264 / HEVC / AV1, bitrate in Mbps, stereo / mono / joined audio) | ✅ v0.7 |
 | **Adaptive bitrate** + live stream telemetry (health badge, −20% on congestion / +10% recovery) | ✅ v0.7 |
 | **Record composite to gallery** (DCIM/KrinikCam .mp4) + photo capture | ✅ v0.7 |
@@ -190,6 +193,9 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | **Несколько независимых камер** на разных слоях (UVC + селфи одновременно) | ✅ v0.8 |
 | **Шаринг фида** — одна камера на нескольких слоях (как OBS «дублировать источник», PiP) | ✅ v0.8 |
 | **Профили сцен** — именованные сцены, сохранение/восстановление между запусками, переключение, дублирование, переименование (панель-менеджер) | ✅ v0.8 |
+| **Переходы сцен** — у каждой сцены свой эффект при включении: мгновенно / плавно / выезд, длительность 0.2–1.5 с (выбирается в модалке редактирования сцены) | ✅ v0.8 |
+| Нет чёрного кадра при переключении сцен — последний кадр прошлой сцены держится, пока новая реально не даст картинку | ✅ v0.8 |
+| Честная индикация записи — «ПОДГОТОВКА» до первого реально записанного кадра; бейдж и таймер стартуют по факту | ✅ v0.8 |
 | Модалка выбора источника при добавлении слоя + выбор источника пер-слой | ✅ v0.8 |
 | **Профили кодера** — отдельный менеджер (H.264 / HEVC / AV1, битрейт в Мбит/с, стерео / моно / объединённый звук) | ✅ v0.7 |
 | **Адаптивный битрейт** + живая телеметрия эфира (health-бейдж, −20% при затыке / +10% восстановление) | ✅ v0.7 |
