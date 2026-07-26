@@ -460,7 +460,7 @@ node tools/build.mjs --no-ui && node tools/adb.mjs install && node tools/adb.mjs
 
 ## Фреймворк KAIF (Idea 30) — рабочая методология проекта
 
-Проект обвязан **KAIF 1.5 — Tested KAIF** (Krinik AI Framework, https://github.com/MikalaiKryvusha/KAIF) —
+Проект обвязан **KAIF 1.6 — Homeostatic KAIF** (Krinik AI Framework, https://github.com/MikalaiKryvusha/KAIF) —
 методологией, которая РОДИЛАСЬ в этом проекте и вернулась сюда формально оформленной. Сводка
 развёртывания — `KAIF_FRAMEWORK.md`; маркер — `.kaif/kaif.json`; ручки — `node .kaif/kaif-core.mjs
 <version|check|update>` (или корневой `npm run kaif:*`); сферы — `.kaif/spheres/` (дисциплина
