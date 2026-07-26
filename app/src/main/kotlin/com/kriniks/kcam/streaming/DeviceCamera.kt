@@ -276,6 +276,7 @@ class DeviceCameraOpener(
 
     override fun close() {
         closed = true   // застолбить ДО закрытия — асинхронные onOpened/onConfigured увидят и не тронут закрытый device
+        alive = false   // plans/20 A3 — закрытый продюсер не «жив»: иначе гард bug 68 и расчёт liveIds врут
         runCatching { session?.close() }; session = null
         runCatching { device?.close() }; device = null
         runCatching { surface?.release() }; surface = null

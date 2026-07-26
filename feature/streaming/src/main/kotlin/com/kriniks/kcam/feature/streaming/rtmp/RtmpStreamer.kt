@@ -59,6 +59,7 @@ import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.OutputPhase
 import com.kriniks.kcam.feature.streaming.model.OutputStatus
 import com.kriniks.kcam.feature.streaming.model.isActive
+import com.kriniks.kcam.feature.streaming.scene.CaptureSource
 import com.kriniks.kcam.feature.streaming.scene.Layer
 import com.kriniks.kcam.feature.streaming.scene.LayerTransform
 import com.kriniks.kcam.feature.streaming.scene.Scene
@@ -114,6 +115,10 @@ private const val RECORD_START_WARN_MS = 5000L
 // как только оба формата на месте, ближайший запрошенный IDR открывает файл.
 private const val KEYFRAME_NUDGE_ATTEMPTS = 12
 private const val KEYFRAME_NUDGE_INTERVAL_MS = 150L
+
+// plans/20 — страховка: сироты-продюсеры уходящей сцены не живут дольше, чем кап удержания
+// (3с в композиторе) + длительность эффекта + запас. Если переход почему-то не доиграл — гасим сами.
+private const val TRANSITION_WATCHDOG_BASE_MS = 3500L
 
 @Singleton
 class RtmpStreamer @Inject constructor(
@@ -194,6 +199,11 @@ class RtmpStreamer @Inject constructor(
         // Когда композитор готовит OES-поверхность КОНКРЕТНОГО слоя-камеры (по id) — открываем туда
         // продюсера ЭТОГО слоя (Camera2/USB/виртуалка через CameraOpener из :app); null = закрыть его.
         compositorSource.onCameraSurfaceReady = { layerId, st -> onCameraLayerSurfaceReady(layerId, st) }
+        // plans/20 D3 — «переход доиграл» → гасим продюсеров уходящей сцены, которых держали живыми
+        // (Криник: источники стримят, ПОКА идёт переход, и гаснут только после него).
+        compositorSource.onTransitionFinished = {
+            scope.launch(Dispatchers.Main.immediate) { flushRetiredProducers("переход доиграл") }
+        }
         // plans/sourses_timeout — бренд-заглушка «нет сигнала» как СОСТОЯНИЕ слоя-камеры: композитор
         // сам рисует её В КВАДРАТЕ слоя, когда у камеры нет свежих кадров (hold→фейд). Не Compose-оверлей.
         // Два слоя: заголовок (пульсирует) + подпись (статична).
@@ -217,6 +227,13 @@ class RtmpStreamer @Inject constructor(
         val isAlive: Boolean get() = true
         fun open(surfaceTexture: SurfaceTexture)
         fun close()
+        /**
+         * plans/20 (Криник: «уходящий слой жив, пока не зафейдится») — погасить ОТЛОЖЕННЫЕ действия
+         * продюсера (напр. reopen Фазы-2 у UVC, bug 25), НЕ закрывая камеру. Нужно, когда слой ушёл из
+         * сцены, но его продюсер намеренно оставлен живым до конца перехода: проснувшийся reopen не
+         * должен переоткрыть общий AUSBC-объект в уходящую поверхность. Дефолт — пусто (не у всех есть).
+         */
+        fun cancelPendingReopen() {}
     }
     // Мульти-источники (idea 21 Фаза B): продюсер/поверхность/тип — PER СЛОЙ-КАМЕРУ (по id слоя).
     private val cameraOpeners = HashMap<String, CameraOpener>()
@@ -285,7 +302,7 @@ class RtmpStreamer @Inject constructor(
                 if (reopen) {
                     compositorSource.recreateCameraSurface(layerId) // reopen из onCameraSurfaceReady (там пометим owned)
                 } else {
-                    cameraLayerSurfaces[layerId]?.let { openedLayers.add(layerId); opener.open(it) }
+                    cameraLayerSurfaces[layerId]?.let { openProducer(layerId, opener, it) }
                 }
             }
         }
@@ -300,7 +317,7 @@ class RtmpStreamer @Inject constructor(
         // зеркала композитор и так удаляет; сюда с null приходит именно этот случай.
         if (cameraLayerMirrors[layerId] != null) return
         scope.launch {
-            if (st != null) { openedLayers.add(layerId); opener.open(st) }
+            if (st != null) openProducer(layerId, opener, st)
             else if (openedLayers.remove(layerId)) opener.close()
         }
     }
@@ -1387,16 +1404,122 @@ class RtmpStreamer @Inject constructor(
             val (transition, durationMs) = sceneProfileRepo.transitionOf(id)
             sceneProfileRepo.setActive(id)
             withContext(Dispatchers.Main.immediate) {
+                // Незавершённая прошлая эпоха закрывается СИНХРОННО: иначе вердикт ниже считался бы по
+                // ложной картине (продюсеры прошлого перехода ещё числятся живыми).
+                flushRetiredProducers("новое переключение сцены")
+
+                // ── plans/20 (правка Криника): кто из уходящих слоёв останется ЖИВЫМ на время перехода ──
+                val oldLayers = _scene.value.layers.filter { it.visible }.filterIsInstance<Layer.VideoCapture>()
+                val newKeys = loaded.layers.filter { it.visible }.filterIsInstance<Layer.VideoCapture>()
+                    .associate { it.id to sourceKeyOf(it.source) }
+                // (1) СЛОЙ ОСТАЛСЯ САМ СОБОЙ: тот же id И то же физустройство → его слот живёт дальше в
+                //     общем наборе, продюсера вообще не трогаем (гард bug 68).
+                val liveIds = oldLayers
+                    .filter { cameraLayerMirrors[it.id] == null }          // владелец, а не зеркало
+                    .filter { cameraOpeners[it.id]?.isAlive == true }      // продюсер честно жив (коммит A)
+                    .filter { val k = layerSourceKeys[it.id]; k != null && newKeys[it.id] == k }
+                    .map { it.id }.toSet()
+                // (2) СЛОЙ УХОДИТ: решаем — оставить его продюсера живым до конца перехода или гасить сразу.
+                //     Развилка Криника (дословно): «если две не тянет - то исключение развилка. В текущий
+                //     сцене замирает старый кадр, а в новой запускается новая камера». Поэтому ЛЮБАЯ
+                //     встроенная камера гасится немедленно (HAL Titan 1 не тянет две сразу, bug 60), а
+                //     виртуалка и UVC остаются живыми, если новая сцена не целит в то же семейство.
+                val newWantsUvc = newKeys.values.any { it != null && it.startsWith("uvc:") }
+                val newHasUnsetSource = loaded.layers.filter { it.visible }.filterIsInstance<Layer.VideoCapture>()
+                    .any { sourceKeyOf(it.source) == null && it.source !is CaptureSource.Virtual }
+                val retireIds = LinkedHashSet<String>()
+                for (layer in oldLayers) {
+                    if (layer.id in liveIds) continue
+                    if (cameraLayerMirrors[layer.id] != null) continue      // зеркало продюсера не держит
+                    val opener = cameraOpeners[layer.id] ?: continue
+                    if (opener.isAlive != true) continue
+                    val key = layerSourceKeys[layer.id]
+                    val keepAlive = when {
+                        key == null -> true                                  // виртуалка — конфликтовать нечем
+                        key.startsWith("uvc:") -> !newWantsUvc && !newHasUnsetSource
+                        else -> false                                        // builtin — ВСЕГДА замираем (bug 60)
+                    }
+                    if (!keepAlive) continue
+                    opener.cancelPendingReopen()                             // коммит A4: без reopen в уходящую поверхность
+                    retireIds.add(layer.id)
+                    retiredProducers.add(Retired(layer.id, key, opener))
+                    // Карты RtmpStreamer с этого момента описывают ТОЛЬКО новую сцену → коллизии id нет,
+                    // и штатная точка гашения в setCameraOpener этого продюсера уже не увидит.
+                    cameraOpeners.remove(layer.id); cameraLayerSurfaces.remove(layer.id)
+                    lastOpenedKinds.remove(layer.id); layerSourceKeys.remove(layer.id)
+                    cameraLayerMirrors.remove(layer.id); openedLayers.remove(layer.id)
+                }
+                if (retireIds.isNotEmpty() || liveIds.isNotEmpty())
+                    KLog.i(TAG, "переход: живыми остаются слои $liveIds, отложенно гасим $retireIds " +
+                            "(uvc нужен новой сцене: $newWantsUvc)")
+
                 // ВАЖЕН ПОРЯДОК: снимок старого композита берём ДО отдачи новых слоёв — обе операции
                 // летят в один GL-handler, поэтому FIFO гарантирует «снял старое → показал новое».
-                // Этот же снимок держится, пока новая сцена не отдаст первый кадр → нет чёрного
-                // прямоугольника на время открытия камеры (жалоба Криника 2026-07-25).
-                compositorSource.beginTransition(transition, durationMs)
+                // Снимок работает БАЗОЙ, а живые уходящие слои дорисовываются поверх него каждый кадр.
+                compositorSource.beginTransition(transition, durationMs, liveIds, retireIds)
                 _scene.value = loaded
                 applySceneLayers()
                 KLog.i(TAG, "Scene switched → id=$id (${loaded.layers.size} layers, переход=$transition ${durationMs}мс)")
+                // Страховка: если переход по любой причине не доиграет, сироты не должны жить вечно.
+                scope.launch {
+                    delay(TRANSITION_WATCHDOG_BASE_MS + durationMs)
+                    withContext(Dispatchers.Main.immediate) { flushRetiredProducers("watchdog") }
+                }
             }
         }
+    }
+
+    /**
+     * plans/20 D3 — продюсер уходящей сцены, оставленный ЖИВЫМ до конца перехода (Криник: «чтобы
+     * текущие источники текущего слоя стримили, пока ещё идёт переход»). Гасится по сигналу
+     * композитора «переход доиграл» либо watchdog'ом.
+     */
+    // [TESTED: 2026-07-26 · живьём на Titan 1: вебка→селфи уходящий слой +42 кадра за переход (живой), селфи→вебка встроенная замирает (retired=0), одна вебка в обеих сценах live=1 без касания камеры; стресс 4 переключений подряд — 4 begin/4 finish, сироты погашены, 0 крашей; худший кадр 10мс]
+    private class Retired(val layerId: String, val key: String?, val opener: CameraOpener)
+
+    private val retiredProducers = ArrayList<Retired>()
+
+    /** Погасить отложенных продюсеров и освободить их слоты. Идемпотентно (звать можно из любой точки). */
+    private fun flushRetiredProducers(reason: String) {
+        if (retiredProducers.isEmpty()) { compositorSource.releaseRetiredSlots(); return }
+        val list = retiredProducers.toList()
+        retiredProducers.clear()
+        list.forEach { runCatching { it.opener.close() } }
+        compositorSource.releaseRetiredSlots()
+        KLog.i(TAG, "переход: погасил отложенных продюсеров — $reason (${list.size})")
+    }
+
+    /**
+     * plans/20 D5 — ЕДИНСТВЕННАЯ точка открытия продюсера слоя. Перед открытием проверяет, не держит ли
+     * ОТЛОЖЕННЫЙ продюсер уходящей сцены конфликтующее физустройство: если держит — переход обрывается
+     * немедленно и сироты гасятся, иначе новая камера не откроется вовсе (класс bug 58/60). Деградация
+     * ровно в прежнее поведение: уходящая сцена замирает, входящая стартует.
+     */
+    private fun openProducer(layerId: String, opener: CameraOpener, st: SurfaceTexture) {
+        val key = opener.sourceKey
+        if (key != null && retiredProducers.any { keysConflict(key, it.key) }) {
+            KLog.i(TAG, "переход оборван: новая сцена просит $key, а его держит уходящая — гашу сейчас")
+            compositorSource.abortTransition()
+            flushRetiredProducers("конфликт физустройства перед открытием")
+        }
+        openedLayers.add(layerId)
+        opener.open(st)
+    }
+
+    /**
+     * plans/20 D5 — конфликтуют ли два ФИЗ-ключа: одно устройство, две UVC-камеры (общий AUSBC-объект)
+     * или две встроенные (HAL тянет одну, bug 60). Последняя линия обороны перед open().
+     */
+    private fun keysConflict(a: String?, b: String?): Boolean =
+        a != null && b != null && (a == b ||
+            (a.startsWith("uvc:") && b.startsWith("uvc:")) ||
+            (a.startsWith("builtin:") && b.startsWith("builtin:")))
+
+    /** Ключ физустройства источника — формат обязан совпадать с опенерами (:app) и расчётом liveIds. */
+    private fun sourceKeyOf(source: CaptureSource): String? = when (source) {
+        is CaptureSource.Uvc -> "uvc:${source.deviceId}"
+        is CaptureSource.Builtin -> "builtin:${source.cameraId}"
+        else -> null
     }
 
     /**
@@ -1510,6 +1633,13 @@ class RtmpStreamer @Inject constructor(
      * предыдущего нет / он тоже встроенная). Зовётся из :app по колбэку конфликта опенера (onConflict).
      */
     fun revertConflictingCameraLayer(layerId: String) {
+        // plans/20 D6 — конфликт всплыл РУНТАЙМОМ (камера не подключилась): сперва обрываем переход и
+        // гасим отложенных продюсеров, иначе они продолжали бы держать устройство и слой остался бы
+        // мёртвым навсегда. Глухо подавлять откат нельзя.
+        if (retiredProducers.isNotEmpty()) {
+            compositorSource.abortTransition()
+            flushRetiredProducers("конфликт при подключении камеры")
+        }
         val cur = _scene.value.layers.filterIsInstance<Layer.VideoCapture>().firstOrNull { it.id == layerId }?.source
         // Откатываем ТОЛЬКО если сейчас на слое реально стоит встроенная камера (иначе конфликт уже снят —
         // не зациклимся: safe-источник встроенной не бывает, значит повторный onConflict не придёт).

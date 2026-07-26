@@ -108,6 +108,9 @@ function main() {
     ['rotation-mode', 'on'],
     ['rotation-mode', 'off'],
     ['simulate-congestion', 'off'], // idea 37 — контракт протокола; off = безопасный no-op
+    // plans/20 B2 — сцены в контракте: рассинхрон ui.mjs↔CMD-ресивер по scene-* ловится смоуком (bug 39).
+    ['scene-list'],
+    ['scene-transition', '1', 'fade', '400'],
     ['toggle-layer', 'contract_ov'], // спрятать контрактный оверлей, чтобы не влиял на запись
   ];
   for (const c of CONTRACT) ui('cmd', ...c);

@@ -37,6 +37,8 @@ import com.kriniks.kcam.streaming.DeviceCameraEnumerator
 import com.kriniks.kcam.streaming.StreamForegroundService
 import com.kriniks.kcam.feature.capture.DeviceManager
 import com.kriniks.kcam.feature.streaming.model.isActive
+// plans/20 B1 — тип перехода сцены для харнес-команды scene-transition.
+import com.kriniks.kcam.feature.streaming.scene.SceneTransition
 import com.kriniks.kcam.feature.streaming.rtmp.redactRtmpUrl
 import com.kriniks.kcam.feature.streaming.scene.CaptureSource
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
@@ -305,6 +307,21 @@ class MainActivity : ComponentActivity() {
                         val id = parts.getOrNull(0)?.toLongOrNull()
                         val name = parts.getOrNull(1)
                         if (id != null && name != null) streamingRepository.renameScene(id, name)
+                    }
+                    // plans/18 Ф2 / plans/20 B1 — переход сцены с харнеса (иначе тип/длительность
+                    // задаются только тапами в модалке, и автономная приёмка перехода невозможна).
+                    // arg = "<id> <none|fade|slide> <мс>".
+                    "scene-transition" -> {
+                        val parts = arg?.trim()?.split(Regex("[,\\s]+"))?.filter { it.isNotEmpty() } ?: emptyList()
+                        val id = parts.getOrNull(0)?.toLongOrNull()
+                        val type = parts.getOrNull(1)
+                        val ms = parts.getOrNull(2)?.toIntOrNull()
+                        if (id != null && type != null && ms != null) {
+                            streamingRepository.setSceneTransition(id, SceneTransition.fromStorage(type), ms)
+                        } else {
+                            // Битый аргумент НЕ глотаем молча (bug 39: рассинхрон протокола должен быть виден).
+                            KLog.w("MainActivity", "CMD scene-transition: ожидалось '<id> <none|fade|slide> <мс>', получено '$arg'")
+                        }
                     }
                     // Мульти-источники: задать источник КОНКРЕТНОГО слоя-камеры. arg = "<layerId> <front|rear|uvc|virtual|none|builtin <camId>>".
                     "set-layer-source" -> {

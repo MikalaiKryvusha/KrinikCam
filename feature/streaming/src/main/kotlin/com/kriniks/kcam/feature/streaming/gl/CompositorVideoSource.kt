@@ -122,9 +122,16 @@ class CompositorVideoSource : VideoSource() {
     //      снапшоты пусты, а встроенная камера открывается ~1-2с → зритель видел чёрный прямоугольник.
     //      Теперь снимок старой сцены ДЕРЖИТСЯ, пока новая не отдаст первый кадр, и только потом
     //      начинается сам эффект. Чернота исчезает как класс.
+    //   3) plans/20 (правка Криника): уходящая сцена не ЗАМИРАЕТ — снимок работает лишь БАЗОЙ, а её
+    //      живые слои дорисовываются поверх каждый кадр, пока переход не доиграл.
+    //      [TESTED: 2026-07-26 · живьём на Titan 1: вебка→селфи уходящий слой +42 кадра за переход (живой), селфи→вебка встроенная замирает (retired=0), одна вебка в обеих сценах live=1 без касания камеры; стресс 4 переключений подряд — 4 begin/4 finish, сироты погашены, 0 крашей; худший кадр 10мс]
     private var transFbo = 0
     private var transTex = 0
     private var transHasFrame = false                 // снимок старой сцены реально снят
+    // plans/20 C2 — СТАТИЧНЫЙ снимок уходящей сцены. Раньше он ЖЕ и показывался (сцена замирала);
+    // теперь это лишь БАЗА: в ней слои, чьи продюсеры уже мертвы, а живые слои дорисовываются поверх
+    // каждый кадр в transTex.
+    private var transBaseTex = 0
     private var transActive = false
     private var transStarted = false                  // фаза эффекта пошла (новая сцена готова)
     private var transType = SceneTransition.FADE
@@ -132,11 +139,38 @@ class CompositorVideoSource : VideoSource() {
     private var transStartMs = 0L
     private var transHoldStartMs = 0L
     private val transPosM = FloatArray(16)
+    // plans/20 B3 — ТЕЛЕМЕТРИЯ перехода (наблюдаемость ДО фичи «живая уходящая сцена»): сколько кадров
+    // забрал КАЖДЫЙ слот за время перехода. Ноль у уходящего слоя = сцена всё-таки замерла, и ставить
+    // [TESTED] на живость НЕЛЬЗЯ. Плюс худшее время кадра — удвоение проходов не должно ронять fps.
+    private val transFramesAtBegin = HashMap<String, Int>()
+    private var transBeganAtMs = 0L
+    private var transEffectStartMs = 0L
+    private var transMaxFrameMs = 0L
     private val canvasTexM = FloatArray(16) // матрица поворота тексов для прохода 2 (переиспользуем)
 
     // Упорядоченный список слоёв (z-order СНИЗУ ВВЕРХ) — из Scene. Камера и картинки РАВНОПРАВНЫ
     // и идут в порядке сцены (камера переставляема, как в OBS).
     @Volatile private var requestedLayers: List<CompositorLayer> = emptyList()
+    // plans/20 C1 — КОПИЯ списка слоёв, живущая ТОЛЬКО на GL-потоке. Раньше рендер читал volatile
+    // requestedLayers, и beginTransition (пост в GL) мог увидеть УЖЕ НОВЫЙ набор — снимок уходящей
+    // сцены получился бы снимком входящей. Теперь актуальный набор обновляется В GL-посте setLayers,
+    // строго ПОСЛЕ поста beginTransition (FIFO одного handler'а) → уходящая сцена всегда та, что была.
+    private var sceneLayers: List<CompositorLayer> = emptyList()
+
+    // ── plans/20 C4 — состояние УХОДЯЩЕЙ сцены (Криник: «уходящий слой жив, пока не зафейдится») ──
+    // outgoingLayers — набор слоёв на момент начала перехода; их слоты-камеры продолжают отдавать
+    // кадры, и слои перерисовываются КАЖДЫЙ кадр поверх статичного снимка-базы.
+    private var outgoingLayers: List<CompositorLayer> = emptyList()
+    // Ключи слотов уходящей сцены, которые остались ЖИВЫМИ (тот же слой+то же физустройство в новой
+    // сцене) — их разрешено рисовать из общего cameraSlots.
+    private var transLiveIds: Set<String> = emptySet()
+    // Индекс самого нижнего уходящего слоя, который реально живой: всё, что НИЖЕ, берётся из снимка-базы
+    // (перерисовывать нечем — слоты мертвы). 0 = перерисовываем весь набор.
+    private var outgoingFrom = 0
+    // plans/20 D1 — слоты, ОТЦЕПЛЁННЫЕ от новой сцены, но ещё живые до конца перехода (кейс «вебка →
+    // селфи»: уходящая вебка продолжает стримить, пока открывается селфи). Вне cameraSlots, поэтому
+    // syncCameraSlots их не гасит и гейт готовности новой сцены ими не отравляется.
+    private val retiringSlots = LinkedHashMap<String, CameraSlot>()
     private val uploaded = ArrayList<Pair<Bitmap, Int>>() // (bitmap, texId) для картинок-слоёв
 
     // ── Поворот ХОЛСТА (interview_006, Phase 3) ─────────────────────────────
@@ -266,7 +300,10 @@ class CompositorVideoSource : VideoSource() {
             // заглушка мигала, пока продюсер переоткрывается. lastFrameAtMs у слота без кадров = момент initGl.
             val waited = nowMs - lastFrameAtMs
             val wantStandby = if (hasEverHadFrame) waited >= STANDBY_HOLD_MS else waited >= STANDBY_STARTUP_GRACE_MS
-            val target = if (wantStandby) 1f else 0f
+            // plans/20 C8 — ПОКА ИДЁТ ПЕРЕХОД альфу заглушки НЕ двигаем: между грейсом (2500мс) и капом
+            // удержания (3000мс) есть окно, в котором заглушка успевала бы всплыть прямо посреди фейда.
+            // Пульс и часы фейда обновляем как обычно, чтобы после перехода не было скачка.
+            val target = if (transActive) standbyAlpha else if (wantStandby) 1f else 0f
             val dt = if (lastFadeClockMs == 0L) FRAME_MS.toFloat() else (nowMs - lastFadeClockMs).toFloat()
             lastFadeClockMs = nowMs
             val step = (dt / STANDBY_FADE_MS).coerceIn(0f, 1f)
@@ -442,7 +479,9 @@ class CompositorVideoSource : VideoSource() {
      */
     fun setLayers(layers: List<CompositorLayer>) {
         requestedLayers = layers
-        handler?.post { syncTextures(); syncCameraSlots() }
+        // plans/20 C1 — sceneLayers обновляем ИМЕННО ЗДЕСЬ (в GL-посте), а не сразу: пост beginTransition
+        // встаёт в очередь РАНЬШЕ и потому видит ещё старый набор.
+        handler?.post { sceneLayers = layers; syncTextures(); syncCameraSlots() }
     }
 
     // GL-поток: привести набор CameraSlot к слоям-камерам в requestedLayers. Новый Camera(id) → создать
@@ -452,7 +491,7 @@ class CompositorVideoSource : VideoSource() {
         val r = renderer ?: return
         // Слот (продюсер+OES+снапшот) держат ТОЛЬКО ПЕРВИЧНЫЕ слои-камеры (mirrorOf == null). Зеркала
         // (mirrorOf != null) рисуют слот первичного — своего продюсера НЕ открывают (шаринг фида, bug 58).
-        val wantIds = requestedLayers.filterIsInstance<CompositorLayer.Camera>()
+        val wantIds = sceneLayers.filterIsInstance<CompositorLayer.Camera>()
             .filter { it.mirrorOf == null }.map { it.id }.toSet()
         // Удалить слоты слоёв, которых больше нет.
         val it = cameraSlots.iterator()
@@ -483,34 +522,148 @@ class CompositorVideoSource : VideoSource() {
      * [SceneTransition.NONE] тоже проходит через удержание — просто без эффекта: мгновенная склейка,
      * но уже по ГОТОВОЙ сцене, а не по чёрной. [NOT-TESTED]
      */
-    fun beginTransition(type: SceneTransition, durationMs: Int) {
-        val h = handler ?: return
+    fun beginTransition(
+        type: SceneTransition,
+        durationMs: Int,
+        liveIds: Set<String> = emptySet(),
+        retireIds: Set<String> = emptySet(),
+    ) {
+        val h = handler
+        if (h == null) { runCatching { onTransitionFinished?.invoke() }; return }
         h.post {
-            if (!running) return@post
-            val r = renderer ?: return@post
-            if (transFbo == 0 || transTex == 0 || sceneTex == 0) return@post
+            if (!running) { runCatching { onTransitionFinished?.invoke() }; return@post }
+            val r = renderer
+            if (r == null || transFbo == 0 || transTex == 0 || transBaseTex == 0 || sceneTex == 0) {
+                // Контракт «ровно один finish на каждый принятый begin»: иначе отложенные продюсеры
+                // (retireIds) остались бы висеть навсегда.
+                runCatching { onTransitionFinished?.invoke() }
+                return@post
+            }
+            // Политика: одновременно живёт максимум ОДНА уходящая эпоха. Быстрое второе переключение
+            // доигрывает предыдущий переход мгновенно (и отпускает его продюсеров), а не копит эпохи.
+            if (transActive) finishTransition("перебит новым переходом")
             runCatching { eglSurface?.let { eglCore?.makeCurrent(it) } }
-            // Снимок СТАРОГО композита: рисуем текущий sceneTex в свой FBO (полный кадр, без поворота
-            // холста — поворот делает проход 2 уже над результатом перехода).
-            r.setFramebufferColor(transFbo, transTex)
+            // Снимок СТАРОГО композита — теперь в transBaseTex (БАЗА). Поверх него каждый кадр
+            // дорисовываются ЖИВЫЕ уходящие слои (plans/20 C6), поэтому уходящая сцена не замирает.
+            r.setFramebufferColor(transFbo, transBaseTex)
             GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
             GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
             r.draw(sceneTex, oes = false, texMatrix = snapIdentity, posMatrix = null, alpha = 1f)
+            // plans/20 D1 — слоты уходящих слоёв ОТЦЕПЛЯЕМ из общего набора, но НЕ освобождаем: их
+            // продюсеры (вебка/виртуалка) продолжают отдавать кадры до конца перехода.
+            for (id in retireIds) cameraSlots.remove(id)?.let { retiringSlots[id] = it }
+            // Уходящий набор — ЕЩЁ СТАРЫЙ список слоёв (пост setLayers встанет позже, plans/20 C1).
+            outgoingLayers = sceneLayers
+            transLiveIds = liveIds.filterTo(HashSet()) { cameraSlots[it] != null }
+            // Ниже самого нижнего ЖИВОГО слоя перерисовывать нечем — там работает снимок-база.
+            val liveKeys = transLiveIds + retiringSlots.keys
+            outgoingFrom = outgoingLayers.indexOfFirst {
+                it is CompositorLayer.Camera && (it.mirrorOf ?: it.id) in liveKeys
+            }
+            if (outgoingFrom < 0) outgoingLayers = emptyList()   // живых слоёв нет → ровно прежнее поведение
+            // Телеметрия (plans/20 B3): базовые счётчики кадров, чтобы посчитать «+N кадров» за переход.
+            transFramesAtBegin.clear()
+            for ((id, slot) in cameraSlots) transFramesAtBegin[id] = slot.framesConsumed
+            for ((id, slot) in retiringSlots) transFramesAtBegin[id] = slot.framesConsumed
+            transBeganAtMs = SystemClock.elapsedRealtime()
+            transMaxFrameMs = 0
             transHasFrame = true
             transActive = true
             transStarted = false
             transType = type
             transDurationMs = durationMs.coerceAtLeast(0)
-            transHoldStartMs = SystemClock.elapsedRealtime()
-            KLog.i(TAG, "переход: снят кадр старой сцены, тип=$type длительность=${durationMs}мс — " +
-                    "держим, пока новая сцена не отдаст кадр (plans/18 Ф2)")
+            transHoldStartMs = transBeganAtMs
+            KLog.i(TAG, "переход: снят кадр-база старой сцены, тип=$type длительность=${durationMs}мс; " +
+                    "живых уходящих слоёв с ${outgoingFrom} (live=${transLiveIds.size} retired=${retiringSlots.size}) — " +
+                    "держим, пока новая сцена не отдаст кадр (plans/18 Ф2 + plans/20)")
         }
+    }
+
+    /**
+     * plans/20 D2 — «переход доиграл»: слушатель гасит ОТЛОЖЕННЫЕ продюсеры уходящей сцены
+     * (RtmpStreamer). Контракт: ровно один вызов на каждый принятый [beginTransition].
+     */
+    @Volatile var onTransitionFinished: (() -> Unit)? = null
+
+    /**
+     * plans/20 D2 — освободить GL-ресурсы отцеплённых слотов. Зовётся ПОСЛЕ того, как продюсеры реально
+     * закрыты: живой AUSBC/Camera2 не должен писать в освобождённую SurfaceTexture (класс bug 28).
+     */
+    fun releaseRetiredSlots() {
+        val h = handler ?: return
+        h.post {
+            val r = renderer ?: return@post
+            runCatching { eglSurface?.let { eglCore?.makeCurrent(it) } }
+            if (retiringSlots.isNotEmpty())
+                KLog.d(TAG, "переход: освобождаю ${retiringSlots.size} отцеплённых слот(ов)")
+            retiringSlots.values.forEach { runCatching { it.release(r) } }
+            retiringSlots.clear()
+        }
+    }
+
+    /**
+     * plans/20 D5 — оборвать переход НЕМЕДЛЕННО (конфликт физустройства: новая сцена не может открыть
+     * камеру, пока уходящая держит её). Деградация ровно в прежнее поведение — мгновенная склейка.
+     */
+    fun abortTransition() {
+        handler?.post { if (transActive) finishTransition("оборван конфликтом устройства") }
+    }
+
+    /**
+     * plans/20 C9 — ЕДИНАЯ точка завершения перехода: сбрасывает состояние, печатает телеметрию
+     * (сколько кадров реально забрал каждый слот — ноль у уходящего слоя означает, что сцена замерла)
+     * и отпускает отложенные продюсеры через [onTransitionFinished].
+     */
+    private fun resetTransitionState(reason: String) {
+        if (!transActive) { transEffectStartMs = 0; return }
+        KLog.i(TAG, "переход СБРОШЕН ($reason) — отпускаю отложенные продюсеры")
+        transActive = false
+        transStarted = false
+        transEffectStartMs = 0
+        outgoingLayers = emptyList()
+        transLiveIds = emptySet()
+        outgoingFrom = 0
+        transFramesAtBegin.clear()
+        retiringSlots.values.forEach { slot ->
+            slot.frozen = true
+            runCatching { slot.surfaceTexture?.setOnFrameAvailableListener(null) }
+        }
+        runCatching { onTransitionFinished?.invoke() }
+    }
+
+    private fun finishTransition(reason: String) {
+        val nowMs = SystemClock.elapsedRealtime()
+        val heldMs = if (transEffectStartMs > 0) transEffectStartMs - transBeganAtMs else nowMs - transBeganAtMs
+        val effectMs = if (transEffectStartMs > 0) nowMs - transEffectStartMs else 0
+        val frames = (cameraSlots.entries.map { it.key to it.value } + retiringSlots.entries.map { it.key to it.value })
+            .joinToString(", ") { (id, slot) -> "$id: +${slot.framesConsumed - (transFramesAtBegin[id] ?: 0)}" }
+        KLog.i(TAG, "переход ЗАВЕРШЁН ($reason): удержание ${heldMs}мс, эффект ${effectMs}мс, " +
+                "худший кадр ${transMaxFrameMs}мс, кадров за переход [$frames]")
+        transActive = false
+        transStarted = false
+        transEffectStartMs = 0
+        outgoingLayers = emptyList()
+        transLiveIds = emptySet()
+        outgoingFrom = 0
+        transFramesAtBegin.clear()
+        // Отцеплённые слоты замораживаем и отцепляем от их поверхностей: продюсер вот-вот закроется.
+        retiringSlots.values.forEach { slot ->
+            slot.frozen = true
+            runCatching { slot.surfaceTexture?.setOnFrameAvailableListener(null) }
+        }
+        runCatching { onTransitionFinished?.invoke() }   // release слотов — уже ПОСЛЕ закрытия продюсеров
+        syncTextures(); syncCameraSlots()
     }
 
     // Готова ли НОВАЯ сцена показываться: у каждого ПЕРВИЧНОГО слоя-камеры уже был живой кадр. Слоёв-камер
     // нет (картинки/пустая сцена) — готова сразу. Именно это условие снимает чёрное окно смены камеры.
     private fun newSceneHasContent(): Boolean =
-        cameraSlots.isEmpty() || cameraSlots.values.all { it.framesConsumed >= VISIBLE_FRAME_LAG }
+        cameraSlots.isEmpty() || cameraSlots.all { (id, slot) ->
+            // plans/20 C7 — считаем ДЕЛЬТУ от начала перехода, а не абсолют: слот с СОВПАВШИМ id
+            // («camera» есть в обеих сценах) не пересоздаётся мгновенно — recreate() приходит на 1-3
+            // кадра позже через мост :app, и плоское «>= 2» схлопнуло бы удержание в ноль (регресс bug 71).
+            slot.framesConsumed - (transFramesAtBegin[id] ?: 0) >= VISIBLE_FRAME_LAG
+        }
 
     /**
      * Пересоздать OES+SurfaceTexture КОНКРЕТНОГО слоя-камеры [layerId] для НОВОГО продюсера (чистый
@@ -573,13 +726,21 @@ class CompositorVideoSource : VideoSource() {
             val (tfbo, ttex) = r.createFramebuffer(SCENE_W, SCENE_H)
             transFbo = tfbo
             transTex = ttex
-            transHasFrame = false; transActive = false
+            transBaseTex = r.createColorTexture(SCENE_W, SCENE_H)   // plans/20 C2 — снимок-база уходящей сцены
+            transHasFrame = false
+            // plans/20 C9 — реинит GL обнуляет ВСЕ слоты, поэтому незавершённый переход обязан
+            // схлопнуться ЗДЕСЬ: иначе отложенные продюсеры уходящей сцены остались бы висеть навсегда
+            // (контракт «один finish на каждый begin»), а состояние перехода ссылалось бы на мёртвые GL.
+            resetTransitionState("реинит GL")
+            cameraSlots.clear()
+            retiringSlots.clear()
+            // plans/20 C1 — актуальный набор слоёв ДО заливки картинок (syncTextures читает sceneLayers).
+            sceneLayers = requestedLayers
             syncTextures() // залить уже запрошенные слои-картинки
             uploadStandby() // залить текстуры бренд-заглушки (общие для всех слоёв)
             // Мульти-источники: создать CameraSlot для КАЖДОГО текущего слоя-камеры + сообщить наверх, что
             // его поверхность готова (RtmpStreamer откроет продюсера ЭТОГО слоя). Слоты пересоздаются на
             // каждом ре-ините GL (превью-рестарт): старые GL-ресурсы уже недействительны.
-            cameraSlots.clear()
             syncCameraSlots()
         } catch (e: Exception) {
             // Ожидаемо, если start вызван ДО готовности GL RootEncoder (SurfaceTexture ещё невалидна):
@@ -592,8 +753,81 @@ class CompositorVideoSource : VideoSource() {
     private val renderLoop = object : Runnable {
         override fun run() {
             if (!running) return
-            drawFrame()
+            // plans/20 B3 — во время перехода копим ХУДШЕЕ время кадра: два набора слоёв = вдвое больше
+            // draw-вызовов, и просадка fps должна быть видна цифрой, а не «на глаз». Каденцию не меняем.
+            if (transActive) {
+                val t0 = SystemClock.elapsedRealtime()
+                drawFrame()
+                val dt = SystemClock.elapsedRealtime() - t0
+                if (dt > transMaxFrameMs) transMaxFrameMs = dt
+            } else {
+                drawFrame()
+            }
             handler?.postDelayed(this, FRAME_MS)
+        }
+    }
+
+
+    /**
+     * plans/20 C3 — отрисовка НАБОРА слоёв в текущий FBO (вынесено из drawFrame, чтобы один и тот же
+     * код рисовал и входящую сцену, и УХОДЯЩУЮ во время перехода — без копипасты правил аспекта,
+     * заглушки и трансформ).
+     *
+     * [fromIndex] — с какого слоя начинать (для уходящего набора всё, что ниже, уже нарисовано
+     * снимком-базой). [outgoing] — рисуем уходящий набор: слот берём из [retiringSlots] (отцеплённые,
+     * но живые продюсеры) либо из общего [cameraSlots], если слой остался живым в новой сцене
+     * ([transLiveIds]). Слоя без слота в уходящем наборе пропускаем — за него отвечает снимок-база.
+     */
+    private fun drawLayerSet(
+        r: GlQuadRenderer,
+        layers: List<CompositorLayer>,
+        fromIndex: Int = 0,
+        outgoing: Boolean = false,
+    ) {
+        for ((index, layer) in layers.withIndex()) {
+            if (index < fromIndex) continue
+            when (layer) {
+                is CompositorLayer.Camera -> {
+                    // Шаринг фида (bug 58): зеркало рисует слот ПЕРВИЧНОГО (mirrorOf), первичный — свой.
+                    val key = layer.mirrorOf ?: layer.id
+                    val slot = if (!outgoing) cameraSlots[key]
+                        else retiringSlots[key] ?: cameraSlots[key]?.takeIf { key in transLiveIds }
+                    if (outgoing && slot == null) continue   // не наш продюсер — оставляем то, что дал снимок-база
+                    // Видео камеры — в РОДНОМ аспекте источника (пилларбокс/леттербокс под квад, bug 32).
+                    layerMatrixOf(layer, slot?.aspect ?: SCENE_ASPECT)
+                    // Рисуем СНАПШОТ ЭТОГО слота (read = предпоследний ХОРОШИЙ кадр), а НЕ сырой OES: при
+                    // отвале держим хороший кадр (битый последний — в write, на экран не выходит), при
+                    // реконнекте показываем его же, пока новый поток не обновит снапшот (без чёрной склейки).
+                    // Кадр ГАСНЕТ под заглушкой (frameAlpha=1−standbyAlpha) — заглушка per-слой (свой альфа/пульс).
+                    if (slot != null && slot.hasSnapshot && slot.freezeReadTex != 0) {
+                        val frameAlpha = layer.alpha * (1f - slot.standbyAlpha)
+                        if (frameAlpha > 0.001f)
+                            r.draw(slot.freezeReadTex, oes = false, texMatrix = snapIdentity, posMatrix = finalM, alpha = frameAlpha)
+                    }
+                    // Заглушка (только текст) В КВАДРАТЕ ЭТОГО слоя. КОНТР-поворот (standbyM) держит текст
+                    // вертикально правильным и в портрете. Заголовок пульсирует альфой (per-слой standbyPulse).
+                    val sa = slot?.standbyAlpha ?: 0f
+                    if (sa > 0.001f) {
+                        // bug 61 — ЗАГЛУШКА уже 16:9 (SCENE_ASPECT): рисуем её в аспекте СЦЕНЫ, а НЕ в
+                        // аспекте камеры. Иначе аспект-фит источника (напр. 4:3 основной камеры) сжимал
+                        // заглушку по горизонтали. finalM/standbyM пересчитываем под 16:9 ТОЛЬКО для неё.
+                        layerMatrixOf(layer, SCENE_ASPECT)
+                        buildStandbyMatrix(layer.cx, layer.cy)
+                        val base = sa * layer.alpha
+                        if (standbyBodyTex != 0)
+                            r.draw(standbyBodyTex, oes = false, posMatrix = standbyM, alpha = base)
+                        if (standbyTitleTex != 0)
+                            r.draw(standbyTitleTex, oes = false, posMatrix = standbyM, alpha = base * (slot?.standbyPulse ?: 1f))
+                    }
+                }
+                is CompositorLayer.Image -> {
+                    // Картинка — в аспекте своего bitmap (idea 35), без растяга.
+                    val imgAspect = if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else SCENE_ASPECT
+                    layerMatrixOf(layer, imgAspect)
+                    val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
+                    if (texId != null) r.draw(texId, oes = false, posMatrix = finalM, alpha = layer.alpha)
+                }
+            }
         }
     }
 
@@ -608,10 +842,27 @@ class CompositorVideoSource : VideoSource() {
             // альфа/пульс заглушки) — независимо, ДО прохода 1. Слоты существуют per слой-камеру (по id).
             val nowMs = SystemClock.elapsedRealtime()
             for (slot in cameraSlots.values) slot.prepare(r, nowMs)
+            // plans/20 D1 — И слоты УХОДЯЩЕЙ сцены: вот здесь она и остаётся ЖИВОЙ (забирает свежие
+            // кадры своих камер) всё время перехода, вместо замершего снимка.
+            for (slot in retiringSlots.values) slot.prepare(r, nowMs)
             // #3 — считаем на GL-потоке: есть ли живой кадр (или слоёв-камер нет — ждать нечего). Флаг
             // читает schedulePreviewRestoreAfterStream, чтобы не пере-цеплять превью на чёрный кадр.
-            anyLiveCameraFrame = cameraSlots.isEmpty() ||
-                cameraSlots.values.any { it.hasEverHadFrame && (nowMs - it.lastFrameAtMs) < 1000 }
+            // plans/20 C11 — уходящие слоты тоже считаются: во время перехода картинку даёт именно они.
+            anyLiveCameraFrame = (cameraSlots.isEmpty() && retiringSlots.isEmpty()) ||
+                (cameraSlots.values + retiringSlots.values).any { it.hasEverHadFrame && (nowMs - it.lastFrameAtMs) < 1000 }
+
+            // ── plans/20 C6 — УХОДЯЩАЯ СЦЕНА В transTex: статичный снимок как БАЗА + ЖИВЫЕ слои поверх ──
+            // База нужна, потому что часть уходящих слоёв уже без слотов (перерисовать нечем), а
+            // рисовать поверх САМОГО transTex нельзя — полупрозрачные слои копили бы альфу за кадры.
+            if (transActive && outgoingLayers.isNotEmpty() && transBaseTex != 0) {
+                r.setFramebufferColor(transFbo, transTex)
+                GLES20.glViewport(0, 0, SCENE_W, SCENE_H)
+                GLES20.glClearColor(0f, 0f, 0f, 1f)
+                GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+                android.opengl.Matrix.setIdentityM(canvasM, 0)   // ВАЖНО: до drawLayerSet (матрицы слоёв)
+                r.draw(transBaseTex, oes = false, texMatrix = snapIdentity, posMatrix = null, alpha = 1f)
+                drawLayerSet(r, outgoingLayers, outgoingFrom, outgoing = true)
+            }
 
             // ── ПРОХОД 1: сцена в 16:9 FBO (аспект-корректно, БЕЗ поворота холста) ──────────
             // Камера в нативном 16:9-буфере рисуется в 16:9 FBO → не сжимается. Поворот холста здесь
@@ -621,51 +872,11 @@ class CompositorVideoSource : VideoSource() {
             GLES20.glClearColor(0f, 0f, 0f, 1f)               // пустая база OBS — чёрный
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
             android.opengl.Matrix.setIdentityM(canvasM, 0)     // в проходе 1 холст НЕ повёрнут
-            for (layer in requestedLayers) {
-                when (layer) {
-                    is CompositorLayer.Camera -> {
-                        // Шаринг фида (bug 58): зеркало рисует слот ПЕРВИЧНОГО (mirrorOf), первичный — свой.
-                        val slot = cameraSlots[layer.mirrorOf ?: layer.id]
-                        // Видео камеры — в РОДНОМ аспекте источника (пилларбокс/леттербокс под квад, bug 32).
-                        layerMatrixOf(layer, slot?.aspect ?: SCENE_ASPECT)
-                        // Рисуем СНАПШОТ ЭТОГО слота (read = предпоследний ХОРОШИЙ кадр), а НЕ сырой OES: при
-                        // отвале держим хороший кадр (битый последний — в write, на экран не выходит), при
-                        // реконнекте показываем его же, пока новый поток не обновит снапшот (без чёрной склейки).
-                        // Кадр ГАСНЕТ под заглушкой (frameAlpha=1−standbyAlpha) — заглушка per-слой (свой альфа/пульс).
-                        if (slot != null && slot.hasSnapshot && slot.freezeReadTex != 0) {
-                            val frameAlpha = layer.alpha * (1f - slot.standbyAlpha)
-                            if (frameAlpha > 0.001f)
-                                r.draw(slot.freezeReadTex, oes = false, texMatrix = snapIdentity, posMatrix = finalM, alpha = frameAlpha)
-                        }
-                        // Заглушка (только текст) В КВАДРАТЕ ЭТОГО слоя. КОНТР-поворот (standbyM) держит текст
-                        // вертикально правильным и в портрете. Заголовок пульсирует альфой (per-слой standbyPulse).
-                        val sa = slot?.standbyAlpha ?: 0f
-                        if (sa > 0.001f) {
-                            // bug 61 — ЗАГЛУШКА уже 16:9 (SCENE_ASPECT): рисуем её в аспекте СЦЕНЫ, а НЕ в
-                            // аспекте камеры. Иначе аспект-фит источника (напр. 4:3 основной камеры) сжимал
-                            // заглушку по горизонтали. finalM/standbyM пересчитываем под 16:9 ТОЛЬКО для неё.
-                            layerMatrixOf(layer, SCENE_ASPECT)
-                            buildStandbyMatrix(layer.cx, layer.cy)
-                            val base = sa * layer.alpha
-                            if (standbyBodyTex != 0)
-                                r.draw(standbyBodyTex, oes = false, posMatrix = standbyM, alpha = base)
-                            if (standbyTitleTex != 0)
-                                r.draw(standbyTitleTex, oes = false, posMatrix = standbyM, alpha = base * (slot?.standbyPulse ?: 1f))
-                        }
-                    }
-                    is CompositorLayer.Image -> {
-                        // Картинка — в аспекте своего bitmap (idea 35), без растяга.
-                        val imgAspect = if (layer.bitmap.height > 0) layer.bitmap.width.toFloat() / layer.bitmap.height else SCENE_ASPECT
-                        layerMatrixOf(layer, imgAspect)
-                        val texId = uploaded.firstOrNull { it.first === layer.bitmap }?.second
-                        if (texId != null) r.draw(texId, oes = false, posMatrix = finalM, alpha = layer.alpha)
-                    }
-                }
-            }
+            drawLayerSet(r, sceneLayers)
 
             // ── ПЕРЕХОД МЕЖДУ СЦЕНАМИ (plans/18 Ф2): снимок СТАРОЙ сцены поверх новой ──────────
             // Рисуем ещё в sceneFbo (до поворота холста), чтобы переход поворачивался вместе со сценой.
-            if (transActive && transHasFrame && transTex != 0) {
+            if (transActive && transTex != 0) {
                 // Фаза 1 — УДЕРЖАНИЕ: пока новая сцена не отдала кадр, показываем старую целиком. Кап
                 // страхует от источника, который не оживёт вовсе (тогда покажется заглушка новой сцены).
                 if (!transStarted) {
@@ -673,6 +884,7 @@ class CompositorVideoSource : VideoSource() {
                     if (newSceneHasContent() || heldMs >= TRANSITION_HOLD_CAP_MS) {
                         transStarted = true
                         transStartMs = nowMs
+                        transEffectStartMs = nowMs   // plans/20 B3 — граница «удержание | эффект» для телеметрии
                         KLog.i(TAG, "переход: новая сцена готова через ${heldMs}мс " +
                                 (if (heldMs >= TRANSITION_HOLD_CAP_MS) "(КАП — источник не ожил) " else "") +
                                 "— играем эффект $transType ${transDurationMs}мс")
@@ -697,8 +909,7 @@ class CompositorVideoSource : VideoSource() {
                         }
                     }
                 } else {
-                    transActive = false
-                    KLog.d(TAG, "переход: завершён (plans/18 Ф2)")
+                    finishTransition("доиграл")   // plans/20 C9 — единая точка завершения
                 }
             }
 
@@ -814,7 +1025,12 @@ class CompositorVideoSource : VideoSource() {
     // GL-поток: привести залитые текстуры к requestedBitmaps (удалить ушедшие, залить новые, порядок=z).
     private fun syncTextures() {
         val r = renderer ?: return
-        val want = requestedLayers.filterIsInstance<CompositorLayer.Image>().map { it.bitmap }
+        // plans/20 C10 — во время перехода нужны картинки ОБОИХ наборов (уходящего и входящего), иначе
+        // оверлеи уходящей сцены пропадут посреди фейда. Дедуп по ИДЕНТИЧНОСТИ (один и тот же Bitmap в
+        // двух сценах не должен дать две записи → двойной deleteTexture).
+        val wantRaw = (sceneLayers + outgoingLayers).filterIsInstance<CompositorLayer.Image>().map { it.bitmap }
+        val want = ArrayList<Bitmap>(wantRaw.size)
+        for (b in wantRaw) if (want.none { w -> w === b }) want.add(b)
         val it = uploaded.iterator()
         while (it.hasNext()) {
             val (bmp, tex) = it.next()
@@ -833,6 +1049,9 @@ class CompositorVideoSource : VideoSource() {
         handler?.removeCallbacksAndMessages(null)
         // Освобождаем GL на рендер-потоке, затем гасим поток. Закрыть продюсеров ВСЕХ слоёв-камер.
         runCatching { cameraSlots.keys.toList().forEach { onCameraSurfaceReady?.invoke(it, null) } }
+        // plans/20 — незавершённый переход схлопываем: его отложенные продюсеры должны быть отпущены
+        // (иначе вебка осталась бы открытой после остановки композитора).
+        runCatching { resetTransitionState("остановка композитора") }
         handler?.post {
             runCatching { uploaded.forEach { renderer?.deleteTexture(it.second) } }
             uploaded.clear()
@@ -842,7 +1061,11 @@ class CompositorVideoSource : VideoSource() {
             // plans/18 Ф2 — освободить FBO перехода вместе со сценой (GL-ресурсы одного контекста).
             runCatching { if (transFbo != 0) renderer?.deleteFramebuffer(transFbo) }
             runCatching { if (transTex != 0) renderer?.deleteTexture(transTex) }
-            transFbo = 0; transTex = 0; transHasFrame = false; transActive = false
+            runCatching { if (transBaseTex != 0) renderer?.deleteTexture(transBaseTex) }
+            transFbo = 0; transTex = 0; transBaseTex = 0; transHasFrame = false; transActive = false
+            // plans/20 D1 — отцеплённые слоты уходящей сцены живут в своей мапе: их тоже освобождаем.
+            runCatching { renderer?.let { r -> retiringSlots.values.forEach { it.release(r) } } }
+            retiringSlots.clear()
             runCatching { if (standbyTitleTex != 0) renderer?.deleteTexture(standbyTitleTex) }
             runCatching { if (standbyBodyTex != 0) renderer?.deleteTexture(standbyBodyTex) }
             standbyTitleTex = 0; standbyBodyTex = 0

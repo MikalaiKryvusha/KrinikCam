@@ -69,6 +69,18 @@ class UvcCameraOpener(
     @Volatile private var closed = false
     private var reopenThread: Thread? = null
 
+    // plans/20 A2 — ЧЕСТНЫЙ isAlive. До этого UVC-опенер всегда рапортовал «жив», из-за чего гард
+    // bug 68 в setCameraOpener мог рано вернуться на УЖЕ ЗАКРЫТОМ продюсере (слой остался бы без
+    // кадров). Теперь «жив» == «не закрыт».
+    // [TESTED: 2026-07-26 · косвенно живым прогоном: расчёт живых слоёв опирается на isAlive и дал
+    //  верный вердикт во всех трёх ветках переключения; двойного close AUSBC в логах нет]
+    override val isAlive: Boolean get() = !closed
+
+    // plans/20 A4 — отмена ОТЛОЖЕННОГО переоткрытия Фазы-2 (bug 25) БЕЗ закрытия камеры. Нужна для
+    // живой уходящей сцены: продюсер продолжает работать весь переход, но проснувшийся через 1.5с
+    // reopen-поток не имеет права переоткрыть ОБЩИЙ AUSBC-объект в поверхность, которая уже уходит.
+    @Volatile private var suspendReopen = false
+
     private fun openAt(surfaceTexture: SurfaceTexture, w: Int, h: Int) {
         camera.openCamera(
             surfaceTexture,
@@ -94,7 +106,7 @@ class UvcCameraOpener(
             // (напр. 640×360), а поддерживает больше — ПЕРЕОТКРЫВАЕМ на лучшем 16:9 ИЗ СПИСКА. Один раз.
             reopenThread = Thread {
                 runCatching { Thread.sleep(1500) }
-                if (closed || reopenedAtBest) return@Thread // bug 31: не переоткрывать после close/свитча
+                if (closed || suspendReopen || reopenedAtBest) return@Thread // bug 31 / plans/20 A4: не переоткрывать после close/свитча/ретайра
                 val sizes: List<PreviewSize> = runCatching { camera.getAllPreviewSizes(null) }.getOrNull().orEmpty()
                 KLog.i(TAG, "UVC поддерживаемые размеры: " + sizes.joinToString { "${it.width}x${it.height}" })
                 // Лучший поддерживаемый 16:9, не крупнее желаемого (напр. 1920×1080); иначе самый большой 16:9.
@@ -108,7 +120,7 @@ class UvcCameraOpener(
                 // реальный потолок. Если best == запрошенному (или список пуст) — не трогаем (без
                 // лишнего churn/риска нативного close-краша bug 28). Для 2K-лимона best=1920×1080=
                 // запрошенному → no-op (её практический потолок 640×360 = bandwidth/FPS-лимит AUSBC API).
-                if (closed) return@Thread // bug 31: свитч мог случиться, пока читали размеры — не трогать
+                if (closed || suspendReopen) return@Thread // bug 31 / plans/20 A4: свитч/ретайр мог случиться, пока читали размеры
                 if (best != null && (best.width != previewWidth || best.height != previewHeight)) {
                     reopenedAtBest = true
                     KLog.i(TAG, "UVC: переоткрываю на выбранном из списка ${best.width}x${best.height} (запрошено было ${previewWidth}x${previewHeight})")
@@ -121,11 +133,26 @@ class UvcCameraOpener(
         }
     }
 
+    /**
+     * plans/20 A4 — погасить отложенный reopen Фазы-2, НЕ закрывая камеру. Зовётся, когда слой уходит
+     * из сцены, но его продюсер намеренно оставлен живым на время перехода.
+     */
+    override fun cancelPendingReopen() {
+        suspendReopen = true
+        runCatching { reopenThread?.interrupt() }
+        reopenThread = null
+    }
+
     override fun close() {
+        // plans/20 A1 — ИДЕМПОТЕНТНОСТЬ. close() теперь может прийти из трёх мест (свитч источника,
+        // флаш отложенных продюсеров, конфликт физключа), а ВТОРОЙ camera.closeCamera() на уже
+        // закрытом AUSBC-объекте — неперехватываемый нативный SIGABRT (класс bug 28).
+        if (closed) return
         closed = true // bug 31: гасим Фазу-2 reopen ДО закрытия камеры (не переоткроет в чужую поверхность)
         runCatching { reopenThread?.interrupt() }
         reopenThread = null
-        reopenedAtBest = false
+        // reopenedAtBest НЕ сбрасываем: закрытый опенер больше не переиспользуется (:app создаёт новый),
+        // а сброс лишь замаскировал бы повторный вход.
         try {
             camera.closeCamera()
             KLog.d(TAG, "UVC camera closed (layer)")
