@@ -1425,6 +1425,11 @@ class RtmpStreamer @Inject constructor(
                 //     встроенная камера гасится немедленно (HAL Titan 1 не тянет две сразу, bug 60), а
                 //     виртуалка и UVC остаются живыми, если новая сцена не целит в то же семейство.
                 val newWantsUvc = newKeys.values.any { it != null && it.startsWith("uvc:") }
+                // Криник 2026-07-26 (регресс «селфи замирает на переходе»): встроенную камеру гасим НЕ
+                // всегда, а только когда новая сцена ТОЖЕ просит встроенную — вот их HAL Titan 1 не тянет
+                // вдвоём (bug 60). Селфи + вебка живут одновременно (это боевая фича мультиисточников),
+                // поэтому при уходе селфи в сцену с вебкой селфи остаётся ЖИВОЙ до конца перехода.
+                val newWantsBuiltin = newKeys.values.any { it != null && it.startsWith("builtin:") }
                 val newHasUnsetSource = loaded.layers.filter { it.visible }.filterIsInstance<Layer.VideoCapture>()
                     .any { sourceKeyOf(it.source) == null && it.source !is CaptureSource.Virtual }
                 val retireIds = LinkedHashSet<String>()
@@ -1437,7 +1442,10 @@ class RtmpStreamer @Inject constructor(
                     val keepAlive = when {
                         key == null -> true                                  // виртуалка — конфликтовать нечем
                         key.startsWith("uvc:") -> !newWantsUvc && !newHasUnsetSource
-                        else -> false                                        // builtin — ВСЕГДА замираем (bug 60)
+                        // builtin — живой, ПОКА новая сцена не просит встроенную (HAL тянет одну, bug 60).
+                        // Неизвестный источник (None → авто-сев) тоже считаем риском: класс заранее не знаем.
+                        key.startsWith("builtin:") -> !newWantsBuiltin && !newHasUnsetSource
+                        else -> false
                     }
                     if (!keepAlive) continue
                     opener.cancelPendingReopen()                             // коммит A4: без reopen в уходящую поверхность
@@ -1451,7 +1459,7 @@ class RtmpStreamer @Inject constructor(
                 }
                 if (retireIds.isNotEmpty() || liveIds.isNotEmpty())
                     KLog.i(TAG, "переход: живыми остаются слои $liveIds, отложенно гасим $retireIds " +
-                            "(uvc нужен новой сцене: $newWantsUvc)")
+                            "(новой сцене нужен uvc=$newWantsUvc builtin=$newWantsBuiltin неизвестный=$newHasUnsetSource)")
 
                 // ВАЖЕН ПОРЯДОК: снимок старого композита берём ДО отдачи новых слоёв — обе операции
                 // летят в один GL-handler, поэтому FIFO гарантирует «снял старое → показал новое».

@@ -156,6 +156,12 @@ class CompositorVideoSource : VideoSource() {
     // сцены получился бы снимком входящей. Теперь актуальный набор обновляется В GL-посте setLayers,
     // строго ПОСЛЕ поста beginTransition (FIFO одного handler'а) → уходящая сцена всегда та, что была.
     private var sceneLayers: List<CompositorLayer> = emptyList()
+    // ГОНКА, пойманная замером 2026-07-26: между beginTransition и постом setLayers набор слоёв ещё
+    // СТАРЫЙ, а его слоты уже отцеплены в retiringSlots → cameraSlots пуст, и гейт готовности принимал
+    // это за «новая сцена готова» (удержание схлопывалось в 2мс, входящая камера не успевала прогреться).
+    // Поколение растёт в посте setLayers; переход не считает сцену готовой, пока оно не изменилось.
+    private var layersGeneration = 0
+    private var layersGenAtTransBegin = -1
 
     // ── plans/20 C4 — состояние УХОДЯЩЕЙ сцены (Криник: «уходящий слой жив, пока не зафейдится») ──
     // outgoingLayers — набор слоёв на момент начала перехода; их слоты-камеры продолжают отдавать
@@ -481,7 +487,7 @@ class CompositorVideoSource : VideoSource() {
         requestedLayers = layers
         // plans/20 C1 — sceneLayers обновляем ИМЕННО ЗДЕСЬ (в GL-посте), а не сразу: пост beginTransition
         // встаёт в очередь РАНЬШЕ и потому видит ещё старый набор.
-        handler?.post { sceneLayers = layers; syncTextures(); syncCameraSlots() }
+        handler?.post { sceneLayers = layers; layersGeneration++; syncTextures(); syncCameraSlots() }
     }
 
     // GL-поток: привести набор CameraSlot к слоям-камерам в requestedLayers. Новый Camera(id) → создать
@@ -565,6 +571,7 @@ class CompositorVideoSource : VideoSource() {
             transFramesAtBegin.clear()
             for ((id, slot) in cameraSlots) transFramesAtBegin[id] = slot.framesConsumed
             for ((id, slot) in retiringSlots) transFramesAtBegin[id] = slot.framesConsumed
+            layersGenAtTransBegin = layersGeneration   // ждём, пока прилетит НОВЫЙ набор слоёв
             transBeganAtMs = SystemClock.elapsedRealtime()
             transMaxFrameMs = 0
             transHasFrame = true
@@ -658,7 +665,9 @@ class CompositorVideoSource : VideoSource() {
     // Готова ли НОВАЯ сцена показываться: у каждого ПЕРВИЧНОГО слоя-камеры уже был живой кадр. Слоёв-камер
     // нет (картинки/пустая сцена) — готова сразу. Именно это условие снимает чёрное окно смены камеры.
     private fun newSceneHasContent(): Boolean =
-        cameraSlots.isEmpty() || cameraSlots.all { (id, slot) ->
+        // Слои новой сцены ещё не пришли в GL — готовности быть не может по определению.
+        if (layersGeneration == layersGenAtTransBegin) false
+        else cameraSlots.isEmpty() || cameraSlots.all { (id, slot) ->
             // plans/20 C7 — считаем ДЕЛЬТУ от начала перехода, а не абсолют: слот с СОВПАВШИМ id
             // («camera» есть в обеих сценах) не пересоздаётся мгновенно — recreate() приходит на 1-3
             // кадра позже через мост :app, и плоское «>= 2» схлопнуло бы удержание в ноль (регресс bug 71).
