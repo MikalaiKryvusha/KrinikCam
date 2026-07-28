@@ -159,10 +159,20 @@ class MainActivity : ComponentActivity() {
                 wasActive = active
                 if (active) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    StreamForegroundService.start(this@MainActivity)
+                    // bug 73 — старт FGS МОЖЕТ БЫТЬ ЗАПРЕЩЁН: с Android 12 запуск foreground-сервиса
+                    // из фонового состояния кидает ForegroundServiceStartNotAllowedException. Ловится
+                    // это на живом сценарии «эфир стартовал, пока приложение не на переднем плане»
+                    // (харнес-команда, шторка уведомлений поверх, автостарт) — и раньше роняло ВЕСЬ
+                    // процесс: исключение летело обратно через синхронный emit StateFlow прямо в
+                    // RtmpStreamer.startStream. Эфир важнее фоновой защиты: не смогли поднять сервис —
+                    // громко пишем и продолжаем трансляцию (без FGS её убьёт система в фоне, но
+                    // мгновенный краш хуже). [TESTED: 2026-07-28 · воспроизведено go-live из фона]
+                    runCatching { StreamForegroundService.start(this@MainActivity) }
+                        .onFailure { KLog.e("MainActivity", "FGS не стартовал (${it.javaClass.simpleName}) — эфир идёт БЕЗ фоновой защиты", it) }
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    StreamForegroundService.stop(this@MainActivity)
+                    runCatching { StreamForegroundService.stop(this@MainActivity) }
+                        .onFailure { KLog.w("MainActivity", "FGS не остановился: ${it.message}") }
                 }
             }
         }

@@ -107,6 +107,10 @@ private const val ADAPTIVE_RECOVER_PERCENT = 10
 private const val FLOOR_HARD_MIN_BPS = 50_000
 // Период тикера телеметрии эфира; шаг адаптера — каждый второй тик (2с), чтобы не дёргать энкодер.
 private const val LIVE_TICK_MS = 1000L
+// Живучесть, УРОВЕНЬ 3 — сколько отправка может стоять при НЕПУСТОЙ очереди, прежде чем считать эфир
+// мёртвым. Число из замера K5 (researches/network_resilience.md §14.1): очередь забивается за 3 с,
+// с 7-й секунды теряется весь поток. 6 с = запас на легальные паузы и всё ещё < 1/10 окна платформы.
+private const val WATCHDOG_STALL_MS = 6_000L
 
 // ── ЖИВУЧЕСТЬ ЭФИРА (idea 43 «эфир завершает только кнопка Стоп», researches/network_resilience.md) ──
 // УРОВЕНЬ 0 — гигиена библиотеки. Сглаживание onNewBitrate самой библиотекой: показания битрейта
@@ -177,6 +181,13 @@ class RtmpStreamer @Inject constructor(
     // запущен. ВАЖНО: пол резолвится из профиля ПЕРВОГО выхода и действует на ОДИН общий энкодер
     // всех выходов (Р3 «консервативно» — один энкодер на мультистрим).
     private var floorVideoBitrateBps = 0
+
+    // Живучесть, УРОВЕНЬ 3 — состояние watchdog замершего отправителя (plans/21 работа B).
+    // Синхронизация не нужна: scope = Dispatchers.Main.immediate, колбэки библиотеки приходят туда же,
+    // то есть тикер и колбэки сериализованы одним потоком.
+    private val watchdogSentLast = HashMap<Int, Long>()      // индекс выхода → последняя сумма sentV+sentA
+    private val watchdogFrozenSince = HashMap<Int, Long>()   // индекс выхода → когда счётчик замер (elapsedRealtime)
+    private var watchdogLastTickAtMs = 0L                    // когда тикер отработал в прошлый раз
     // Адаптив включён, если ВСЕ активные профили эфира просят его (энкодер один на все выходы —
     // консервативно: выключил у одного = выключен весь; контроль у стримера).
     private var adaptiveBitrateEnabled = true
@@ -536,6 +547,19 @@ class RtmpStreamer @Inject constructor(
                 // Это и есть пульс: по нему (и только по нему) видно, идёт ли эфир на самом деле.
                 val stream = rtmpStream
                 var droppedTotal = 0L
+                // Живучесть, УРОВЕНЬ 3 — общий для всех выходов признак «сам тикер проспал»: процесс
+                // мог быть заморожен системой (doze/freezer) — elapsedRealtime в это время идёт, а
+                // корутина тикера нет. Без этой проверки первое же пробуждение выглядело бы как
+                // многоминутная тишина отправителя и дало бы мгновенный ложный реконнект.
+                val now = android.os.SystemClock.elapsedRealtime()
+                val tickGapMs = if (watchdogLastTickAtMs == 0L) 0L else now - watchdogLastTickAtMs
+                watchdogLastTickAtMs = now
+                val tickerOverslept = tickGapMs > 2 * LIVE_TICK_MS
+                if (tickerOverslept) {
+                    KLog.w(TAG, "watchdog: тикер проспал ${tickGapMs}мс (заморозка процесса?) — состояние сброшено")
+                    watchdogSentLast.clear()
+                    watchdogFrozenSince.clear()
+                }
                 if (stream != null) {
                     outputStates.keys.toList().forEach { i ->
                         val live = outputStates[i]?.phase == OutputPhase.Live
@@ -545,18 +569,29 @@ class RtmpStreamer @Inject constructor(
                                 runCatching { client?.hasCongestion() ?: false }.getOrDefault(false)
                             updateOutput(i) { it.copy(congested = congested) }
                         }
-                        droppedTotal += runCatching { client?.getDroppedVideoFrames() ?: 0L }.getOrDefault(0L)
-                        // Пульс пишем по КАЖДОМУ выходу отдельно — в мультистриме тонет обычно один.
+                        // Метрики снимаем ОДИН раз в переменные — и в лог, и в watchdog идут ОДНИ И ТЕ
+                        // ЖЕ числа. Иначе возможна ситуация «в логе одно, в решении другое», при которой
+                        // разбор инцидента по логу вводит в заблуждение.
                         // Не полагаемся на getCacheSize(): в 2.4.7 он врёт после resizeCache (починено
                         // только в 2.8.0) — мерим ТОЛЬКО фактическое число пакетов в очереди.
+                        val cache = runCatching { client?.getItemsInCache() ?: -1 }.getOrDefault(-1)
+                        val sentV = runCatching { client?.getSentVideoFrames() ?: -1L }.getOrDefault(-1L)
+                        // sentA (уровень 3): видео и звук тянет ОДИН consumer-цикл из ОДНОЙ очереди
+                        // (RtmpSender, проверено байткодом), поэтому затык сокета морозит ОБА счётчика,
+                        // а смерть видеоисточника — только видео. Сумма отличает одно от другого.
+                        val sentA = runCatching { client?.getSentAudioFrames() ?: -1L }.getOrDefault(-1L)
+                        val dropV = runCatching { client?.getDroppedVideoFrames() ?: -1L }.getOrDefault(-1L)
+                        droppedTotal += dropV.coerceAtLeast(0L)
+                        // Пульс пишем по КАЖДОМУ выходу отдельно — в мультистриме тонет обычно один.
                         val st2 = outputStates[i]
                         if (st2 != null) {
                             KLog.i(TAG, "пульс[$i] ${st2.phase} bitrate=${st2.bitrateKbps}kbps " +
-                                "cache=${runCatching { client?.getItemsInCache() ?: -1 }.getOrDefault(-1)} " +
-                                "sentV=${runCatching { client?.getSentVideoFrames() ?: -1L }.getOrDefault(-1L)} " +
-                                "dropV=${runCatching { client?.getDroppedVideoFrames() ?: -1L }.getOrDefault(-1L)} " +
+                                "cache=$cache sentV=$sentV sentA=$sentA dropV=$dropV " +
                                 "congested=${st2.congested} attempt=${st2.attempt}")
                         }
+                        // Живучесть, УРОВЕНЬ 3 — детектор замершего отправителя. Стоит ЗДЕСЬ, сразу
+                        // после пульса, чтобы судить ровно по опубликованным числам.
+                        if (!tickerOverslept) senderWatchdogStep(i, st2?.phase, cache, sentV, sentA, now)
                     }
                 }
                 if (st is StreamState.Live) {
@@ -582,6 +617,54 @@ class RtmpStreamer @Inject constructor(
             }
             KLog.d(TAG, "liveTicker: эфир завершён, тикер остановлен (idea 37)")
         }
+    }
+
+    /**
+     * Живучесть, УРОВЕНЬ 3 — WATCHDOG ЗАМЕРШЕГО ОТПРАВИТЕЛЯ (plans/21 работа B).
+     *
+     * Закрывает классы отказа K4 («чёрная дыра»: TCP-запись висит, ошибки нет) и K5 («зомби-сервер»:
+     * приёмник держит соединение, но не читает). Оба маскируются под «всё хорошо»: замер 2026-07-28
+     * показал, что за 3.6 МИНУТЫ полной блокировки записи библиотека не прислала НИ ОДНОГО события,
+     * а UI держал зелёный Live — при том что уже с 7-й секунды терялся весь поток целиком
+     * (researches/network_resilience.md §14.1). Именно эти минуты съедают окно платформы (~60 с у
+     * YouTube), ради которого вся живучесть и делается.
+     *
+     * Порядок гардов важен — каждый отсекает СВОЙ вид законной тишины:
+     *  1. фаза не Live — Connecting/Reconnecting молчат легально;
+     *  2. счётчик отправки сдвинулся — эфир идёт, отметить время и выйти (сравнение строго на
+     *     неравенство, НЕ «меньше»: RtmpSender.stop() обнуляет счётчики, и новая эпоха стартует с нуля);
+     *  3. очередь ПУСТА — отправлять просто нечего. Это единственный гард законных пауз, и он
+     *     закрывает сразу три случая: старт эфира до первого ключевого кадра, молчащий источник
+     *     (сломался GL/камера — реконнект это не лечит и убил бы ЖИВОЙ звук) и заморозку процесса;
+     *  4. замерло, но ещё не дольше порога — ждём.
+     *
+     * Порог [WATCHDOG_STALL_MS] — из замера, а не из головы: очередь забивается за 3 с, к 7-й секунде
+     * поток теряется полностью, поэтому 6 с дают запас на легальные паузы и всё ещё оставляют
+     * платформе больше 50 с её окна.
+     *
+     * Своего лечения тут НЕТ намеренно: срабатывание уходит в [onOutputFailed] с retriable=true, где
+     * уже живут бэкофф, setReTries, reTry, гард сессии и агрегат состояния (уровень 1). [NOT-TESTED]
+     */
+    private fun senderWatchdogStep(index: Int, phase: OutputPhase?, cache: Int, sentV: Long, sentA: Long, now: Long) {
+        if (phase != OutputPhase.Live) {
+            watchdogSentLast.remove(index); watchdogFrozenSince.remove(index); return
+        }
+        val sentTotal = sentV + sentA
+        if (watchdogSentLast[index] != sentTotal) {
+            watchdogSentLast[index] = sentTotal
+            watchdogFrozenSince[index] = now
+            return
+        }
+        // cache <= 0 покрывает и «очередь пуста», и «счётчик не прочитался» (-1): при неизвестной
+        // очереди рвать живой эфир нельзя — недоказанная авария не повод для реконнекта.
+        if (cache <= 0) { watchdogFrozenSince[index] = now; return }
+        val since = watchdogFrozenSince.getOrPut(index) { now }
+        val stalledMs = now - since
+        if (stalledMs < WATCHDOG_STALL_MS) return
+        KLog.e(TAG, "watchdog[$index]: отправка стоит ${stalledMs / 1000}с при непустой очереди " +
+            "(cache=$cache sentV=$sentV sentA=$sentA) — считаем эфир мёртвым, идём в реконнект")
+        watchdogSentLast.remove(index); watchdogFrozenSince.remove(index)
+        onOutputFailed(index, "watchdog: нет отправки ${stalledMs / 1000}с", retriable = true)
     }
 
     /**
@@ -730,6 +813,8 @@ class RtmpStreamer @Inject constructor(
         runCatching { stream.stopStream(MultiType.RTMP, index) }
             .onFailure { KLog.w(TAG, "RTMP[$index] stopStream(RTMP,$index) failed", it) }
         activeRtmpOutputs.remove(index)
+        // Живучесть, УРОВЕНЬ 3 — выход изолирован: его записи в watchdog больше не про что.
+        watchdogSentLast.remove(index); watchdogFrozenSince.remove(index)
 
         // Упал ПОСЛЕДНИЙ активный выход? Тогда гасим энкодер и восстанавливаем превью.
         if (activeRtmpOutputs.isEmpty()) {
@@ -1124,6 +1209,9 @@ class RtmpStreamer @Inject constructor(
             // plans/09 S2 — свежая сессия: сбрасываем per-output состояние прошлого эфира.
             activeRtmpOutputs.clear()
             outputStates.clear()
+            // Живучесть, УРОВЕНЬ 3 — watchdog чистится ТАМ ЖЕ, где outputStates: его состояние
+            // ключуется индексом выхода, а индексы переиспользуются между сессиями.
+            watchdogSentLast.clear(); watchdogFrozenSince.clear(); watchdogLastTickAtMs = 0L
             // Живучесть, УРОВЕНЬ 1 — СЕССИЯ открыта: с этой секунды и до кнопки Стоп приложение
             // обязано держать эфир (FGS + wake lock живут по этому флагу, а не по состоянию).
             offlineSinceMs = 0L
@@ -1183,6 +1271,7 @@ class RtmpStreamer @Inject constructor(
         rtmpStream?.let { disconnectAllOutputs(it) }
         activeRtmpOutputs.clear()
         outputStates.clear()   // plans/09 S2 — сбрасываем per-output состояние
+        watchdogSentLast.clear(); watchdogFrozenSince.clear(); watchdogLastTickAtMs = 0L  // уровень 3
         _state.value = StreamState.Idle
         // bug 48/63 — превью восстанавливаем ТОЛЬКО если оно отвалилось (не пере-цепляем живую поверхность).
         restorePreviewIfDetached()
