@@ -13,6 +13,16 @@
  *   node tools/rtmp-server.mjs stop      — погасить сервер
  *   node tools/rtmp-server.mjs status    — работает ли + URL для публикации с планшета
  *   node tools/rtmp-server.mjs url       — напечатать rtmp://<ip-мака>:1935/live/test
+ *   node tools/rtmp-server.mjs freeze    — ЗАМОРОЗИТЬ сервер (SIGSTOP): TCP жив, байты не читаются
+ *   node tools/rtmp-server.mjs thaw      — разморозить (SIGCONT)
+ *
+ * Про freeze/thaw (plans/21 Ш0, класс отказа K5 «зомби-сервер»): замороженный процесс ПЕРЕСТАЁТ
+ * читать сокет, но соединение остаётся установленным. Ядро добивает приёмный буфер, TCP-окно
+ * закрывается, и `write()` у клиента блокируется — с точки зрения приложения это неотличимо от
+ * «чёрной дыры» (K4). Именно так проверяется, за сколько мы замечаем замерший эфир и выходит ли
+ * `reTry()` из заблокированной записи. В отличие от `stop` (обрыв, ошибка приходит сразу) здесь
+ * ошибки НЕ приходит вовсе — это и есть самый опасный класс, ради которого делается watchdog.
+ * Sudo не нужен, ADB-канал не задевается — сигнал уходит локальному процессу на Маке.
  *
  * Бинарь качается в tools/bin/ (gitignored). Публикация с планшета: профиль «Local Test» с URL из
  * `url`. Проверка приёма: `ffprobe rtmp://<ip>:1935/live/test` или запись сервером.
@@ -134,14 +144,51 @@ function stop() {
   console.log(`✓ RTMP-полигон остановлен (pid ${pid})`);
 }
 
+// Состояние процесса по ps: 'T' = остановлен сигналом (заморожен), 'S'/'R'/'I' = живой.
+// Возвращает первую букву кода состояния BSD (у macOS бывает 'S+', 'Ss', 'T' и т.п.).
+// [TESTED: 2026-07-28 · прогон start→status(S)→freeze→status(T)→thaw→status(S) на живом MediaMTX]
+function procState(pid) {
+  try {
+    const s = execSync(`ps -o state= -p ${pid} 2>/dev/null`, { encoding: 'utf8' }).trim();
+    return s ? s[0] : null;
+  } catch { return null; }
+}
+
+const isFrozen = (pid) => procState(pid) === 'T';
+
 function status() {
   const pid = runningPid();
   if (pid) {
-    console.log(`✅ работает (pid ${pid}) на :${RTMP_PORT}`);
+    const frozen = isFrozen(pid);
+    console.log(`${frozen ? '🧊 ЗАМОРОЖЕН' : '✅ работает'} (pid ${pid}, состояние ${procState(pid) ?? '?'}) на :${RTMP_PORT}`);
+    if (frozen) console.log('   сокет открыт, но байты НЕ читаются — модель K5 (node tools/rtmp-server.mjs thaw)');
     console.log(`   URL для публикации: ${ingestUrl()}`);
   } else {
     console.log('⭕ не запущен  (node tools/rtmp-server.mjs start)');
   }
+}
+
+// ── freeze/thaw — модель «зомби-сервера» K5 (plans/21 Ш0) ─────────────────────
+// SIGSTOP нельзя перехватить или проигнорировать: процесс гарантированно снимается с планировщика
+// целиком (вместе со всеми потоками), поэтому это ЧЕСТНАЯ модель приёмника, который держит
+// соединение, но не разбирает входящие байты.
+// [TESTED: 2026-07-28 · freeze дал состояние T, thaw вернул S; поведение эфира — журнал §14 разведдока]
+function freeze() {
+  const pid = runningPid();
+  if (!pid) { console.log('сервер не запущен — замораживать нечего'); process.exit(1); }
+  if (isFrozen(pid)) { console.log(`уже заморожен (pid ${pid})`); return; }
+  process.kill(pid, 'SIGSTOP');
+  console.log(`🧊 сервер ЗАМОРОЖЕН (pid ${pid}, состояние ${procState(pid) ?? '?'})`);
+  console.log('   соединение живо, байты не читаются → клиент упрётся в блокирующий write()');
+  console.log('   разморозить: node tools/rtmp-server.mjs thaw');
+}
+
+function thaw() {
+  const pid = runningPid();
+  if (!pid) { console.log('сервер не запущен — размораживать нечего'); process.exit(1); }
+  if (!isFrozen(pid)) { console.log(`сервер не заморожен (pid ${pid}, состояние ${procState(pid) ?? '?'})`); return; }
+  process.kill(pid, 'SIGCONT');
+  console.log(`✓ сервер размо́рожен (pid ${pid}, состояние ${procState(pid) ?? '?'})`);
 }
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
@@ -151,7 +198,9 @@ switch (cmd) {
   case 'stop': stop(); break;
   case 'status': status(); break;
   case 'url': console.log(ingestUrl()); break;
+  case 'freeze': freeze(); break;
+  case 'thaw': thaw(); break;
   default:
-    console.log('Usage: node tools/rtmp-server.mjs <start|stop|status|url>');
+    console.log('Usage: node tools/rtmp-server.mjs <start|stop|status|url|freeze|thaw>');
     console.log(`  Локальный RTMP-полигон (MediaMTX ${MEDIAMTX_VERSION}) для автономного теста стрим-пути.`);
 }

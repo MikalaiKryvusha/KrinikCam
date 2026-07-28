@@ -37,7 +37,7 @@
 
 Один прогон на полигоне закрывает: число для A, число для C, порог для B и главный вопрос B.
 
-- [ ] **Полигон:** добавить в `tools/rtmp-server.mjs` подкоманды `freeze`/`thaw` = `process.kill(pid,'SIGSTOP'/'SIGCONT')` по существующему `PIDFILE` (`tools/rtmp-server.mjs:34`, пишется в `start()` на `:120`, `stop()` `:129-133`, CLI-switch `:150-153`). В `status()` показать состояние процесса (`ps -o state= -p <pid>` → `T`/`S`). Замороженный MediaMTX перестаёт читать сокет → TCP-окно закрывается → `write()` клиента блокируется = **точная модель K5** и, с точки зрения клиента, картина K4. Sudo не нужен, ADB-канал цел.
+- [x] **Полигон: `freeze`/`thaw` СДЕЛАНЫ 2026-07-28** (`tools/rtmp-server.mjs`) — `process.kill(pid,'SIGSTOP'/'SIGCONT')` по существующему `PIDFILE`, `status()` печатает состояние процесса (`ps -o state=` → `T` = заморожен / `S` = живой) и подсказку про K5. **Приёмка наблюдением:** `start` → `status` (S) → `freeze` → `status` (**T**) → `thaw` → `status` (S), pid один и тот же 29119 — то есть процесс именно ЗАМОРАЖИВАЕТСЯ, а не перезапускается. Строка добавлена в таблицу инструментов `AGENT_GUIDE.md`. SIGSTOP неперехватываем — модель честная; sudo не нужен, ADB-канал цел.
 - [ ] Форензика ДО прогона (EXP-0012): `adb logcat -v time > /tmp/lvl_step0.log &`. Никакого `logcat -c` после.
 - [ ] **E1 — сколько стоит замороженный кадр.** Эфир на полигон, `setVideoBitrateOnFly` в кандидаты 150/250/300/500 кбит/с, снять ФАКТИЧЕСКИЙ битрейт: `ffprobe -show_entries format=bit_rate` по пуллу + счётчики MediaMTX за 60 с на живой картинке и на статике.
 - [ ] `grep 'set bitrate mode CBR' /tmp/lvl_step0.log` — в каком режиме реально работает `c2.mtk.avc.encoder` на Titan 1.
