@@ -643,7 +643,11 @@ class RtmpStreamer @Inject constructor(
      * платформе больше 50 с её окна.
      *
      * Своего лечения тут НЕТ намеренно: срабатывание уходит в [onOutputFailed] с retriable=true, где
-     * уже живут бэкофф, setReTries, reTry, гард сессии и агрегат состояния (уровень 1). [NOT-TESTED]
+     * уже живут бэкофф, setReTries, reTry, гард сессии и агрегат состояния (уровень 1).
+     * [TESTED: 2026-07-28 · B4 — freeze приёмника: срабатывание через 6 с после замирания счётчиков,
+     * реконнект пошёл, после thaw эфир вернулся за 3 с; B6 — 11 минут чистого эфира и легальные паузы
+     * (5× scene-switch, 45 с затыка, 2 минуты в фоне с погашенным экраном) дали 0 ложных срабатываний.
+     * НЕ проверено: мультистрим/изоляция по индексу (bugs/74 блокирует полигон)]
      */
     private fun senderWatchdogStep(index: Int, phase: OutputPhase?, cache: Int, sentV: Long, sentA: Long, now: Long) {
         if (phase != OutputPhase.Live) {
