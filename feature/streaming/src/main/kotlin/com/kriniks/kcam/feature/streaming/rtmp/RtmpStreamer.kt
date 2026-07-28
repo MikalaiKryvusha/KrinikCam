@@ -103,6 +103,20 @@ private const val ADAPTIVE_RECOVER_PERCENT = 10
 // Период тикера телеметрии эфира; шаг адаптера — каждый второй тик (2с), чтобы не дёргать энкодер.
 private const val LIVE_TICK_MS = 1000L
 
+// ── ЖИВУЧЕСТЬ ЭФИРА (idea 43 «эфир завершает только кнопка Стоп», researches/network_resilience.md) ──
+// УРОВЕНЬ 0 — гигиена библиотеки. Сглаживание onNewBitrate самой библиотекой: показания битрейта
+// перестают скакать посекундно, адаптер битрейта (idea 37) видит тренд, а не шум.
+private const val BITRATE_EXPONENTIAL_FACTOR = 0.5f
+
+// УРОВЕНЬ 1 — бэкофф реконнекта. Экспонента 1.5 (модель OBS: reconnect_retry_exp) вместо 2: попытки
+// учащённее в первые секунды, где блип чаще всего и лечится. Кап 15с — верхний темп «ждём сеть
+// вечно, но не жжём батарею». Джиттер ±[RECONNECT_JITTER_PERCENT]% обязателен: без него 4 выхода
+// мультистрима реконнектятся В ОДНУ секунду («стадо») и бьют в узкий аплинк одновременно.
+private const val RECONNECT_BACKOFF_BASE_MS = 1000.0
+private const val RECONNECT_BACKOFF_EXP = 1.5
+private const val RECONNECT_BACKOFF_CAP_MS = 15_000L
+private const val RECONNECT_JITTER_PERCENT = 10
+
 // bug 45 — через сколько после нажатия «Запись» отсутствие первого записанного семпла считается
 // подозрительным и попадает в лог предупреждением (сам бейдж при этом честно висит «ПОДГОТОВКА»).
 private const val RECORD_START_WARN_MS = 5000L
@@ -166,8 +180,23 @@ class RtmpStreamer @Inject constructor(
     // в эфире»). Пишется из per-output ConnectChecker'ов; читается recomputeAggregateState().
     private val outputStates = mutableMapOf<Int, OutputStatus>()
 
-    // plans/09 S4 — потолок попыток авто-реконнекта одного выхода; дальше выход → Failed (изоляция S3).
-    private val maxReconnectAttempts = 5
+    // Живучесть, УРОВЕНЬ 1 (idea 43): потолка попыток БОЛЬШЕ НЕТ — раньше здесь стояло 5, и эфир
+    // умирал НАВСЕГДА через ~23с пропажи сети (5 попыток × бэкофф). Теперь реконнект идёт, пока
+    // пользователь не нажал Стоп; темп задаёт бэкофф с капом. Это значение осталось только как
+    // аргумент библиотечного setReTries (её ВНУТРЕННИЙ счётчик должен быть > 0, см. onOutputFailed) —
+    // терминальным условием оно больше не является.
+    private val libraryReTriesBudget = 5
+
+    // Живучесть, УРОВЕНЬ 1 — СЕССИЯ эфира/записи (в отличие от СОСТОЯНИЯ). Раньше FGS поднимался по
+    // `state.isActive`: уход в Error гасил сервис и отпускал wake lock ровно тогда, когда мы
+    // восстанавливаемся, — приложение само отрезало себе шанс вернуться в эфир. Теперь сессия жива от
+    // Go Live до Стоп (или до изоляции ВСЕХ выходов) и переживает любые Error/Reconnecting внутри.
+    private val _sessionActive = MutableStateFlow(false)
+    val sessionActive: StateFlow<Boolean> = _sessionActive.asStateFlow()
+
+    // Живучесть, УРОВЕНЬ 1 — момент, когда эфир перестал идти (нет ни одного живого выхода), для
+    // честного счётчика «эфир не идёт: NN с» в статус-виджете. 0 = эфир идёт нормально.
+    private var offlineSinceMs = 0L
     // Weak ref so we don't leak the TextureView; used to restore preview after startStream
     private var lastPreviewTextureView: WeakReference<TextureView>? = null
 
@@ -446,6 +475,14 @@ class RtmpStreamer @Inject constructor(
         val outs = outputStates.values.sortedBy { it.index }
         val anyLive = outs.any { it.phase == OutputPhase.Live }
         val anyPending = outs.any { it.phase == OutputPhase.Connecting || it.phase == OutputPhase.Reconnecting }
+        // Живучесть, УРОВЕНЬ 1 — засекаем НАЧАЛО молчания эфира: как только не осталось ни одного
+        // живого выхода. Пока хоть один в эфире — счётчик снят (0). Читается статус-виджетом, чтобы
+        // Криник видел не безликое «подключение», а честное «эфир не идёт: NN с».
+        offlineSinceMs = when {
+            anyLive -> 0L
+            offlineSinceMs != 0L -> offlineSinceMs
+            else -> android.os.SystemClock.elapsedRealtime()
+        }
         _state.value = when {
             anyLive -> StreamState.Live(
                 // idea 37 — durationMs ПЕРЕНОСИМ из текущего Live (иначе каждый пересчёт обнулял бы
@@ -454,7 +491,13 @@ class RtmpStreamer @Inject constructor(
                 bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.sumOf { it.bitrateKbps },
                 outputs = outs,
             )
-            anyPending -> StreamState.Connecting()   // bug 45 — Connecting стал data class (эфир: isRecording=false)
+            // bug 45 — Connecting стал data class (эфир: isRecording=false); живучесть ур.1 — та же
+            // фаза несёт номер попытки реконнекта и длительность молчания эфира.
+            anyPending -> StreamState.Connecting(
+                reconnectAttempt = outs.maxOfOrNull { it.attempt } ?: 0,
+                offlineMs = if (offlineSinceMs == 0L) 0L
+                    else android.os.SystemClock.elapsedRealtime() - offlineSinceMs,
+            )
             outs.isNotEmpty() && outs.all { it.phase == OutputPhase.Failed } ->
                 StreamState.Error(outs.firstOrNull { it.reason != null }?.reason ?: "All outputs failed")
             else -> _state.value
@@ -479,15 +522,31 @@ class RtmpStreamer @Inject constructor(
                 if (st !is StreamState.Live && st !is StreamState.Connecting) break // эфир кончился
                 tick++
                 // Поллинг затыка канала по каждому ЖИВОМУ выходу (клиент индексный, plans/09).
+                // Живучесть, УРОВЕНЬ 0 — заодно снимаем ЖИВЫЕ счётчики библиотеки: сколько кадров
+                // реально ушло, сколько дропнуто, сколько пакетов застряло в очереди отправки.
+                // Это и есть пульс: по нему (и только по нему) видно, идёт ли эфир на самом деле.
                 val stream = rtmpStream
+                var droppedTotal = 0L
                 if (stream != null) {
                     outputStates.keys.toList().forEach { i ->
                         val live = outputStates[i]?.phase == OutputPhase.Live
+                        val client = runCatching { stream.getStreamClient(MultiType.RTMP, i) }.getOrNull()
                         if (live) {
                             val congested = simulatedCongestion ||
-                                runCatching { stream.getStreamClient(MultiType.RTMP, i).hasCongestion() }
-                                    .getOrDefault(false)
+                                runCatching { client?.hasCongestion() ?: false }.getOrDefault(false)
                             updateOutput(i) { it.copy(congested = congested) }
+                        }
+                        droppedTotal += runCatching { client?.getDroppedVideoFrames() ?: 0L }.getOrDefault(0L)
+                        // Пульс пишем по КАЖДОМУ выходу отдельно — в мультистриме тонет обычно один.
+                        // Не полагаемся на getCacheSize(): в 2.4.7 он врёт после resizeCache (починено
+                        // только в 2.8.0) — мерим ТОЛЬКО фактическое число пакетов в очереди.
+                        val st2 = outputStates[i]
+                        if (st2 != null) {
+                            KLog.i(TAG, "пульс[$i] ${st2.phase} bitrate=${st2.bitrateKbps}kbps " +
+                                "cache=${runCatching { client?.getItemsInCache() ?: -1 }.getOrDefault(-1)} " +
+                                "sentV=${runCatching { client?.getSentVideoFrames() ?: -1L }.getOrDefault(-1L)} " +
+                                "dropV=${runCatching { client?.getDroppedVideoFrames() ?: -1L }.getOrDefault(-1L)} " +
+                                "congested=${st2.congested} attempt=${st2.attempt}")
                         }
                     }
                 }
@@ -496,8 +555,16 @@ class RtmpStreamer @Inject constructor(
                     _state.value = st.copy(
                         durationMs = android.os.SystemClock.elapsedRealtime() - streamStartedAtMs,
                         bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.sumOf { it.bitrateKbps },
+                        // Живучесть, УРОВЕНЬ 0 — дропы БОЛЬШЕ НЕ ВРУТ: поле годами было константным
+                        // нулём (никто не читал getDroppedVideoFrames), и развёрнутая карточка статуса
+                        // молчала о потерях. Теперь это факт от библиотеки, а не заглушка.
+                        droppedFrames = droppedTotal.toInt(),
                         outputs = outs,
                     )
+                } else if (st is StreamState.Connecting) {
+                    // Живучесть, УРОВЕНЬ 1 — пока эфир восстанавливается, состояние тоже обязано
+                    // тикать: иначе счётчик «эфир не идёт: NN с» замрёт на первой секунде.
+                    recomputeAggregateState()
                 }
                 // bug 64 — пока идёт эфир/запись: если камеру ОТОБРАЛИ (Instagram и т.п.), непрерывно
                 // пытаемся её вернуть. Как только вор освободит камеру — фид восстановится САМ, не дожидаясь
@@ -542,57 +609,125 @@ class RtmpStreamer @Inject constructor(
         KLog.i(TAG, "simulate-congestion: ${if (on) "ON — адаптер увидит затык" else "OFF — канал «чист»"}")
     }
 
-    // plans/09 S4 — экспоненциальный бэкофф реконнекта: 1с→2с→4с→8с (потолок 8с).
-    private fun reconnectBackoffMs(attempt: Int): Long = (1000L shl (attempt - 1)).coerceAtMost(8000L)
+    /**
+     * Живучесть, УРОВЕНЬ 0 — гигиена RTMP-клиента выхода [index] ПЕРЕД подключением.
+     * Обе ручки штатные (RootEncoder 2.4.7), обе раздаются строго по индексу выхода:
+     *  • `setLogs(false)` — библиотека по умолчанию пишет Log.i на КАЖДЫЙ отправленный пакет
+     *    (~80 строк в секунду на выход). В мультистриме это забивает logcat так, что наш собственный
+     *    пульс и форензика обрыва тонут — а именно по логу мы диагностируем сеть (EXP-0012).
+     *  • `setBitrateExponentialFactor` — сглаживание отдаваемого битрейта: показание перестаёт
+     *    скакать, адаптер (idea 37) реагирует на тренд, а не на секундный шум.
+     * [NOT-TESTED]
+     */
+    private fun tuneOutputClient(stream: MultiStream, index: Int) {
+        val client = runCatching { stream.getStreamClient(MultiType.RTMP, index) }.getOrNull() ?: run {
+            KLog.w(TAG, "RTMP[$index] tune: клиент недоступен — пропускаем гигиену")
+            return
+        }
+        runCatching {
+            client.setLogs(false)
+            client.setBitrateExponentialFactor(BITRATE_EXPONENTIAL_FACTOR)
+        }.onFailure { KLog.w(TAG, "RTMP[$index] tune не прошёл", it) }
+        KLog.i(TAG, "RTMP[$index] tune: логи библиотеки ВЫКЛ, сглаживание битрейта=$BITRATE_EXPONENTIAL_FACTOR")
+    }
 
     /**
-     * plans/09 S3+S4 — обработка сбоя ОДНОГО выхода [index] (сеть/кривой ключ):
-     *  • S4 (retriable, попытки не исчерпаны): фаза Reconnecting + `getStreamClient(RTMP,i).reTry(backoff)`
-     *    — ЖИВЫЕ выходы не трогаем, энкодер НЕ гасим. Сетевой блип больше не конец эфира.
-     *  • S3 (реконнект исчерпан / auth-ошибка): фаза Failed, стопим ТОЛЬКО этот индекс
-     *    (`stopStream(RTMP,i)`); если это был ПОСЛЕДНИЙ активный выход — гасим энкодер (no-arg) и
-     *    восстанавливаем превью (фикс чёрного экрана из bug 34).
+     * plans/09 S4 + живучесть УРОВЕНЬ 1 — пауза перед попыткой [attempt] (1-я попытка = 1).
+     * Экспонента 1.5 (модель OBS) с капом [RECONNECT_BACKOFF_CAP_MS]: 1.0 → 1.5 → 2.3 → 3.4 → 5.1 →
+     * 7.6 → 11.4 → 15с (дальше держим 15с СКОЛЬКО УГОДНО ДОЛГО — потолка попыток больше нет).
+     * Сверху ±[RECONNECT_JITTER_PERCENT]% случайного разброса: 4 выхода мультистрима, упавшие
+     * одновременно (общая сеть), иначе ломились бы в аплинк одной и той же секундой.
+     */
+    private fun reconnectBackoffMs(attempt: Int): Long {
+        val exp = Math.pow(RECONNECT_BACKOFF_EXP, (attempt - 1).coerceAtLeast(0).toDouble())
+        val base = (RECONNECT_BACKOFF_BASE_MS * exp).toLong().coerceAtMost(RECONNECT_BACKOFF_CAP_MS)
+        val jitter = (base * RECONNECT_JITTER_PERCENT / 100.0 * (Math.random() * 2 - 1)).toLong()
+        return (base + jitter).coerceAtLeast(250L)
+    }
+
+    /**
+     * plans/09 S3+S4 + живучесть УРОВЕНЬ 1 — обработка сбоя ОДНОГО выхода [index].
+     *
+     * ВИЖН КРИНИКА (idea 43): «валидным завершением трансляции является ТОЛЬКО кнопка Стоп».
+     * Поэтому для восстановимых причин потолка попыток НЕТ — выход уходит в Reconnecting и пробует
+     * снова, пока сессия жива. Раньше здесь стояло `attempt <= 5`, и эфир умирал навсегда через
+     * ~23 секунды пропажи сети, хотя платформа держит окно 60–180с (см. разведдок §3).
+     *
+     *  • Восстановимо: фаза Reconnecting + `getStreamClient(RTMP,i).reTry(backoff)` — ЖИВЫЕ выходы не
+     *    трогаем, энкодер НЕ гасим. Сетевой блип не конец эфира; долгий обрыв — тоже.
+     *  • Невосстановимо (auth-ошибка = кривой ключ, «Endpoint malformed» = кривой URL): реконнект
+     *    бессмыслен по существу — фаза Failed, стопим ТОЛЬКО этот индекс; если это был ПОСЛЕДНИЙ
+     *    активный выход — гасим энкодер и восстанавливаем превью (фикс чёрного экрана из bug 34).
      */
     private fun onOutputFailed(index: Int, reason: String, retriable: Boolean) {
         val stream = rtmpStream ?: return
+        // Живучесть, УРОВЕНЬ 1 — сессии нет (пользователь нажал Стоп / все выходы уже изолированы):
+        // приходящие следом колбэки обрыва — эхо ШТАТНОГО отключения, а не авария. Без этого гарда
+        // бесконечный реконнект воскрешал бы только что остановленный эфир.
+        if (!_sessionActive.value) {
+            KLog.d(TAG, "RTMP[$index] сбой после конца сессии ($reason) — игнорируем, реконнекта нет")
+            return
+        }
         isStreamSetupInProgress = false
         val attempt = (outputStates[index]?.attempt ?: 0) + 1
 
-        // S4 — попытка авто-реконнекта этого выхода с бэкоффом.
-        if (retriable && attempt <= maxReconnectAttempts) {
+        // Авто-реконнект этого выхода с бэкоффом — БЕЗ потолка попыток (уровень 1).
+        if (retriable) {
             val backoff = reconnectBackoffMs(attempt)
-            updateOutput(index) { it.copy(phase = OutputPhase.Reconnecting, reason = reason, attempt = attempt) }
+            // Битрейт обнуляем ЯВНО: выход не отправляет ни байта, и оставшееся от эфира число
+            // (последняя EMA) выглядело бы в пульсе и в UI как живой поток. Тот же принцип честной
+            // индикации, что и в bug 45: показываем факт, а не последнее приятное значение.
+            updateOutput(index) {
+                it.copy(phase = OutputPhase.Reconnecting, reason = reason, attempt = attempt,
+                    bitrateKbps = 0, congested = false)
+            }
             recomputeAggregateState()
             val client = runCatching { stream.getStreamClient(MultiType.RTMP, index) }.getOrNull()
-            // КРИТИЧНО (сверено байткодом 2.4.7): `reTry` → `shouldRetry(reason)` =
-            //   `doingRetry && !reason.contains("Endpoint malformed") && reTries > 0`.
+            // КРИТИЧНО (сверено байткодом 2.4.7, перепроверено 2026-07-28): `reTry` →
+            //   `shouldRetry(reason)` = `doingRetry && !reason.contains("Endpoint malformed") && reTries > 0`.
             // Счётчик `reTries` по умолчанию 0 → без setReTries reTry ВСЕГДА возвращает false (эфир
-            // умирал на любом блипе — воспроизведено на полигоне убийством сервера). Держим reTries>0
-            // перед КАЖДОЙ попыткой; истинный потолок попыток задаёт НАШ attempt-счётчик + бэкофф.
-            // `doingRetry` библиотека ставит true при установленном коннекте → мёртвый URL (не
-            // подключался) сюда не пройдёт (shouldRetry=false) и корректно изолируется ниже.
-            runCatching { client?.setReTries(maxReconnectAttempts) }
+            // умирал на любом блипе — воспроизведено на полигоне убийством сервера). Поэтому держим
+            // библиотечный бюджет > 0 перед КАЖДОЙ попыткой — наш счётчик [attempt] служит только
+            // темпу бэкоффа и индикации, терминальным условием он больше не является.
+            // ⚠️ ИСПРАВЛЕНИЕ ПРЕЖНЕГО КОММЕНТАРИЯ (он утверждал обратное и вводил в заблуждение):
+            // `doingRetry` ставится в `RtmpClient.connect(url, isRetry=false)`, то есть при ПЕРВОЙ ЖЕ
+            // попытке подключения, а НЕ «при установленном коннекте». Следствие: мёртвый хост тоже
+            // проходит в reTry и будет переподключаться бесконечно — что для вижна как раз ВЕРНО
+            // (сеть может подняться), а по-настоящему безнадёжные случаи отсекают auth-ошибка и
+            // «Endpoint malformed», которые сюда не попадают / возвращают false.
+            // Верифицировано: javap RtmpClient.connect(String,boolean) → `putfield doingRetry` при
+            // isRetry==false; javap MultiStream.getStreamClient(MultiType,int) → rtmpStreamClients.get(i),
+            // то есть все ручки строго ПО ИНДЕКСУ выхода (мультистрим не путает выходы).
+            runCatching { client?.setReTries(libraryReTriesBudget) }
                 .onFailure { KLog.w(TAG, "RTMP[$index] setReTries failed", it) }
             val scheduled = runCatching { client?.reTry(backoff, reason) ?: false }
                 .getOrElse { KLog.w(TAG, "RTMP[$index] reTry threw", it); false }
-            KLog.i(TAG, "RTMP[$index] reconnect attempt $attempt через ${backoff}ms (scheduled=$scheduled)")
+            KLog.i(TAG, "RTMP[$index] реконнект попытка $attempt через ${backoff}ms " +
+                "(scheduled=$scheduled, потолка попыток нет — держим эфир до кнопки Стоп)")
             if (scheduled) return
-            // reTry не назначился (нет установленного коннекта / Endpoint malformed) → изоляция ниже.
+            // reTry не назначился (Endpoint malformed / клиент не в состоянии ретрая) → изоляция ниже.
+            KLog.e(TAG, "RTMP[$index] reTry НЕ назначен библиотекой — причина неустранима клиентом")
         }
 
-        // S3 — изоляция выхода: Failed + стоп ТОЛЬКО этого индекса, живые не трогаем.
+        // Изоляция выхода: Failed + стоп ТОЛЬКО этого индекса, живые не трогаем.
         KLog.e(TAG, "RTMP[$index] FAILED (reason=$reason) — изолируем выход, живые продолжают")
-        updateOutput(index) { it.copy(phase = OutputPhase.Failed, reason = reason) }
+        updateOutput(index) { it.copy(phase = OutputPhase.Failed, reason = reason, bitrateKbps = 0, congested = false) }
         runCatching { stream.stopStream(MultiType.RTMP, index) }
             .onFailure { KLog.w(TAG, "RTMP[$index] stopStream(RTMP,$index) failed", it) }
         activeRtmpOutputs.remove(index)
 
         // Упал ПОСЛЕДНИЙ активный выход? Тогда гасим энкодер и восстанавливаем превью.
         if (activeRtmpOutputs.isEmpty()) {
-            KLog.w(TAG, "RTMP: последний выход упал — гасим энкодер, восстанавливаем превью")
+            KLog.w(TAG, "RTMP: последний выход изолирован — гасим энкодер, восстанавливаем превью")
             runCatching { stream.stopStream() }
                 .onFailure { KLog.w(TAG, "no-arg stopStream (encoder) failed", it) }
-            lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
+            // bug 48/63 — НЕ startPreview(tv): пересборка живой поверхности TextureView гонится с
+            // системным HWUI RenderThread (EGL_BAD_SURFACE → SIGABRT). Трогаем поверхность, только
+            // если она реально отвалилась. Это был крашевый путь ровно на гибели эфира.
+            restorePreviewIfDetached()
+            // Живучесть, УРОВЕНЬ 1 — все выходы мертвы по НЕустранимой причине: сессия честно
+            // закончилась (только здесь, а не на каждом сетевом Error) → FGS отпускается.
+            _sessionActive.value = false
         }
         recomputeAggregateState()
     }
@@ -974,6 +1109,10 @@ class RtmpStreamer @Inject constructor(
             // plans/09 S2 — свежая сессия: сбрасываем per-output состояние прошлого эфира.
             activeRtmpOutputs.clear()
             outputStates.clear()
+            // Живучесть, УРОВЕНЬ 1 — СЕССИЯ открыта: с этой секунды и до кнопки Стоп приложение
+            // обязано держать эфир (FGS + wake lock живут по этому флагу, а не по состоянию).
+            offlineSinceMs = 0L
+            _sessionActive.value = true
             // plans/07 S3 — стартуем КАЖДЫЙ выход на своём индексе (ютуб=0, инстаграм=1, …);
             // plans/09 S2 — сразу заводим статус выхода (имя платформы + фаза Connecting) для UI.
             outputs.forEachIndexed { i, p ->
@@ -981,6 +1120,7 @@ class RtmpStreamer @Inject constructor(
                 // bug 37 №3 — в лог редактированный URL; полный (с ключом) идёт ТОЛЬКО в библиотеку.
                 KLog.i(TAG, "startStream: RTMP out[$i] '${p.name}' → ${redactRtmpUrl(url)}")
                 outputStates[i] = OutputStatus(index = i, name = p.name, phase = OutputPhase.Connecting)
+                tuneOutputClient(stream, i)   // живучесть, УРОВЕНЬ 0 — гигиена ДО подключения
                 stream.startStream(MultiType.RTMP, i, url)
                 activeRtmpOutputs.add(i)
             }
@@ -1002,6 +1142,8 @@ class RtmpStreamer @Inject constructor(
             KLog.e(TAG, "startStream: exception during setup", e)
             _state.value = StreamState.Error("Stream setup crashed: ${e.message}")
             isStreamSetupInProgress = false
+            // Сессия не состоялась — держать FGS не за что (живучесть ур.1).
+            _sessionActive.value = false
             lastPreviewTextureView?.get()?.let { tv -> startPreview(tv) }
             return false
         }
@@ -1011,6 +1153,11 @@ class RtmpStreamer @Inject constructor(
         KLog.i(TAG, "stopStream: stopping RTMP stream")
         isStreamSetupInProgress = false
         _state.value = StreamState.Stopping
+        // Живучесть, УРОВЕНЬ 1 — ЕДИНСТВЕННОЕ валидное завершение эфира (вижн Криника): сессия
+        // закрывается по кнопке Стоп. Ставим ДО disconnect, чтобы приходящие следом колбэки сбоя
+        // (обрыв во время остановки) не приняли штатный стоп за аварию и не начали реконнект.
+        _sessionActive.value = false
+        offlineSinceMs = 0L
         rtmpStream?.let { disconnectAllOutputs(it) }
         activeRtmpOutputs.clear()
         outputStates.clear()   // plans/09 S2 — сбрасываем per-output состояние
@@ -1241,6 +1388,9 @@ class RtmpStreamer @Inject constructor(
             // (сверено байткодом AndroidMuxerRecordController 2.4.7).
             // [TESTED: 2026-07-25 · видеозахват экрана: пилюля «ПОДГОТОВКА» → бейдж «ЗАПИСЬ • 00:00»]
             _state.value = StreamState.Connecting(isRecording = true)
+            // Живучесть, УРОВЕНЬ 1 — запись тоже СЕССИЯ: FGS/wake lock теперь поднимаются по этому
+            // флагу, и без него запись потеряла бы фоновую защиту (bug 36) вместе с эфиром.
+            _sessionActive.value = true
             lastRecordPath = path              // Idea 11: published to DCIM on STOPPED
             // idea 37/17 — тикер эфира нужен и ЗАПИСИ (таймер на бейдже; пойман приёмкой кнопки
             // Record: стоял 0:00). Адаптер битрейта при записи ВЫКЛЮЧЕН (target=0 → no-op: канала
@@ -1280,6 +1430,7 @@ class RtmpStreamer @Inject constructor(
             KLog.e(TAG, "startRecordToFile: exception", e)
             _state.value = StreamState.Error("Record setup crashed: ${e.message}")
             isStreamSetupInProgress = false
+            _sessionActive.value = false   // сессия не состоялась (живучесть ур.1)
             lastPreviewTextureView?.get()?.let { startPreview(it) }
             return null
         }
@@ -1290,6 +1441,7 @@ class RtmpStreamer @Inject constructor(
         KLog.i(TAG, "stopRecordToFile: stopping record")
         isStreamSetupInProgress = false
         recordStartRequestedAtMs = 0L   // bug 45 — сессия записи закрыта, замер прогрева сброшен
+        _sessionActive.value = false    // живучесть ур.1 — сессия записи закрыта пользователем
         _state.value = StreamState.Stopping
         rtmpStream?.let { if (it.isRecording) it.stopRecord() }
         _state.value = StreamState.Idle

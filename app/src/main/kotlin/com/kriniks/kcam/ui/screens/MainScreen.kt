@@ -515,8 +515,14 @@ fun MainScreen(
         // пока запись/эфир прогреваются, юзер видит честное «ПОДГОТОВКА», а не пустой экран и не
         // преждевременный бейдж «ЗАПИСЬ».
         // [TESTED: 2026-07-25 · видеозахват экрана планшета: пилюля видна в фазе подготовки]
+        // Живучесть эфира, УРОВЕНЬ 1 (idea 43) — виджет виден И в состоянии ОТКАЗА. Здесь была
+        // НАСТОЯЩАЯ причина того, что смерть эфира проходила молча: `isActive` = Live|Connecting, и
+        // этот внешний гейт прятал виджет целиком, сколько бы состояний ни обрабатывалось внутри
+        // него. Поймано judge-проходом: пилюля отказа была написана, но на экране не появлялась.
+        // [TESTED: 2026-07-28 · живьём: go-live на «rtmp://badhost» → «Endpoint malformed» →
+        //  на экране красная пилюля «ЭФИР НЕ ИДЁТ • Endpoint malformed…» (скриншот)]
         AnimatedVisibility(
-            visible = streamState.isActive,
+            visible = streamState.isActive || streamState is StreamState.Error,
             enter = fadeIn() + slideInHorizontally(),
             exit = fadeOut() + slideOutHorizontally(),
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
@@ -707,8 +713,18 @@ private fun StreamStatusWidget(state: StreamState, encoderSummary: String?) {
     // bug 45 — ФАЗА ПОДГОТОВКИ: запись/эфир запрошены, но реальных данных ещё нет (для записи — мухер
     // не получил ни одного семпла). Показываем ОТДЕЛЬНУЮ пилюлю «ПОДГОТОВКА…» без таймера и битрейта
     // (нечего показывать — врать нечем), чтобы стример не начинал говорить в пустоту.
+    // Живучесть эфира, УРОВЕНЬ 1 (idea 43 / researches/network_resilience.md) — ГРОМКАЯ индикация
+    // аварии. Обрыв эфира больше не выглядит как обычное «подключение», а полный отказ больше НЕ
+    // УБИРАЕТ виджет с экрана: раньше `Error` уходил в `return` ниже, и стример узнавал о смерти
+    // эфира только от зрителей. Молчание эфира — самое дорогое, что может случиться, поэтому оно
+    // видно всегда. [NOT-TESTED]
     if (state is StreamState.Connecting) {
-        PreparingStatusPill(isRecording = state.isRecording)
+        if (state.reconnectAttempt > 0) ReconnectingStatusPill(state)
+        else PreparingStatusPill(isRecording = state.isRecording)
+        return
+    }
+    if (state is StreamState.Error) {
+        FailedStatusPill(state.message)
         return
     }
     val live = state as? StreamState.Live ?: return
@@ -831,6 +847,75 @@ private fun PreparingStatusPill(isRecording: Boolean) {
             )
             Text(
                 text = label, color = Color.White, fontSize = 12.sp,
+                fontWeight = FontWeight.Bold, maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * Живучесть эфира, УРОВЕНЬ 1 (idea 43) — пилюля ВОССТАНОВЛЕНИЯ: эфир оборван, но не брошен.
+ * Показывает три вещи, которых раньше не было нигде: что идёт именно восстановление (а не первый
+ * коннект), СКОЛЬКО эфир уже молчит и какая идёт попытка. Тон — тревожный янтарно-красный, точка
+ * мигает быстрее, чем на подготовке (0.4с против 0.7с): авария должна читаться боковым зрением.
+ * [NOT-TESTED]
+ */
+@Composable
+private fun ReconnectingStatusPill(state: StreamState.Connecting) {
+    val alarmOrange = Color(0xFFD84315)
+    val pulse by rememberInfiniteTransition(label = "recon").animateFloat(
+        initialValue = 0.2f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(400), RepeatMode.Reverse), label = "reconPulse",
+    )
+    val sec = state.offlineMs / 1000
+    val offlineText = "%02d:%02d".format(sec / 60, sec % 60)
+    val tnum = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
+    val label = stringResource(R.string.status_reconnecting)
+    val detail = stringResource(R.string.status_offline_for, offlineText, state.reconnectAttempt)
+    Surface(color = alarmOrange, shape = RoundedCornerShape(8.dp)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(
+                Modifier.size(9.dp)
+                    .border(1.dp, Color.White, androidx.compose.foundation.shape.CircleShape)
+                    .padding(1.dp)
+                    .background(Color.White.copy(alpha = pulse), androidx.compose.foundation.shape.CircleShape),
+            )
+            Text(
+                text = "$label • $detail", color = Color.White, fontSize = 12.sp,
+                fontWeight = FontWeight.Bold, maxLines = 1, style = tnum,
+            )
+        }
+    }
+}
+
+/**
+ * Живучесть эфира, УРОВЕНЬ 1 (idea 43) — пилюля ОТКАЗА. Показывается, когда все выходы изолированы
+ * по неустранимой причине (кривой ключ платформы, битый URL): реконнект тут бессмыслен по существу,
+ * но МОЛЧАТЬ нельзя — раньше виджет просто исчезал, и эфир умирал беззвучно. Причина выводится
+ * текстом (её даёт платформа), чтобы Криник сразу понимал, что чинить. [NOT-TESTED]
+ */
+@Composable
+private fun FailedStatusPill(message: String) {
+    val alarmRed = Color(0xFFB00020)
+    Surface(color = alarmRed, shape = RoundedCornerShape(8.dp)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(
+                Modifier.size(9.dp)
+                    .border(1.dp, Color.White, androidx.compose.foundation.shape.CircleShape)
+                    .padding(1.dp)
+                    .background(Color.White, androidx.compose.foundation.shape.CircleShape),
+            )
+            Text(
+                text = "${stringResource(R.string.status_stream_failed)} • $message",
+                color = Color.White, fontSize = 12.sp,
                 fontWeight = FontWeight.Bold, maxLines = 1,
             )
         }

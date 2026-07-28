@@ -29,6 +29,15 @@ class StreamingRepository @Inject constructor(
     private val profilesRepository: ProfilesRepository,
 ) {
     val streamState: StateFlow<StreamState> = rtmpStreamer.state
+
+    /**
+     * Живучесть эфира, УРОВЕНЬ 1 (idea 43 / researches/network_resilience.md) — СЕССИЯ эфира или
+     * записи: true от Go Live / Record до кнопки Стоп (или до изоляции всех выходов по неустранимой
+     * причине). В отличие от [streamState] НЕ гаснет при обрыве сети — именно поэтому по нему, а не
+     * по состоянию, держится foreground-сервис: иначе Android замораживал бы процесс ровно в тот
+     * момент, когда мы восстанавливаем эфир.
+     */
+    val sessionActive: StateFlow<Boolean> = rtmpStreamer.sessionActive
     val allProfiles: Flow<List<StreamProfile>> = profilesRepository.observeAllProfiles()
     val enabledProfiles: Flow<List<StreamProfile>> = profilesRepository.observeEnabledProfiles()
 

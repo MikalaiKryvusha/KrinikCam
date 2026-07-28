@@ -19,7 +19,10 @@
  */
 
 import { execSync, spawn } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, openSync } from 'fs';
+// createWriteStream нужен download() ниже. Его отсутствие в этом списке — спящий дефект (найден
+// разведкой сети 2026-07-26): на машине, где бинарь MediaMTX уже скачан, ветка download() не
+// выполняется, поэтому ReferenceError не проявлялся; на ЧИСТОЙ машине первый `start` падал.
+import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, openSync, createWriteStream } from 'fs';
 import { join } from 'path';
 import { get } from 'https';
 

@@ -14,7 +14,16 @@ sealed class StreamState {
     // по ФАКТУ, а не по намерению (юзер не должен говорить в пустоту).
     // [TESTED: 2026-07-25 · живьём на планшете: обе пилюли сняты видеозахватом экрана — «ПОДГОТОВКА»
     //  при записи и «ПОДКЛЮЧЕНИЕ» при эфире на кривой URL]
-    data class Connecting(val isRecording: Boolean = false) : StreamState()
+    // Живучесть эфира, УРОВЕНЬ 1 (idea 43 / researches/network_resilience.md): та же фаза обслуживает
+    // и ВОССТАНОВЛЕНИЕ после обрыва — эфир не идёт, но мы его не бросили. [reconnectAttempt] > 0
+    // означает именно реконнект (а не первый хендшейк), [offlineMs] — сколько эфир реально молчит.
+    // Оба поля аддитивны (дефолт 0), поэтому старый путь подключения не затронут.
+    // [NOT-TESTED]
+    data class Connecting(
+        val isRecording: Boolean = false,
+        val reconnectAttempt: Int = 0,
+        val offlineMs: Long = 0,
+    ) : StreamState()
     data class Live(                                // streaming successfully
         val durationMs: Long = 0,
         val bitrateKbps: Int = 0,

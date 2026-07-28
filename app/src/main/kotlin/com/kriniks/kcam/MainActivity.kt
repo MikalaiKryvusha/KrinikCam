@@ -36,7 +36,6 @@ import com.kriniks.kcam.data.profiles.model.VideoCodec
 import com.kriniks.kcam.streaming.DeviceCameraEnumerator
 import com.kriniks.kcam.streaming.StreamForegroundService
 import com.kriniks.kcam.feature.capture.DeviceManager
-import com.kriniks.kcam.feature.streaming.model.isActive
 // plans/20 B1 — тип перехода сцены для харнес-команды scene-transition.
 import com.kriniks.kcam.feature.streaming.scene.SceneTransition
 import com.kriniks.kcam.feature.streaming.rtmp.redactRtmpUrl
@@ -143,12 +142,19 @@ class MainActivity : ComponentActivity() {
      * секунду, и без фронт-фильтра startForegroundService спамился бы на каждый тик.
      * [TESTED: 2026-07-18 · приёмка S4 на полигоне — эфир пережил экран-выкл 5 мин и HOME-фон;
      * сервис поднялся один раз на go-live и корректно погас на stop (0 живых нотификаций)]
+     *
+     * ⚠️ ЖИВУЧЕСТЬ ЭФИРА, УРОВЕНЬ 1 (idea 43, 2026-07-28) — источник правды сменён со СТОЯНИЯ на
+     * СЕССИЮ (`sessionActive` вместо `streamState.isActive`). Раньше обрыв сети уводил состояние в
+     * Error → `isActive=false` → сервис гас и отпускал wake lock ИМЕННО ТОГДА, когда приложение
+     * пытается вернуть эфир: с погашенным экраном Android замораживал процесс, и восстановление не
+     * наступало никогда. Сессия же жива от Go Live/Record до кнопки Стоп и переживает любые
+     * Reconnecting/Error внутри себя. Запись сессией тоже считается — фоновая защита bug 36 цела.
+     * [NOT-TESTED]
      */
     private fun keepScreenOnWhileStreaming() {
         lifecycleScope.launch {
             var wasActive = false
-            streamingRepository.streamState.collect { state ->
-                val active = state.isActive
+            streamingRepository.sessionActive.collect { active ->
                 if (active == wasActive) return@collect // тик внутри той же фазы — не дёргаемся
                 wasActive = active
                 if (active) {

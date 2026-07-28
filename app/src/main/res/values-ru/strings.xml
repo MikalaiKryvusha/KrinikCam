@@ -53,6 +53,10 @@
     <string name="notif_live_title">🔴 KrinikCam В ЭФИРЕ</string>
     <string name="notif_live_text">Идёт трансляция — нажмите, чтобы открыть</string>
     <string name="notif_live_stop">Стоп</string>
+    <!-- Живучесть эфира, УРОВЕНЬ 1 (idea 43): при погашенном экране нотификация — единственный канал,
+         по которому стример узнаёт об обрыве. %1$s — время молчания (мм:сс), %2$d — номер попытки. -->
+    <string name="notif_reconnecting">Восстановление — эфир не идёт %1$s (попытка %2$d)</string>
+    <string name="notif_stream_failed">Эфир не идёт — проверьте ключ трансляции</string>
 
     <!-- Common (plans/13) -->
     <string name="common_delete">Удалить</string>
@@ -71,6 +75,12 @@
          чтобы бейдж «ЗАПИСЬ»/«ЭФИР» не загорался раньше, чем запись/эфир действительно начались. -->
     <string name="status_preparing_record">ПОДГОТОВКА</string>
     <string name="status_preparing_stream">ПОДКЛЮЧЕНИЕ</string>
+    <!-- Живучесть эфира, УРОВЕНЬ 1 (idea 43) — ГРОМКАЯ индикация аварии: видно, что эфир не идёт,
+         сколько именно он молчит и какая идёт попытка переподключения. -->
+    <string name="status_reconnecting">ВОССТАНОВЛЕНИЕ</string>
+    <!-- %1$s — время молчания эфира (мм:сс), %2$d — номер попытки переподключения. -->
+    <string name="status_offline_for">эфир не идёт %1$s · попытка %2$d</string>
+    <string name="status_stream_failed">ЭФИР НЕ ИДЁТ</string>
     <!-- idea 39 — разворачиваемый статус-виджет эфира (детали по платформам/кодек/дропы). -->
     <string name="status_encoder">Кодер</string>
     <string name="status_dropped">Потеряно</string>

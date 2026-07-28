@@ -59,6 +59,10 @@
     <string name="notif_live_title">🔴 KrinikCam LIVE</string>
     <string name="notif_live_text">Streaming in progress — tap to open</string>
     <string name="notif_live_stop">Stop</string>
+    <!-- Живучесть эфира, УРОВЕНЬ 1 (idea 43): при погашенном экране нотификация — единственный канал,
+         по которому стример узнаёт об обрыве. %1$s — время молчания (мм:сс), %2$d — номер попытки. -->
+    <string name="notif_reconnecting">Reconnecting — off air %1$s (try %2$d)</string>
+    <string name="notif_stream_failed">Stream failed — check the stream key</string>
 
     <!-- Common (plans/13) -->
     <string name="common_delete">Delete</string>
@@ -77,6 +81,13 @@
          чтобы бейдж «REC»/«LIVE» не загорался раньше, чем запись/эфир действительно начались. -->
     <string name="status_preparing_record">PREPARING</string>
     <string name="status_preparing_stream">CONNECTING</string>
+    <!-- Живучесть эфира, УРОВЕНЬ 1 (idea 43) — ГРОМКАЯ индикация аварии. Пока эфир восстанавливается,
+         стример обязан видеть и ЧТО происходит, и СКОЛЬКО эфир уже молчит, и какая идёт попытка;
+         раньше обрыв выглядел как безликое «CONNECTING», а полный отказ вообще убирал виджет с экрана. -->
+    <string name="status_reconnecting">RECONNECTING</string>
+    <!-- %1$s — время молчания эфира (мм:сс), %2$d — номер попытки переподключения. -->
+    <string name="status_offline_for">off air %1$s · try %2$d</string>
+    <string name="status_stream_failed">STREAM FAILED</string>
     <!-- idea 39 — разворачиваемый статус-виджет эфира (детали по платформам/кодек/дропы). -->
     <string name="status_encoder">Encoder</string>
     <string name="status_dropped">Dropped</string>

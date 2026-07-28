@@ -67,6 +67,11 @@
         <!-- bug 45 — честная индикация старта записи: раздел описывает фазу подготовки и то, что бейдж
              и таймер отражают ФАКТ записи, а не нажатие кнопки. -->
         <item>Starting a recording or a broadcast takes a short preparation phase, during which the encoder and the audio input are configured. While it lasts, the indicator reads “PREPARING” (for a recording) or “CONNECTING” (for a broadcast); the “REC” badge and its timer appear only when the first frame has actually been written to the file, so the beginning of speech is not lost.</item>
+        <!-- Живучесть эфира, idea 43 — принцип «эфир завершает только кнопка Стоп» описан для читателя
+             как поведение продукта: что делает приложение при обрыве и что при этом видно на экране. -->
+        <item>A broadcast is considered finished only when the user stops it. If the connection is lost, the application does not end the session: it keeps reconnecting for as long as the broadcast remains started, with a pause between attempts that grows from one second to fifteen. Each output of a multi-platform broadcast recovers independently, so an outage of one platform does not affect the others.</item>
+        <item>While the connection is being restored, the indicator turns orange and reads “RECONNECTING”, showing how long the broadcast has been off air and the number of the current attempt; the same information appears in the notification, which allows the state to be observed with the screen turned off. Causes that reconnection cannot fix — an invalid stream key or a malformed address — are reported separately, and the indicator remains on screen instead of disappearing.</item>
+        <item>The foreground service and the background protection of the process are tied to the broadcast session rather than to the current connection state, so the application retains the ability to restore the broadcast even when the connection has already been lost and the screen is off.</item>
     </string-array>
 
     <string name="um_title_8">8. Platforms</string>

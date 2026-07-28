@@ -40,7 +40,14 @@ import com.kriniks.kcam.MainActivity
 import com.kriniks.kcam.R
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.feature.streaming.domain.StreamingRepository
+import com.kriniks.kcam.feature.streaming.model.StreamState
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val TAG = "StreamFgService"
@@ -54,6 +61,13 @@ class StreamForegroundService : Service() {
 
     // PARTIAL_WAKE_LOCK (S3) — CPU живёт при выключенном экране. Экран сервису не нужен.
     private var wakeLock: PowerManager.WakeLock? = null
+
+    // Живучесть ур.1 — область подписки на состояние эфира (текст нотификации). Живёт ровно столько,
+    // сколько сервис: отменяется в onDestroy, поэтому утечь не может.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // Последний показанный текст — чтобы не дёргать NotificationManager каждую секунду тикера.
+    private var lastNotificationText: String? = null
+    private var notificationJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -95,11 +109,46 @@ class StreamForegroundService : Service() {
                 acquire() // без таймаута: эфир может идти часами; release гарантирован в onDestroy
             }
         }
+        // Живучесть ур.1 — с этого момента нотификация докладывает правду об эфире (реконнект/отказ).
+        observeStateForNotification()
         KLog.i(TAG, "startForeground: LIVE-нотификация показана, wake lock захвачен")
     }
 
+    /**
+     * Живучесть эфира, УРОВЕНЬ 1 (idea 43 / researches/network_resilience.md) — нотификация ГОВОРИТ.
+     * Когда экран погашен или приложение свёрнуто (а именно так стример и работает), нотификация —
+     * ЕДИНСТВЕННЫЙ канал, по которому Криник может узнать, что эфир оборвался и мы его вытаскиваем.
+     * Раньше она всё это время утверждала «LIVE». Теперь подписка на состояние обновляет текст:
+     * восстановление со счётчиком молчания / отказ с причиной / обычный эфир.
+     * [NOT-TESTED]
+     */
+    private fun observeStateForNotification() {
+        // startForegroundService идемпотентен и может прийти повторно — коллектор заводим ОДИН раз,
+        // иначе на каждый повторный старт вешался бы ещё один подписчик на тот же поток.
+        if (notificationJob?.isActive == true) return
+        notificationJob = serviceScope.launch {
+            streamingRepository.streamState.collect { state ->
+                val text = when {
+                    state is StreamState.Connecting && state.reconnectAttempt > 0 -> {
+                        val sec = state.offlineMs / 1000
+                        getString(R.string.notif_reconnecting, "%02d:%02d".format(sec / 60, sec % 60),
+                            state.reconnectAttempt)
+                    }
+                    state is StreamState.Error -> getString(R.string.notif_stream_failed)
+                    else -> getString(R.string.notif_live_text)
+                }
+                if (text == lastNotificationText) return@collect  // без спама: обновляем только на смену
+                lastNotificationText = text
+                runCatching {
+                    val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    nm.notify(NOTIFICATION_ID, buildNotification(text))
+                }.onFailure { KLog.w(TAG, "не удалось обновить текст нотификации", it) }
+            }
+        }
+    }
+
     /** Нотификация «🔴 KrinikCam LIVE»: тап → приложение (singleTask), кнопка Stop → ACTION_STOP. */
-    private fun buildNotification(): Notification {
+    private fun buildNotification(text: String = getString(R.string.notif_live_text)): Notification {
         val openApp = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
@@ -113,7 +162,7 @@ class StreamForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(getString(R.string.notif_live_title))
-            .setContentText(getString(R.string.notif_live_text))
+            .setContentText(text)
             .setColor(BRAND_PINK)
             .setOngoing(true)
             .setContentIntent(openApp)
@@ -143,6 +192,11 @@ class StreamForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        // Живучесть ур.1 — снимаем подписку на состояние вместе с сервисом (иначе коллектор пережил
+        // бы сервис и держал ссылку на его контекст).
+        serviceScope.cancel()
+        notificationJob = null
+        lastNotificationText = null
         wakeLock?.let { runCatching { if (it.isHeld) it.release() } }
         wakeLock = null
         KLog.i(TAG, "onDestroy: wake lock отпущен, нотификация снята")
