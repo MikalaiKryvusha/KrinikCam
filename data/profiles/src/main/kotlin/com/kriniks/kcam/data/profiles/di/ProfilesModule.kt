@@ -132,6 +132,19 @@ object ProfilesModule {
         }
     }
 
+    // plans/21 работа A (Р7 интервью 011, В5 интервью 012) — v7: пол адаптивного битрейта переезжает
+    // из хардкода `RtmpStreamer.ADAPTIVE_FLOOR_BPS = 1_000_000` в профиль кодера.
+    //
+    // ⚠️ Дефолт 250 000 СОЗНАТЕЛЬНО НЕ повторяет прежнее поведение (обычное правило миграций в этом
+    // файле — «DEFAULT = как было»). Здесь прежнее поведение И ЕСТЬ починяемый дефект: пол 1 Мбит/с
+    // выше полосы плохого 3G, поэтому адаптив упирался в него, канал не вытягивал и эфир глох.
+    // Апгрейд обязан ЛЕЧИТЬ существующие профили Криника, а не консервировать их болезнь. [NOT-TESTED]
+    private val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE encoder_profiles ADD COLUMN minVideoBitrateBps INTEGER NOT NULL DEFAULT 250000")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
@@ -140,7 +153,7 @@ object ProfilesModule {
             // (включая stream-ключи) при первом же бампе версии БД. Теперь при изменении схемы
             // ОБЯЗАТЕЛЬНА явная Migration(N,N+1) через .addMigrations(...) — забытая миграция
             // даст IllegalStateException на старте (заметно в первом же тесте), а не потерю данных.
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
 
     @Provides

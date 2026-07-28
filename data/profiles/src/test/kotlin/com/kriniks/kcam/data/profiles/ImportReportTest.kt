@@ -48,6 +48,12 @@ class ImportReportTest {
             report.issues.any { it is ImportIssue.MissingField && it.field == "videoFps" && it.fallback == "30" })
         assertTrue("ждём UnknownValue videoCodec H999→H264",
             report.issues.any { it is ImportIssue.UnknownValue && it.field == "videoCodec" && it.received == "H999" && it.fallback == "H264" })
+        // Р7 (plans/21 A): в этом JSON нет и minVideoBitrateBps — старые бэкапы (до Room v7) его не
+        // содержат в принципе. Импорт обязан подставить дефолт и СКАЗАТЬ об этом, а не молчать:
+        // молчаливый дефолт по полу эфира — это подмена настройки владельца без его ведома.
+        assertEquals(250_000, profiles[0].minVideoBitrateBps)
+        assertTrue("ждём MissingField minVideoBitrateBps",
+            report.issues.any { it is ImportIssue.MissingField && it.field == "minVideoBitrateBps" && it.fallback == "250000" })
     }
 
     @Test

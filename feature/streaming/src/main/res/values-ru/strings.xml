@@ -31,6 +31,8 @@
     <string name="field_resolution">Разрешение (16:9)</string>
     <string name="field_adaptive_bitrate">Адаптивный битрейт</string>
     <string name="field_adaptive_bitrate_hint">На слабой сети снижать качество вместо фризов</string>
+    <string name="field_min_video_bitrate">Минимальный битрейт ВИДЕО</string>
+    <string name="field_min_video_bitrate_hint">Пол адаптива: ниже видео не опускается. Звук идёт сверху (~128 кбит/с)</string>
     <!-- Профиль кодера (видео/звук) -->
     <string name="section_video">Видео</string>
     <string name="section_audio">Звук</string>

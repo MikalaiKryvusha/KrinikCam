@@ -32,6 +32,8 @@
     <string name="field_resolution">Resolution (16:9)</string>
     <string name="field_adaptive_bitrate">Adaptive bitrate</string>
     <string name="field_adaptive_bitrate_hint">Lower quality instead of freezing on a weak network</string>
+    <string name="field_min_video_bitrate">Minimum VIDEO bitrate</string>
+    <string name="field_min_video_bitrate_hint">Adaptive floor: video never drops below this. Audio goes on top (~128 kbps)</string>
     <!-- Encoder profile (video/audio) -->
     <string name="section_video">Video</string>
     <string name="section_audio">Audio</string>

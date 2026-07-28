@@ -23,6 +23,9 @@ data class EncoderProfileEntity(
     val videoBitrateBps: Int,
     val videoCodec: String,          // VideoCodec.name()
     val adaptiveBitrate: Boolean,
+    // Р7 — пол адаптива (schema v7, MIGRATION_6_7). Room сверяет TableInfo по ИМЕНАМ колонок,
+    // поэтому позиция в data class значения не имеет.
+    val minVideoBitrateBps: Int,
     val audioBitrateBps: Int,
     val audioSampleRate: Int,
     val audioChannelMode: String,    // AudioChannelMode.name()
@@ -37,6 +40,7 @@ data class EncoderProfileEntity(
         // Мягкий фолбэк (как у платформы): неизвестный кодек/режим (даунгрейд/битый импорт) → дефолт.
         videoCodec      = runCatching { VideoCodec.valueOf(videoCodec) }.getOrDefault(VideoCodec.H264),
         adaptiveBitrate = adaptiveBitrate,
+        minVideoBitrateBps = minVideoBitrateBps,
         audioBitrateBps = audioBitrateBps,
         audioSampleRate = audioSampleRate,
         audioChannelMode = runCatching { AudioChannelMode.valueOf(audioChannelMode) }.getOrDefault(AudioChannelMode.STEREO),
@@ -52,6 +56,7 @@ fun EncoderProfile.toEntity() = EncoderProfileEntity(
     videoBitrateBps = videoBitrateBps,
     videoCodec      = videoCodec.name,
     adaptiveBitrate = adaptiveBitrate,
+    minVideoBitrateBps = minVideoBitrateBps,
     audioBitrateBps = audioBitrateBps,
     audioSampleRate = audioSampleRate,
     audioChannelMode = audioChannelMode.name,

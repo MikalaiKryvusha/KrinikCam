@@ -60,6 +60,7 @@ object EncoderProfilesBackupCodec {
                 videoBitrateBps = r.int("videoBitrateBps", def.videoBitrateBps),
                 videoCodec = r.enumByName("videoCodec", VideoCodec.values(), def.videoCodec),
                 adaptiveBitrate = r.bool("adaptiveBitrate", def.adaptiveBitrate),
+                minVideoBitrateBps = r.int("minVideoBitrateBps", def.minVideoBitrateBps),
                 audioBitrateBps = r.int("audioBitrateBps", def.audioBitrateBps),
                 audioSampleRate = r.int("audioSampleRate", def.audioSampleRate),
                 audioChannelMode = r.enumByName("audioChannelMode", AudioChannelMode.values(), def.audioChannelMode),
@@ -74,9 +75,13 @@ object EncoderProfilesBackupCodec {
      * берём и имя тоже, чтобы «1080p H.264» и его копия с другим именем считались разными по желанию юзера).
      */
     fun dedup(imported: List<EncoderProfile>, existing: List<EncoderProfile>): List<EncoderProfile> {
+        // Пол адаптива входит в подпись: два профиля, различающиеся ТОЛЬКО полом, — разные профили
+        // (пол влияет на поведение эфира). Последствие, которое надо знать: бэкап, снятый ДО v7, поля
+        // не содержит → при импорте получает дефолт 250к и потому НЕ дедупится против профиля с
+        // изменённым полом — импортируется как новый. Это честнее, чем склеить разные настройки.
         fun sig(p: EncoderProfile) = listOf(
             p.name, p.videoWidth, p.videoHeight, p.videoFps, p.videoBitrateBps, p.videoCodec,
-            p.adaptiveBitrate, p.audioBitrateBps, p.audioSampleRate, p.audioChannelMode,
+            p.adaptiveBitrate, p.minVideoBitrateBps, p.audioBitrateBps, p.audioSampleRate, p.audioChannelMode,
         )
         val seen = existing.map { sig(it) }.toMutableSet()
         return imported.filter { seen.add(sig(it)) }

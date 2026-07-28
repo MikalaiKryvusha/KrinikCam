@@ -219,6 +219,9 @@ private fun EncoderProfileEditDialog(
     var customMbps by remember { mutableStateOf((initial.videoBitrateBps / 1_000_000f).let { if (it % 1f == 0f) it.toInt().toString() else it.toString() }) }
     var codec by remember { mutableStateOf(initial.videoCodec) }
     var adaptive by remember { mutableStateOf(initial.adaptiveBitrate) }
+    // Р7 — пол адаптива (plans/21 A). ОДНА переменная состояния: только пресеты, без ветки ручного
+    // ввода — вилка 150…1000 кбит/с покрывает весь осмысленный диапазон (researches/network_resilience.md).
+    var minVideoBitrateBps by remember { mutableStateOf(initial.minVideoBitrateBps) }
     var audioBitrateBps by remember { mutableStateOf(initial.audioBitrateBps) }
     var sampleRate by remember { mutableStateOf(initial.audioSampleRate) }
     var channelMode by remember { mutableStateOf(initial.audioChannelMode) }
@@ -263,6 +266,13 @@ private fun EncoderProfileEditDialog(
                         Text(stringResource(R.string.field_adaptive_bitrate_hint), color = Color(0xFF888888), fontSize = 11.sp)
                     }
                 }
+                // Р7 — пол адаптива. Показываем ТОЛЬКО при включённом адаптиве: без него величина не
+                // участвует ни в чём и лишь путала бы. Подсказка обязана называть слово «видео» и
+                // упоминать звук — рядом в этом же диалоге стоит битрейт ЗВУКА, и спутать их легко.
+                if (adaptive) {
+                    MinBitrateDropdown(minVideoBitrateBps) { minVideoBitrateBps = it }
+                    HintText(stringResource(R.string.field_min_video_bitrate_hint))
+                }
 
                 // ── Звук ──────────────────────────────────────────────
                 SectionHeader(stringResource(R.string.section_audio))
@@ -285,6 +295,10 @@ private fun EncoderProfileEditDialog(
                         videoBitrateBps = resolveBitrate(customBitrate, customMbps, bitrateBps),
                         videoCodec = codec,
                         adaptiveBitrate = adaptive,
+                        // БЕЗ клампа к текущей цели: профиль хранит НАМЕРЕНИЕ владельца, а кламп
+                        // живёт в точке применения (RtmpStreamer.startStream). Иначе сценарий
+                        // «временно опустил цель до 1 Мбит» молча и НАВСЕГДА переписал бы пол в БД.
+                        minVideoBitrateBps = minVideoBitrateBps,
                         audioBitrateBps = audioBitrateBps,
                         audioSampleRate = sampleRate,
                         audioChannelMode = channelMode,
@@ -403,6 +417,31 @@ private fun AudioBitrateDropdown(selected: Int, modifier: Modifier = Modifier, o
         )
         ExposedDropdownMenu(expanded, { expanded = false }, modifier = Modifier.background(DropdownSurface)) {
             AUDIO_BITRATE_PRESETS.forEach { b ->
+                DropdownMenuItem(text = { Text("${b / 1000} kbps", color = Color.White) },
+                    onClick = { onSelect(b); expanded = false })
+            }
+        }
+    }
+}
+
+// Р7 — пресеты пола адаптива (кбит/с). Вилка из разведдока `researches/network_resilience.md`:
+// нижняя граница осмысленного видео ~150к, верхняя — прежний хардкод 1 Мбит/с (кому он подходил,
+// тот может его вернуть явно). Дефолт 250к подтверждён Криником (интервью 012, В5).
+private val MIN_BITRATE_PRESETS = listOf(150_000, 200_000, 250_000, 300_000, 500_000, 750_000, 1_000_000)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MinBitrateDropdown(selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded, { expanded = it }, modifier) {
+        OutlinedTextField(
+            value = "${selected / 1000} kbps", onValueChange = {}, readOnly = true,
+            label = { Text(stringResource(R.string.field_min_video_bitrate), color = Color(0xFF888888)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded, { expanded = false }, modifier = Modifier.background(DropdownSurface)) {
+            MIN_BITRATE_PRESETS.forEach { b ->
                 DropdownMenuItem(text = { Text("${b / 1000} kbps", color = Color.White) },
                     onClick = { onSelect(b); expanded = false })
             }

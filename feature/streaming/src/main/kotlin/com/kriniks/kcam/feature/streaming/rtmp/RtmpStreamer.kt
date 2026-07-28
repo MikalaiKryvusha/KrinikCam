@@ -95,11 +95,16 @@ private const val TAG = "RtmpStreamer"
 // трансформы шлёт правку каждый кадр — сохраняем только после паузы ~0.4с).
 private const val SCENE_AUTOSAVE_DEBOUNCE_MS = 400L
 
-// idea 37 — адаптивный битрейт: пол деградации (ниже не опускаемся — картинка теряет смысл),
-// шаг снижения при затыке канала и шаг плавного восстановления к целевому (проценты от значения).
-private const val ADAPTIVE_FLOOR_BPS = 1_000_000
+// idea 37 — адаптивный битрейт: шаг снижения при затыке канала и шаг плавного восстановления к
+// целевому (проценты от значения). ПОЛ деградации здесь больше НЕ живёт: он переехал в профиль
+// кодера (`EncoderProfile.minVideoBitrateBps`, Room v7) по решению Криника Р7 — прежний хардкод
+// 1 Мбит/с был ВЫШЕ полосы плохого 3G и потому сам ломал вижн «эфир не умирает» (plans/21 работа A).
+// Абсолютный нижний предел санитайзера (защита от импорта с нулём/мусором) — [FLOOR_HARD_MIN_BPS].
 private const val ADAPTIVE_DECREASE_PERCENT = 20
 private const val ADAPTIVE_RECOVER_PERCENT = 10
+// Абсолютный минимум пола (санитайзер). Профиль хранит НАМЕРЕНИЕ и может прийти из импорта с нулём
+// или мусором; ниже этого значения видео перестаёт быть видео вообще.
+private const val FLOOR_HARD_MIN_BPS = 50_000
 // Период тикера телеметрии эфира; шаг адаптера — каждый второй тик (2с), чтобы не дёргать энкодер.
 private const val LIVE_TICK_MS = 1000L
 
@@ -168,6 +173,10 @@ class RtmpStreamer @Inject constructor(
     // канала и плавно восстанавливается к target на свободном канале (setVideoBitrateOnFly).
     private var currentVideoBitrateBps = 0
     private var targetVideoBitrateBps = 0
+    // Пол адаптива (Р7): берётся из профиля кодера в startStream, санитайзится там же. 0 = эфир не
+    // запущен. ВАЖНО: пол резолвится из профиля ПЕРВОГО выхода и действует на ОДИН общий энкодер
+    // всех выходов (Р3 «консервативно» — один энкодер на мультистрим).
+    private var floorVideoBitrateBps = 0
     // Адаптив включён, если ВСЕ активные профили эфира просят его (энкодер один на все выходы —
     // консервативно: выключил у одного = выключен весь; контроль у стримера).
     private var adaptiveBitrateEnabled = true
@@ -577,9 +586,15 @@ class RtmpStreamer @Inject constructor(
 
     /**
      * Шаг адаптера битрейта (idea 37): затык ЛЮБОГО живого выхода → минус
-     * [ADAPTIVE_DECREASE_PERCENT]% (пол [ADAPTIVE_FLOOR_BPS]); канал чист и current < target →
-     * плюс [ADAPTIVE_RECOVER_PERCENT]% от target (потолок target). Энкодер ОДИН на все выходы →
-     * правим глобально setVideoBitrateOnFly. Деградируем КАЧЕСТВОМ, а не плавностью.
+     * [ADAPTIVE_DECREASE_PERCENT]% (пол — [floorVideoBitrateBps] из профиля кодера, Р7);
+     * канал чист и current < target → плюс [ADAPTIVE_RECOVER_PERCENT]% от target (потолок target).
+     * Энкодер ОДИН на все выходы → правим глобально setVideoBitrateOnFly. Деградируем КАЧЕСТВОМ,
+     * а не плавностью.
+     *
+     * Про пол (важно для будущих сессий): он берётся из профиля кодера ПЕРВОГО выхода и действует на
+     * общий энкодер всех выходов — следствие решения Р3 «мультистрим консервативно, один энкодер».
+     * Логи печатают НАМЕРЕНИЕ: `setVideoBitrateOnFly` молча выходит, если энкодер не запущен
+     * (проверено байткодом, plans/21 Ш0), поэтому факт доказывает только пульс/приёмник.
      */
     private fun adaptiveBitrateStep() {
         if (!adaptiveBitrateEnabled || targetVideoBitrateBps <= 0) return
@@ -588,7 +603,7 @@ class RtmpStreamer @Inject constructor(
         val next = when {
             anyCongested ->
                 (currentVideoBitrateBps * (100 - ADAPTIVE_DECREASE_PERCENT) / 100)
-                    .coerceAtLeast(ADAPTIVE_FLOOR_BPS)
+                    .coerceAtLeast(floorVideoBitrateBps)
             currentVideoBitrateBps < targetVideoBitrateBps ->
                 (currentVideoBitrateBps + targetVideoBitrateBps * ADAPTIVE_RECOVER_PERCENT / 100)
                     .coerceAtMost(targetVideoBitrateBps)
@@ -1131,7 +1146,14 @@ class RtmpStreamer @Inject constructor(
             targetVideoBitrateBps = encoder.videoBitrateBps
             currentVideoBitrateBps = targetVideoBitrateBps
             adaptiveBitrateEnabled = encoder.adaptiveBitrate
-            KLog.i(TAG, "idea37: target=${targetVideoBitrateBps / 1000}kbps adaptive=$adaptiveBitrateEnabled")
+            // Р7 — пол из профиля, санитайзится ДВУМЯ шагами (не coerceIn!): coerceIn бросает
+            // IllegalArgumentException при min > max, а состояние «цель 500к, пол 1000к из импорта»
+            // достижимо и не должно ронять старт эфира.
+            floorVideoBitrateBps = encoder.minVideoBitrateBps
+                .coerceAtLeast(FLOOR_HARD_MIN_BPS)
+                .coerceAtMost(targetVideoBitrateBps)
+            KLog.i(TAG, "idea37: target=${targetVideoBitrateBps / 1000}kbps floor=${floorVideoBitrateBps / 1000}kbps " +
+                "adaptive=$adaptiveBitrateEnabled (профиль кодера «${encoder.name}»)")
             startLiveTicker()
 
             // Wait for GL to start, re-attach preview TextureView

@@ -81,11 +81,25 @@ class ProfilesHygieneTest {
         val e = EncoderProfileEntity(
             id = 1L, name = "e", videoWidth = 1920, videoHeight = 1080, videoFps = 30,
             videoBitrateBps = 4_000_000, videoCodec = "AV99_FROM_FUTURE", adaptiveBitrate = true,
+            minVideoBitrateBps = 250_000,
             audioBitrateBps = 128_000, audioSampleRate = 44_100, audioChannelMode = "SURROUND_9_1",
         )
         val p = e.toProfile()
         assertEquals(VideoCodec.H264, p.videoCodec)
         assertEquals(AudioChannelMode.STEREO, p.audioChannelMode)
+    }
+
+    /**
+     * Р7 (plans/21 работа A): пол адаптива — полноценное поле профиля, а не производная величина.
+     * Тест стережёт ДВЕ вещи: что значение не теряется на границе Room↔домен (забытая строка в
+     * маппере даёт молчаливый откат к дефолту — то есть тихо возвращает починяемый дефект), и что
+     * дефолт равен подтверждённым Криником 250 кбит/с (интервью 012, В5).
+     */
+    @Test
+    fun `пол адаптива переживает round-trip и имеет дефолт 250к`() {
+        assertEquals(250_000, EncoderProfile().minVideoBitrateBps)
+        val back = EncoderProfile(name = "3G", minVideoBitrateBps = 150_000).toEntity().toProfile()
+        assertEquals(150_000, back.minVideoBitrateBps)
     }
 
     @Test
