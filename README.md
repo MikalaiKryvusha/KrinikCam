@@ -51,6 +51,7 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 | **Record composite to gallery** (DCIM/KrinikCam .mp4) + photo capture | ✅ v0.7 |
 | Manual UI language + "follow system" (EN / RU) | ✅ v0.7 |
 | Simultaneous multi-platform streaming (YouTube + Instagram…) | ✅ engine stabilized — per-output failure isolation + auto-reconnect (backoff); live multi-key check pending |
+| **A broadcast ends only when you stop it** — unlimited reconnection with jittered backoff, the foreground service survives the outage, loud on-screen and notification status ("off air 00:28 · try 7") | ✅ v0.8 — verified live: a 3-minute outage, the stream came back on its own |
 | Screen stays on while live (keep-screen-on) | ✅ v0.7 |
 | **Background streaming** — Foreground Service (stream survives screen-off / app in background) + wake lock | ✅ v0.7 |
 | Auto image regulation (exposure, white balance) | 📅 Phase 4 |
@@ -204,6 +205,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | **Запись композита в галерею** (DCIM/KrinikCam .mp4) + фотоснимок | ✅ v0.7 |
 | Ручной выбор языка UI + «следовать системе» (EN / RU) | ✅ v0.7 |
 | Одновременный стрим на несколько платформ (YouTube + Instagram…) | ✅ движок стабилизирован — изоляция сбоя выхода + авто-реконнект (бэкофф); сверка живыми ключами впереди |
+| **Эфир завершает только кнопка Стоп** — реконнект без потолка попыток с джиттером, foreground-сервис переживает обрыв, громкая индикация на экране и в уведомлении («эфир не идёт 00:28 · попытка 7») | ✅ v0.8 — проверено живьём: обрыв 3 минуты, эфир вернулся сам |
 | Экран не гаснет во время эфира (keep-screen-on) | ✅ v0.7 |
 | **Фоновый режим стриминга** — Foreground Service (эфир переживает гашение экрана / сворачивание) + wake lock | ✅ v0.7 |
 | Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 4 |
