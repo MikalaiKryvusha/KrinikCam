@@ -26,6 +26,7 @@ import android.os.SystemClock
 import android.view.Surface
 import com.kriniks.kcam.core.logging.KLog
 // plans/18 Ф2 — тип перехода между сценами (домен сцен того же модуля).
+import com.kriniks.kcam.feature.streaming.scene.NetworkSlateImage
 import com.kriniks.kcam.feature.streaming.scene.SceneTransition
 import com.pedro.library.util.sources.video.VideoSource
 import java.nio.ByteBuffer
@@ -452,6 +453,14 @@ class CompositorVideoSource : VideoSource() {
     // Флаг относится ко ВСЕЙ сцене, а не к слою: сеть просела для всего эфира сразу.
     @Volatile private var netSlateActive = false
 
+    // Лента-плашка (шаг C2). Альфа отдельная от флага: вход и выход идут ФЕЙДОМ тем же
+    // STANDBY_FADE_MS, что и брендовая заглушка, — резкое появление плашки читается как глитч.
+    private var netSlateAlpha = 0f
+    private var netSlateTex = 0
+    private var netSlateTexW = 0
+    private var netSlateTexH = 0
+    private var netSlateFadeClockMs = 0L
+
     /** Источник слоя [layerId] удалён — заморозить его OES на последнем хорошем кадре (Криник: держать кадр). */
     fun enterCameraStandby(layerId: String) {
         handler?.post { cameraSlots[layerId]?.frozen = true }
@@ -492,6 +501,54 @@ class CompositorVideoSource : VideoSource() {
         // содержимым — тот же приём, что в exitCameraStandby.
         if (!active) handler?.post { cameraSlots.values.forEach { it.newFrame = false } }
         KLog.i(TAG, "сетевой слейт: ${if (active) "ВКЛ — кадр заморожен" else "ВЫКЛ — картинка живая"}")
+    }
+
+    /**
+     * Живучесть, УРОВЕНЬ 4 (plans/21 C2) — нарисовать ленту-плашку поверх готового выходного кадра.
+     * Зовётся ТОЛЬКО из прохода 2 (framebuffer 0), обоснование места — в комментарии точки вызова.
+     *
+     * Альфа ведётся фейдом (`STANDBY_FADE_MS`), поэтому метод работает и пока плашка ещё видна, но
+     * слейт уже выключен. Когда лента полностью погасла — освобождаем текстуру и битмап: держать
+     * мегабайты ради невидимого элемента незачем.
+     * [TESTED: 2026-07-29 · кадр с RTMP-сервера, ландшафт 1920×1080 и портрет 1080×1920 — лента
+     *  внизу, текст горизонтален и не обрезан; подробности приёмки — в шапке NetworkSlateImage.]
+     */
+    private fun drawNetworkSlate(r: GlQuadRenderer, nowMs: Long) {
+        // Фейд к цели. Шаг считаем от РЕАЛЬНОГО времени кадра, а не от номинального FRAME_MS:
+        // на просадке fps (а слейт как раз и живёт на просадках) фиксированный шаг растянул бы фейд.
+        val target = if (netSlateActive) 1f else 0f
+        val dt = if (netSlateFadeClockMs == 0L) FRAME_MS.toFloat() else (nowMs - netSlateFadeClockMs).toFloat()
+        netSlateFadeClockMs = nowMs
+        val step = (dt / STANDBY_FADE_MS).coerceIn(0f, 1f)
+        netSlateAlpha += (target - netSlateAlpha) * step
+        if (netSlateAlpha < 0.004f && target == 0f) {
+            netSlateAlpha = 0f
+            if (netSlateTex != 0) {
+                runCatching { r.deleteTexture(netSlateTex) }
+                netSlateTex = 0; netSlateTexW = 0; netSlateTexH = 0
+                NetworkSlateImage.clear()
+            }
+            return
+        }
+        // Битмап рисуется ПОД ФАКТИЧЕСКИЙ размер кадра, поэтому при повороте холста (портрет↔ландшафт)
+        // текстуру надо перезалить — иначе лента растянется вместе с квадом и текст поедет.
+        if (netSlateTex == 0 || netSlateTexW != encW || netSlateTexH != encH) {
+            val bmp = NetworkSlateImage.band(encW, encH) ?: return
+            if (netSlateTex != 0) runCatching { r.deleteTexture(netSlateTex) }
+            netSlateTex = r.uploadBitmap(bmp)
+            netSlateTexW = encW; netSlateTexH = encH
+        }
+        if (netSlateTex != 0) {
+            // Квад во весь выходной кадр: битмап уже нарисован в encW×encH, поворот холста применён
+            // к сцене ниже — значит ни posMatrix, ни контр-поворота не нужно.
+            //
+            // ⚠️ texMatrix НЕ передаём (как и брендовая заглушка). Это не мелочь: `snapIdentity` —
+            // матрица «без флипа», она для ЧИТАЕМЫХ FBO-текстур (снапшот камеры, sceneTex). Битмап же
+            // приходит из Canvas, где начало координат сверху, а у GL-текстуры снизу — с identity
+            // лента уезжает наверх кадра и текст встаёт вверх ногами (поймано кадром с сервера
+            // 2026-07-29). Дефолтный путь draw() делает нужный флип сам.
+            r.draw(netSlateTex, oes = false, posMatrix = null, alpha = netSlateAlpha)
+        }
     }
 
     /** plans/sourses_timeout — задать битмапы заглушки: [title] пульсирует, [body] статична. RtmpStreamer при init. */
@@ -987,6 +1044,14 @@ class CompositorVideoSource : VideoSource() {
             canvasTexMatrix(canvasRotation)
             r.draw(sceneTex, oes = false, texMatrix = canvasTexM, posMatrix = null, alpha = 1f)
 
+            // Живучесть, УРОВЕНЬ 4 (plans/21 C2) — ЛЕНТА-ПЛАШКА поверх готового кадра.
+            // Рисуется именно ЗДЕСЬ, в проходе 2 (framebuffer 0), а НЕ в sceneFbo — и это не вкусовщина:
+            // beginTransition кладёт в transBaseTex СНИМОК sceneTex, поэтому плашка из sceneFbo при
+            // смене сцены попала бы И в базу уходящей сцены, И живой поверх → двойная альфа на всю
+            // длительность перехода. Здесь же поворот холста уже применён к сцене, а битмап рисуется
+            // под фактический encW×encH — значит контр-поворот и аспект-поправка не нужны вовсе.
+            drawNetworkSlate(r, nowMs)
+
             // Idea 17 — захват фото: читаем готовый ВЫХОДНОЙ кадр ДО swap (то, что видит зритель, с поворотом).
             val cap = pendingCapture
             if (cap != null) {
@@ -1135,6 +1200,12 @@ class CompositorVideoSource : VideoSource() {
             // Живучесть, УРОВЕНЬ 4 (plans/21 C1) — слейт НЕ переживает stop(): иначе следующий эфир
             // стартовал бы с замороженной картинкой, а причина (просевшая сеть) давно ушла.
             netSlateActive = false
+            // …и вместе с ним освобождаем ленту (C2): GL-контекст умирает здесь же, поэтому текстуру
+            // надо удалить ДО него, а битмап-кэш — чтобы не держать мегабайты между сессиями.
+            runCatching { if (netSlateTex != 0) renderer?.deleteTexture(netSlateTex) }
+            netSlateTex = 0; netSlateTexW = 0; netSlateTexH = 0
+            netSlateAlpha = 0f; netSlateFadeClockMs = 0L
+            NetworkSlateImage.clear()
             // Мульти-источники: освободить ВСЕ слоты камер (OES/ST/снапшот-FBO).
             runCatching { cameraSlots.values.forEach { it.release(renderer) } }
             cameraSlots.clear()
