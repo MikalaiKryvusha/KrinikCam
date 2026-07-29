@@ -112,6 +112,17 @@ private const val LIVE_TICK_MS = 1000L
 // с 7-й секунды теряется весь поток. 6 с = запас на легальные паузы и всё ещё < 1/10 окна платформы.
 private const val WATCHDOG_STALL_MS = 6_000L
 
+// ── Живучесть, УРОВЕНЬ 4 — пороги политики слейта (plans/21 работа C, шаг C3) ─────────────────
+// Сколько эфир должен молчать, прежде чем зритель увидит замерший кадр и ленту. Число — РЕШЕНИЕ
+// АГЕНТА, не владельца (в plans/21 §8 п.11 это записано прямо), и калибруется наблюдением:
+// слишком мало — плашка мигает на каждом сетевом чихе, слишком много — зритель успевает уйти.
+// 3 с выбраны как «заведомо больше одного пропущенного тика (1 с) и заведомо меньше, чем время,
+// за которое зритель решает, что трансляция сломалась».
+private const val SLATE_ENTER_OFFLINE_MS = 3_000L
+// Вторая дверь входа: битрейт УЖЕ на полу адаптива и выход всё равно в затыке столько тиков подряд.
+// Смысл — «лестница адаптива упёрлась, лучше картинки не будет»; один тик был бы шумом.
+private const val SLATE_ENTER_CONGESTED_TICKS = 3
+
 // ── ЖИВУЧЕСТЬ ЭФИРА (idea 43 «эфир завершает только кнопка Стоп», researches/network_resilience.md) ──
 // УРОВЕНЬ 0 — гигиена библиотеки. Сглаживание onNewBitrate самой библиотекой: показания битрейта
 // перестают скакать посекундно, адаптер битрейта (idea 37) видит тренд, а не шум.
@@ -181,6 +192,14 @@ class RtmpStreamer @Inject constructor(
     // запущен. ВАЖНО: пол резолвится из профиля ПЕРВОГО выхода и действует на ОДИН общий энкодер
     // всех выходов (Р3 «консервативно» — один энкодер на мультистрим).
     private var floorVideoBitrateBps = 0
+
+    // Живучесть, УРОВЕНЬ 4 — состояние политики слейта (plans/21 C3).
+    // `slateOverride` — принуждение от харнеса (ВХОД политики, не второй писатель);
+    // `slateActive`   — что политика реально применила (чтобы логировать только СМЕНУ состояния);
+    // `slateCongestedTicks` — сколько тиков подряд держится «пол адаптива + затык» (дверь «б»).
+    private var slateOverride = false
+    private var slateActive = false
+    private var slateCongestedTicks = 0
 
     // Живучесть, УРОВЕНЬ 3 — состояние watchdog замершего отправителя (plans/21 работа B).
     // Синхронизация не нужна: scope = Dispatchers.Main.immediate, колбэки библиотеки приходят туда же,
@@ -594,6 +613,9 @@ class RtmpStreamer @Inject constructor(
                         if (!tickerOverslept) senderWatchdogStep(i, st2?.phase, cache, sentV, sentA, now)
                     }
                 }
+                // Живучесть, УРОВЕНЬ 4 — политика слейта. Стоит ПОСЛЕ цикла по выходам: решение
+                // принимается по состоянию ВСЕХ выходов сразу (один живой выход отменяет слейт).
+                if (!tickerOverslept) updateSlatePolicy(now)
                 if (st is StreamState.Live) {
                     val outs = outputStates.values.sortedBy { it.index }
                     // bug 70 — у битрейта ДВА разных источника правды, и зависят они от РЕЖИМА:
@@ -722,18 +744,89 @@ class RtmpStreamer @Inject constructor(
     }
 
     /**
-     * Debug-харнес (CMD simulate-slate, plans/21 работа C): ПРИНУДИТЕЛЬНО включить/выключить
-     * сетевой слейт, не дожидаясь настоящей просадки сети. На этой ручке держится вся приёмка C1/C2:
-     * два кадра, вытянутые С СЕРВЕРА с интервалом, обязаны совпасть по md5 при `on` и разойтись при `off`.
+     * Debug-харнес (CMD simulate-slate, plans/21 работа C): ПРИНУДИТЕЛЬНО включить сетевой слейт,
+     * не дожидаясь настоящей просадки сети. На этой ручке держится вся приёмка C1/C2.
      *
-     * ⚠️ Когда появится автоматическая политика слейта (шаг C3), эта ручка обязана остаться ВХОДОМ
-     * политики (`want = override || policy`), а не вторым писателем: политика крутится в тикере раз в
-     * секунду и молча затёрла бы override меньше чем за секунду.
-     * [NOT-TESTED] — до прогона на полигоне.
+     * Это **ВХОД политики**, а не второй писатель: итог считает `updateSlatePolicy` как
+     * `want = override || policy`. Иначе политика, которая крутится в тикере раз в секунду, молча
+     * затёрла бы override меньше чем за секунду — и приёмка ловила бы собственный хвост.
+     * `off` не «выключает слейт», а снимает принуждение: дальше решает политика.
+     *
+     * [TESTED: 2026-07-29 · слейт включался и выключался этой командой на живом эфире, наблюдалось
+     *  кадрами с сервера (PSNR 23→68→15 дБ, лента появлялась и исчезала).]
      */
     fun setSimulatedSlate(on: Boolean) {
-        compositorSource.setNetworkSlate(on)
-        KLog.i(TAG, "simulate-slate: ${if (on) "ON — кадр заморожен вручную" else "OFF — картинка живая"}")
+        slateOverride = on
+        KLog.i(TAG, "simulate-slate: ${if (on) "ON — принудительный слейт" else "OFF — решает политика"}")
+        // Применяем немедленно, не дожидаясь следующего тика: приёмка снимает кадр через пару секунд.
+        updateSlatePolicy(android.os.SystemClock.elapsedRealtime())
+    }
+
+    /**
+     * Живучесть, УРОВЕНЬ 4 — ПОЛИТИКА СЛЕЙТА (plans/21 работа C, шаг C3).
+     * Решает, должен ли зритель сейчас видеть замерший кадр с лентой. Зовётся раз в тик из
+     * `startLiveTicker` и из [setSimulatedSlate].
+     *
+     * ДВЕ ДВЕРИ ВХОДА (обе — про «лучше уже не будет»):
+     *  (а) **молчание** — ни одного выхода в фазе Live дольше [SLATE_ENTER_OFFLINE_MS];
+     *  (б) **пол адаптива + затык** — битрейт уже упёрся в пол профиля кодера, а живой выход всё
+     *      равно сообщает `congestion` [SLATE_ENTER_CONGESTED_TICKS] тиков подряд.
+     *
+     * ВЫХОД — НЕМЕДЛЕННЫЙ, на первом же тике, где условия отпали. Никакого «N чистых тиков»:
+     * сокет либо есть, либо нет, а лишний дебаунс стоит зрителю секунд фриза на уже воскресшем эфире.
+     *
+     * Чего здесь НЕТ и быть не должно: собственного битрейта слейта. Битрейтом владеет одна лестница
+     * адаптива с полом из работы A — второй контроллер дал бы автоколебание «слейт вкл/выкл» и
+     * вечную деградацию при выключенном адаптиве (plans/21, раздел «что НЕ делаем»).
+     *
+     * [TESTED: 2026-07-29 · полигон MediaMTX, живой эфир с виртуалки. (1) НЕГАТИВ: на чистом эфире
+     *  `grep -c 'слейт ВКЛ'` = 0 — ложных входов нет. (2) ВХОД: `rtmp-server stop` → через 3 с в логе
+     *  «слейт ВКЛ — эфир молчит 3с». (3) ВЫХОД: `rtmp-server start` → «слейт ВЫКЛ — эфир снова идёт»
+     *  в ту же секунду, когда сервер напечатал `is publishing`. Прогон повторён дважды.
+     *  Дверь (б) «пол адаптива + затык» этим прогоном НЕ проверена — для неё нужен узкий канал
+     *  (дроссель `tools/net-chaos.mjs`, которого ещё нет); остаётся на C6.]
+     */
+    private fun updateSlatePolicy(now: Long) {
+        // Запись в файл слейта не касается: там нет ни сети, ни выходов (bug 70 — тот же признак режима).
+        if (outputStates.isEmpty()) {
+            slateCongestedTicks = 0
+            if (slateActive) applySlate(false, "режим записи — слейт не применяется")
+            return
+        }
+        val anyLive = outputStates.values.any { it.phase == OutputPhase.Live }
+
+        // Дверь (а): эфир молчит дольше порога. offlineSinceMs ведёт recomputeAggregateState.
+        val offlineFor = if (offlineSinceMs == 0L) 0L else now - offlineSinceMs
+        val byOffline = !anyLive && offlineFor >= SLATE_ENTER_OFFLINE_MS
+
+        // Дверь (б): лестница адаптива на полу, а затык не уходит. Считаем ТОЛЬКО когда есть живой
+        // выход — иначе это дверь (а), и смешивать их нельзя.
+        val onFloor = floorVideoBitrateBps > 0 && currentVideoBitrateBps in 1..floorVideoBitrateBps
+        val congestedLive = outputStates.values.firstOrNull { it.phase == OutputPhase.Live && it.congested }
+        slateCongestedTicks = if (anyLive && onFloor && congestedLive != null) slateCongestedTicks + 1 else 0
+        val byCongestion = slateCongestedTicks >= SLATE_ENTER_CONGESTED_TICKS
+
+        val want = slateOverride || byOffline || byCongestion
+        if (want == slateActive) return
+        // В лог — ПО ЧЬЕЙ вине. Р3 («консервативно», решение Криника) означает, что один тонущий выход
+        // включает слейт для ВСЕХ: это принятая цена, но она обязана быть видна, иначе читается как баг.
+        // Причину ВЫКЛючения считаем отдельно: подставлять сюда описание двери входа — значит писать в
+        // лог заведомую неправду («выход[null] в затыке» в момент, когда эфир как раз восстановился).
+        val why = if (!want) {
+            if (anyLive) "эфир снова идёт" else "условия слейта отпали"
+        } else when {
+            slateOverride -> "принудительно (harness)"
+            byOffline -> "эфир молчит ${offlineFor / 1000}с"
+            else -> "выход[${congestedLive?.index}] в затыке на полу ${currentVideoBitrateBps / 1000}кбит/с"
+        }
+        applySlate(want, why)
+    }
+
+    /** Единственная точка, где политика двигает слейт: держит [slateActive] и композитор синхронно. */
+    private fun applySlate(active: Boolean, why: String) {
+        slateActive = active
+        compositorSource.setNetworkSlate(active)
+        KLog.i(TAG, "слейт ${if (active) "ВКЛ" else "ВЫКЛ"} — $why")
     }
 
     /**
@@ -1241,6 +1334,11 @@ class RtmpStreamer @Inject constructor(
             // Живучесть, УРОВЕНЬ 3 — watchdog чистится ТАМ ЖЕ, где outputStates: его состояние
             // ключуется индексом выхода, а индексы переиспользуются между сессиями.
             watchdogSentLast.clear(); watchdogFrozenSince.clear(); watchdogLastTickAtMs = 0L
+            // Живучесть, УРОВЕНЬ 4 — и слейт тоже: новый эфир обязан начинаться с ЖИВОЙ картинки,
+            // даже если прошлый закончился на просевшей сети. Принуждение харнеса тоже снимаем —
+            // иначе забытый `simulate-slate on` молча испортил бы следующую сессию.
+            slateOverride = false; slateCongestedTicks = 0
+            if (slateActive) applySlate(false, "старт новой сессии")
             // Живучесть, УРОВЕНЬ 1 — СЕССИЯ открыта: с этой секунды и до кнопки Стоп приложение
             // обязано держать эфир (FGS + wake lock живут по этому флагу, а не по состоянию).
             offlineSinceMs = 0L
@@ -1301,6 +1399,10 @@ class RtmpStreamer @Inject constructor(
         activeRtmpOutputs.clear()
         outputStates.clear()   // plans/09 S2 — сбрасываем per-output состояние
         watchdogSentLast.clear(); watchdogFrozenSince.clear(); watchdogLastTickAtMs = 0L  // уровень 3
+        // Живучесть, УРОВЕНЬ 4 — снять слейт по кнопке Стоп: композитор обязан вернуться к живой
+        // картинке, иначе превью останется замороженным уже ПОСЛЕ конца эфира.
+        slateOverride = false; slateCongestedTicks = 0
+        if (slateActive) applySlate(false, "эфир остановлен")
         _state.value = StreamState.Idle
         // bug 48/63 — превью восстанавливаем ТОЛЬКО если оно отвалилось (не пере-цепляем живую поверхность).
         restorePreviewIfDetached()
