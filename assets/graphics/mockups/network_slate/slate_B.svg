@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!--
+    Вариант B — «ТЁМНОЕ СТЕКЛО С РОЗОВЫМ КАНТОМ»
+    Тёмная полупрозрачная подложка (кадр чуть просвечивает) + брендовый кант и точка.
+    Две строки: русская крупно, английская мельче — как в заглушке StandbyImage (двуязычие
+    уже принято Криником и «выглядит хорошо»). Бренд присутствует акцентом, а не заливкой:
+    меньше перекрывает картинку, чем вариант A.
+    [NOT-TESTED] — мокап для согласования.
+  -->
+  <defs>
+    <filter id="shadowB" x="-30%" y="-60%" width="160%" height="260%">
+      <feDropShadow dx="0" dy="6" stdDeviation="16" flood-color="#000000" flood-opacity="0.65"/>
+    </filter>
+  </defs>
+
+  <!-- Подложка: тёмное стекло, брендовая обводка. Ширина 680 подогнана под фактическую длину
+       строки (первый заход с w=800 оставлял справа заметную пустоту). Центр — по центру кадра. -->
+  <g filter="url(#shadowB)">
+    <rect x="620" y="872" width="680" height="136" rx="24" ry="24"
+          fill="#0B0B0F" fill-opacity="0.80" stroke="#FF1A8C" stroke-width="2.5"/>
+  </g>
+
+  <!-- Брендовый индикатор с «волной» -->
+  <circle cx="680" cy="940" r="20" fill="#FF1A8C" opacity="0.30"/>
+  <circle cx="680" cy="940" r="10" fill="#FF1A8C"/>
+
+  <!-- Русская строка — основная -->
+  <text x="728" y="932" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="42" font-weight="700" fill="#FFFFFF">
+    Связь восстанавливается
+  </text>
+  <!-- Английская — вторичная -->
+  <text x="728" y="978" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="30" font-weight="500" fill="#FFFFFF" fill-opacity="0.80">
+    Reconnecting…
+  </text>
+</svg>
