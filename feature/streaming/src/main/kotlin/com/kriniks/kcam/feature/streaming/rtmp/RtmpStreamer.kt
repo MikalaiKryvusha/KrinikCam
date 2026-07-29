@@ -596,9 +596,19 @@ class RtmpStreamer @Inject constructor(
                 }
                 if (st is StreamState.Live) {
                     val outs = outputStates.values.sortedBy { it.index }
+                    // bug 70 — у битрейта ДВА разных источника правды, и зависят они от РЕЖИМА:
+                    //   • эфир   → сумма живых RTMP-выходов (idea 37, честный суммарный аплинк);
+                    //   • ЗАПИСЬ в файл → колбэк RecordController (`recordListener.onNewBitrate`).
+                    // При записи RTMP-выходов нет вовсе, поэтому сумма по пустому множеству давала 0 и
+                    // РАЗ В СЕКУНДУ затирала честное значение записи → пилюля мигала «0,0 Mbps».
+                    // Пустой набор выходов = режим записи → битрейт не трогаем, его ведёт колбэк.
+                    // (`droppedFrames` при этом честно 0: дропов RTMP в режиме записи и не существует,
+                    //  а состояние Live для записи создаётся заново — старое значение не протекает.)
+                    val recordingOnly = outs.isEmpty()
                     _state.value = st.copy(
                         durationMs = android.os.SystemClock.elapsedRealtime() - streamStartedAtMs,
-                        bitrateKbps = outs.filter { it.phase == OutputPhase.Live }.sumOf { it.bitrateKbps },
+                        bitrateKbps = if (recordingOnly) st.bitrateKbps
+                                      else outs.filter { it.phase == OutputPhase.Live }.sumOf { it.bitrateKbps },
                         // Живучесть, УРОВЕНЬ 0 — дропы БОЛЬШЕ НЕ ВРУТ: поле годами было константным
                         // нулём (никто не читал getDroppedVideoFrames), и развёрнутая карточка статуса
                         // молчала о потерях. Теперь это факт от библиотеки, а не заглушка.
