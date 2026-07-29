@@ -1,39 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
   <!--
-    Вариант C — «НИЖНЯЯ ЛЕНТА»
+    Вариант C — «НИЖНЯЯ ЛЕНТА» — ✅ ВЫБРАН КРИНИКОМ (interviews/interview_014, В1, 2026-07-29).
     Градиент от прозрачного к тёмному во всю ширину кадра + брендовая линия сверху.
     Читаемость максимальная на ЛЮБОМ контенте (градиент сам создаёт тёмную подложку под текстом —
     буквально то, что просил Криник: «чтобы вне зависимости от контента текст был различим»).
-    Цена: занимает больше кадра, чем пилюля. Похоже на нижнюю треть в ТВ-эфире.
-    [NOT-TESTED] — мокап для согласования.
+    Похоже на нижнюю треть в ТВ-эфире.
+
+    Ревизия 2 (2026-07-29) по правкам владельца — дословно: «C - только сделать фон темнее,
+    и размер ленты чуть больше». Изменено ровно две вещи, ничего больше:
+      · ФОН ТЕМНЕЕ — градиент 0/0.72/0.95 → 0/0.86/0.985, и затемнение начинается раньше (40%→30%),
+        то есть подложка под текстом плотнее по всей высоте, а не только у нижней кромки;
+      · ЛЕНТА КРУПНЕЕ — высота 196 → 268 px (18% → 25% кадра), верхняя кромка 884 → 812.
+    Текст пропорционально укрупнён под новую ленту (44→48 / 30→33) и вертикально отцентрован в ней.
+    [NOT-TESTED] — мокап; в код композитора (plans/21, шаг C2) ещё не перенесён.
   -->
   <defs>
-    <!-- Градиент усилен против первого захода (0.55/0.88 → 0.72/0.95): на кадре, где низ и так
-         тёмный, слабый градиент не читался как лента вовсе. -->
     <linearGradient id="fadeC" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%"   stop-color="#000000" stop-opacity="0"/>
-      <stop offset="40%"  stop-color="#000000" stop-opacity="0.72"/>
-      <stop offset="100%" stop-color="#000000" stop-opacity="0.95"/>
+      <stop offset="30%"  stop-color="#000000" stop-opacity="0.86"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.985"/>
     </linearGradient>
   </defs>
 
   <!-- Лента снизу во всю ширину -->
-  <rect x="0" y="884" width="1920" height="196" fill="url(#fadeC)"/>
+  <rect x="0" y="812" width="1920" height="268" fill="url(#fadeC)"/>
   <!-- Брендовая линия — верхняя кромка ленты -->
-  <rect x="0" y="884" width="1920" height="3" fill="#FF1A8C" opacity="0.92"/>
+  <rect x="0" y="812" width="1920" height="3" fill="#FF1A8C" opacity="0.92"/>
 
-  <!-- Брендовый индикатор (блок текста центрирован по кадру) -->
-  <circle cx="688" cy="962" r="21" fill="#FF1A8C" opacity="0.28"/>
-  <circle cx="688" cy="962" r="11" fill="#FF1A8C"/>
+  <!-- Брендовый индикатор (блок «точка + текст» центрирован по ширине кадра) -->
+  <circle cx="666" cy="925" r="23" fill="#FF1A8C" opacity="0.28"/>
+  <circle cx="666" cy="925" r="12" fill="#FF1A8C"/>
 
   <!-- Основная строка -->
-  <text x="730" y="958" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="44" font-weight="700" fill="#FFFFFF">
+  <text x="710" y="940" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="48" font-weight="700" fill="#FFFFFF">
     Связь восстанавливается
   </text>
   <!-- Вторая строка -->
-  <text x="730" y="1004" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="30" font-weight="500" fill="#FFFFFF" fill-opacity="0.88">
+  <text x="710" y="992" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="33" font-weight="500" fill="#FFFFFF" fill-opacity="0.90">
     Reconnecting…
   </text>
 </svg>
