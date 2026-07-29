@@ -108,6 +108,7 @@ function main() {
     ['rotation-mode', 'on'],
     ['rotation-mode', 'off'],
     ['simulate-congestion', 'off'], // idea 37 — контракт протокола; off = безопасный no-op
+    ['simulate-slate', 'off'],      // plans/21 работа C — тот же контракт; off = безопасный no-op
     // plans/20 B2 — сцены в контракте: рассинхрон ui.mjs↔CMD-ресивер по scene-* ловится смоуком (bug 39).
     ['scene-list'],
     ['scene-transition', '1', 'fade', '400'],

@@ -50,6 +50,10 @@ class StreamingRepository @Inject constructor(
     // idea 37 — debug-харнес: симулировать затык канала для наблюдаемой приёмки адаптера битрейта.
     fun setSimulatedCongestion(on: Boolean) = rtmpStreamer.setSimulatedCongestion(on)
 
+    // plans/21 работа C — debug-харнес: принудительный сетевой слейт (замороженный кадр + плашка),
+    // чтобы принимать уровень 4 без настоящей просадки сети.
+    fun setSimulatedSlate(on: Boolean) = rtmpStreamer.setSimulatedSlate(on)
+
     // ── Мульти-источники (Idea 19) ──────────────────────────────────────────
     /** Текущая сцена (список слоёв) — для панели «Слои». */
     val scene: StateFlow<com.kriniks.kcam.feature.streaming.scene.Scene> = rtmpStreamer.scene

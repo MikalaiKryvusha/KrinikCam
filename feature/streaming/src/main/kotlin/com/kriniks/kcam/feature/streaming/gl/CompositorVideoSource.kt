@@ -299,7 +299,11 @@ class CompositorVideoSource : VideoSource() {
                 consumed = true
             }
             buildDrawTexMatrix()
-            if (consumed) snapshot(r)
+            // Живучесть, УРОВЕНЬ 4 (plans/21 C1) — ЗАМОРОЗКА КАДРА и есть вот эта одна проверка.
+            // Кадр у продюсера ЗАБРАН выше (updateTexImage), счётчики и таймер свежести обновлены —
+            // мы лишь не переносим его в видимый снапшот, поэтому в эфир продолжает уходить
+            // последний хороший кадр. Всё остальное в слейте — обвязка вокруг этой строки.
+            if (consumed && !netSlateActive) snapshot(r)
             // Заглушка: цель по свежести, плавный фейд + пульс «дыхания» (как было в едином варианте).
             // bug 62 — свежий слот (после go-live/stop реинита GL) НЕ показывает заглушку сразу: даём
             // камере STANDBY_STARTUP_GRACE_MS догнать первый кадр. Иначе на старте/стопе трансляции
@@ -434,6 +438,20 @@ class CompositorVideoSource : VideoSource() {
     private var standbyTitleTex = 0
     private var standbyBodyTex = 0
 
+    // ── Живучесть, УРОВЕНЬ 4 — СЕТЕВОЙ СЛЕЙТ (plans/21 работа C, шаг C1) ────────────────────────
+    // Криник (interview_011, Р1 = «в», гибрид): при просадке сети зритель видит НЕ чёрное и не
+    // разрыв, а ЗАМЕРШИЙ последний кадр + плашку «связь восстанавливается».
+    //
+    // Отличие от per-слойной заглушки (`CameraSlot.frozen`, `enterCameraStandby`) — принципиальное,
+    // и переиспользовать её здесь НЕЛЬЗЯ: `frozen` останавливает ПОТРЕБЛЕНИЕ кадров продюсера, из-за
+    // чего BufferQueue камеры упирается, `lastFrameAtMs` замирает и через STANDBY_HOLD_MS всплывает
+    // брендовая «Please stand by» — то есть вариант (б), который Криник ОТКЛОНИЛ.
+    // Здесь наоборот: кадры продолжают ЗАБИРАТЬСЯ (updateTexImage идёт как обычно), но не
+    // переносятся в видимый снапшот. Очередь буферов живая, таймер свежести тикает, заглушка не
+    // всплывает — а в эфир уходит один и тот же кадр.
+    // Флаг относится ко ВСЕЙ сцене, а не к слою: сеть просела для всего эфира сразу.
+    @Volatile private var netSlateActive = false
+
     /** Источник слоя [layerId] удалён — заморозить его OES на последнем хорошем кадре (Криник: держать кадр). */
     fun enterCameraStandby(layerId: String) {
         handler?.post { cameraSlots[layerId]?.frozen = true }
@@ -444,6 +462,36 @@ class CompositorVideoSource : VideoSource() {
     fun exitCameraStandby(layerId: String) {
         handler?.post { cameraSlots[layerId]?.let { it.frozen = false; it.newFrame = false } }
         KLog.i(TAG, "exitCameraStandby[$layerId] — возобновляем живые кадры слоя")
+    }
+
+    /**
+     * Живучесть, УРОВЕНЬ 4 (plans/21 работа C) — единственная ручка сетевого слейта наружу.
+     *
+     * [active] `true` — заморозить видимую картинку на последнем кадре (в эфир и в превью идёт он же;
+     * Криник, interview_012 В1: WYSIWYG — превью замирает ВМЕСТЕ с эфиром, второго прохода не делаем).
+     * `false` — немедленно вернуть живую картинку.
+     *
+     * Ставится из политики слейта в тикере `RtmpStreamer` (шаг C3) и из harness-команды
+     * `ui.mjs cmd simulate-slate` — приёмка держится именно на ней.
+     *
+     * [TESTED: 2026-07-29 · живой эфир на полигон MediaMTX, кадры вытянуты ffmpeg'ом С СЕРВЕРА
+     *  (скриншот телефона ничего не доказывал бы), метрика — PSNR между двумя кадрами с паузой 5 с:
+     *  слейт выкл → 23.0 дБ (картинка живёт), слейт ВКЛ → 68.1 дБ (кадры идентичны, остаток —
+     *  артефакты CBR), слейт снова выкл → 15.4 дБ (ожила). Держали слейт 30 с при пороге заглушки
+     *  STANDBY_HOLD_MS=10 с: брендовая «Please stand by» НЕ всплыла — standbyAlpha за весь прогон
+     *  равен 0.0, счётчик потреблённых кадров рос 415→1866, waited=0 мс, то есть кадры продолжают
+     *  забираться, как и задумано. Смена источника при активном слейте: картинка осталась
+     *  замороженной, заглушки нет.
+     *  Замечание методики: md5-сравнение кадров тут НЕ работает — энкодер в CBR добивает поток и
+     *  меняет артефакты даже на неподвижном входе. Мерить только PSNR.]
+     */
+    fun setNetworkSlate(active: Boolean) {
+        if (netSlateActive == active) return
+        netSlateActive = active
+        // Выход из слейта: сбрасываем «протухший» кадр, чтобы видимая картинка не дёрнулась старым
+        // содержимым — тот же приём, что в exitCameraStandby.
+        if (!active) handler?.post { cameraSlots.values.forEach { it.newFrame = false } }
+        KLog.i(TAG, "сетевой слейт: ${if (active) "ВКЛ — кадр заморожен" else "ВЫКЛ — картинка живая"}")
     }
 
     /** plans/sourses_timeout — задать битмапы заглушки: [title] пульсирует, [body] статична. RtmpStreamer при init. */
@@ -1084,6 +1132,9 @@ class CompositorVideoSource : VideoSource() {
             runCatching { if (standbyTitleTex != 0) renderer?.deleteTexture(standbyTitleTex) }
             runCatching { if (standbyBodyTex != 0) renderer?.deleteTexture(standbyBodyTex) }
             standbyTitleTex = 0; standbyBodyTex = 0
+            // Живучесть, УРОВЕНЬ 4 (plans/21 C1) — слейт НЕ переживает stop(): иначе следующий эфир
+            // стартовал бы с замороженной картинкой, а причина (просевшая сеть) давно ушла.
+            netSlateActive = false
             // Мульти-источники: освободить ВСЕ слоты камер (OES/ST/снапшот-FBO).
             runCatching { cameraSlots.values.forEach { it.release(renderer) } }
             cameraSlots.clear()
