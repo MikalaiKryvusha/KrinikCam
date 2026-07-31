@@ -1,0 +1,27 @@
+{
+  "kind": "interview",
+  "document": "interviews/interview_015_bitrate_after_network_drop.md",
+  "by": "Криник",
+  "at": "2026-07-31T16:37:32+03:00",
+  "answers": {
+    "В1": {
+      "choice": "а",
+      "text": "",
+      "comment": "",
+      "sha256": "2f87a3d053d083b1f7a17fc2b295e47a7f28c5bc95fe7221a78617cf379649fa"
+    },
+    "В2": {
+      "choice": "в",
+      "text": "",
+      "comment": "",
+      "sha256": "5dc4ab6d11e9d80f1b36814272240379f4411695205a838482a51ff2ff0c034f"
+    },
+    "В3": {
+      "choice": "в",
+      "text": "",
+      "comment": "",
+      "sha256": "23c5c8afbf25c947535b162d2656a4001a3618ec27b729394384acb095d2d1f0"
+    }
+  },
+  "artifacts": {}
+}
