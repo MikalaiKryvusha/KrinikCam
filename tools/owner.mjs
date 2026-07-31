@@ -41,6 +41,11 @@
  *     повторный ответ, четыре причины отказа гейта] — разбор, нормализация/sha, гейт, запись в md.
  *   [TESTED: 2026-07-31 · прогон по ВСЕМ 15 живым интервью — 0 падений; `guard` на живом репозитории
  *     нашёл 1 висящее интервью и 4 вопроса-сироты] — рендер и гард.
+ *   [TESTED: 2026-07-31 · ПОРЯДОК «страница → голос» замерен лентой событий с миллисекундами:
+ *     0.780 страница поднята · 0.960 браузер её ЗАБРАЛ · 0.961 старт зова · 0.971 поток свободен.
+ *     То есть голос стартует через 1 мс после появления страницы и не держит ни поток, ни владельца
+ *     (до правки здесь стояли синхронные afplay+say = 5–8 с БЕЗ страницы на экране). Подтверждено
+ *     владельцем словами: «открылось, потом был голос»] — сигнал и его порядок.
  *   [NOT-TESTED] — ПОВЕДЕНИЕ СТРАНИЦЫ В БРАУЗЕРЕ (снятие выбора, частичная отправка, тосты): его
  *     наблюдает только человек, агент браузер не видит. Переключать маркер — по слову Криника.
  */
@@ -796,6 +801,19 @@ function inQuietHours(now, from, to) {
   return f < t ? (cur >= f && cur < t) : (cur >= f || cur < t);   // ← вторая ветка и есть полночь
 }
 
+/**
+ * СИГНАЛ НИКОГДА НЕ ДЕРЖИТ СТРАНИЦУ (правка по замечанию Криника 2026-07-31: «страница не
+ * открылась, пока голос не проигрался — тупо»). Раньше здесь стояли три `spawnSync` подряд:
+ * звук + голос — это 5–10 секунд, в течение которых процесс стоял, а владелец слушал приглашение
+ * зайти на страницу, которой перед ним ещё не было. Приглашение обязано ДОГОНЯТЬ страницу, а не
+ * наоборот.
+ *
+ * Поэтому: асинхронный `spawn` + `detached`/`unref`. Голос идёт своим чередом, поток не ждёт ни
+ * миллисекунды, а `detached` даёт ещё и то, что фраза договорит, даже если владелец ответил
+ * мгновенно и контур закрылся через `process.exit` (иначе `say` обрывался бы на полуслове).
+ * Цепочка «звук → голос» держится на событии `close`, чтобы они не звучали ОДНОВРЕМЕННО.
+ * Временные файлы убираются в конце цепочки, а не в `finally`: `say -f` читает файл асинхронно.
+ */
 function signal(cfg, text, { force = false } = {}) {
   const quiet = inQuietHours(new Date(), cfg.quietHours.from, cfg.quietHours.to);
   if (quiet && !force) {
@@ -803,22 +821,34 @@ function signal(cfg, text, { force = false } = {}) {
     return { quiet: true };
   }
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'owner-signal-'));
-  try {
-    if (cfg.sound && fs.existsSync(cfg.sound)) spawnSync('afplay', [cfg.sound], { stdio: 'ignore' });
-    if (cfg.say) {
-      const f = path.join(tmpDir, 'say.txt');
-      fs.writeFileSync(f, text, 'utf8');                       // текст ФАЙЛОМ, не аргументом
-      spawnSync('say', ['-v', cfg.voice, '-f', f], { stdio: 'ignore' });
-    }
-    if (cfg.notify) {
-      const scpt = path.join(tmpDir, 'notify.applescript');
-      const safe = text.replace(/["\\]/g, ' ');
-      fs.writeFileSync(scpt, `display notification "${safe}" with title "KrinikCam" subtitle "агент ждёт решения"\n`, 'utf8');
-      spawnSync('osascript', [scpt], { stdio: 'ignore' });
-    }
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+  const cleanup = () => fs.rmSync(tmpDir, { recursive: true, force: true });
+  // Запустить и НЕ ЖДАТЬ; done() зовётся, когда процесс отзвучал (для цепочки), не блокируя поток.
+  const fire = (cmd, args, done) => {
+    try {
+      const p = spawn(cmd, args, { stdio: 'ignore', detached: true });
+      p.on('error', () => done());
+      p.on('close', () => done());
+      p.unref();
+    } catch { done(); }
+  };
+
+  const sayStep = () => {
+    if (!cfg.say) return cleanup();
+    const f = path.join(tmpDir, 'say.txt');
+    fs.writeFileSync(f, text, 'utf8');                       // текст ФАЙЛОМ, не аргументом
+    fire('say', ['-v', cfg.voice, '-f', f], cleanup);
+  };
+
+  // Нотификацию шлём сразу и параллельно: она мгновенная и ни от чего не зависит.
+  if (cfg.notify) {
+    const scpt = path.join(tmpDir, 'notify.applescript');
+    const safe = text.replace(/["\\]/g, ' ');
+    fs.writeFileSync(scpt, `display notification "${safe}" with title "KrinikCam" subtitle "агент ждёт решения"\n`, 'utf8');
+    fire('osascript', [scpt], () => {});
   }
+  if (cfg.sound && fs.existsSync(cfg.sound)) fire('afplay', [cfg.sound], sayStep);
+  else sayStep();
+
   return { quiet: false };
 }
 
@@ -1021,10 +1051,17 @@ async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSe
 
   const pending = new Set(docs.map((d) => d.relPath));
 
+  // «Страница ОТКРЫТА» = браузер её ЗАБРАЛ, а не «мы попросили систему её открыть». Разница
+  // видна владельцу: голос, зовущий на страницу, которой ещё нет на экране, — это приглашение
+  // в пустоту (замечание Криника 2026-07-31). Резолвим на первом же GET страницы.
+  let pageFetched; const pageOnScreen = new Promise((r) => { pageFetched = r; });
+
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url.startsWith('/?'))) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(html);
+      res.end(html);
+      console.log('📥 браузер забрал страницу — она перед владельцем');
+      return pageFetched();          // ← «страница на экране» доказывает браузер, а не наша надежда
     }
     if (req.method === 'POST' && req.url === '/submit') {
       let body = '';
@@ -1086,12 +1123,20 @@ async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSe
   console.log(`   (копия на диске: ${rel(pagePath)})`);
   for (const d of docs) console.log(`   · ${d.relPath} — вопросов: ${d.questions.length}`);
 
-  // I5 — зовём ТОЛЬКО после того, как страница реально поднялась и открыта
+  // I5 — ПОРЯДОК: сначала страница на экране, потом голос. Открываем браузер, ДОЖИДАЕМСЯ, что он
+  // реально забрал страницу (первый GET), и только тогда зовём — причём сигнал асинхронный и
+  // ничего не держит. Страховка 4 с: браузер по умолчанию мог не подняться, окно могло уехать на
+  // другой рабочий стол — но остаться БЕЗ звука владелец не должен ни при каком раскладе, иначе
+  // вопрос снова потеряется, а контур ровно от этого и делался.
   if (!noOpen) spawnSync('open', [url], { stdio: 'ignore' });
   if (!noSignal) {
     const text = docs.length > 1
       ? `Криник, накопилось ${docs.length} решений. Страница открыта в браузере.`
       : `Криник, агент ждёт твоего решения: ${docs[0].title}. Страница открыта в браузере.`;
+    if (!noOpen) {
+      await Promise.race([pageOnScreen, new Promise((r) => setTimeout(r, 4000))]);
+    }
+    console.log('🔔 зову владельца (звук/голос идут ФОНОМ — страницу не держат)');
     signal(cfg, text);
   }
   console.log(`⏳ жду ответ (таймаут ${timeoutSec} с). Ответ НИКОГДА не самоодобряется по таймауту (I4).`);

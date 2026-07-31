@@ -1,0 +1,21 @@
+{
+  "kind": "interview",
+  "document": "interviews/interview_016_adaptive_ceiling_after_break.md",
+  "by": "Криник",
+  "at": "2026-07-31T17:09:23+03:00",
+  "answers": {
+    "В1": {
+      "choice": "а",
+      "text": "можно проверять чаще, например раз в минуту",
+      "comment": "",
+      "sha256": "7af34bb8b77b31f102deefcacc5bc5f6c269f90b1fa210ee7850ddacb5ab1f35"
+    },
+    "В2": {
+      "choice": "",
+      "text": "ответил выше, можно раз в минуту пробовать",
+      "comment": "",
+      "sha256": "a79c736b7c34b49f228df110faab91e0146bcac0362bfe5994857ebab6317408"
+    }
+  },
+  "artifacts": {}
+}
