@@ -101,7 +101,21 @@ private const val SCENE_AUTOSAVE_DEBOUNCE_MS = 400L
 // 1 Мбит/с был ВЫШЕ полосы плохого 3G и потому сам ломал вижн «эфир не умирает» (plans/21 работа A).
 // Абсолютный нижний предел санитайзера (защита от импорта с нулём/мусором) — [FLOOR_HARD_MIN_BPS].
 private const val ADAPTIVE_DECREASE_PERCENT = 20
-private const val ADAPTIVE_RECOVER_PERCENT = 10
+// interview_015 В2 (ответ Криника — вариант «в») — ВОССТАНОВЛЕНИЕ ПРИВЕДЕНО К ТОЙ ЖЕ ФОРМЕ, ЧТО И
+// СНИЖЕНИЕ: процент от ТЕКУЩЕГО битрейта, а не от ЦЕЛИ. Прежние «+10% от цели» при цели 4000 давали
+// шаг +400 — с пола 250 первый же шаг вверх выводил на 650, прыжок ×2.6 на канале, который только
+// что не вытянул 250. Именно эта асимметрия (вниз — мультипликативно от current, вверх —
+// аддитивно от target) и порождала «пилу», замеренную в plans/21 A4b. Теперь с пола 250 шаг = 300.
+// 20% выбраны симметрично снижению; −20% и +20% при этом НЕ обратны друг другу (0.8 × 1.2 = 0.96),
+// то есть подъём чуть консервативнее спуска — асимметрия, оставшаяся в нашу пользу.
+private const val ADAPTIVE_RECOVER_PERCENT = 20
+// interview_015 В2 — вторая половина ответа «в»: ПАУЗА ПОСЛЕ КАЖДОГО ОБРЫВА. Сколько эфир обязан
+// идти БЕЗ обрывов, прежде чем лестница снова пойдёт вверх («даём каналу устояться»).
+// Число выведено из watchdog, а не из головы: обречённый эфир умирает через [WATCHDOG_STALL_MS]
+// (6 с) после того, как отправка встала, — значит пауза обязана быть ДЛИННЕЕ этого окна, иначе мы
+// начинаем разгонять поток, который ещё не доказал, что вообще живёт. 10 с = окно watchdog 6 с +
+// запас на дискретность шага адаптива (он ходит раз в 2 с).
+private const val ADAPTIVE_RECOVER_HOLD_MS = 10_000L
 // Абсолютный минимум пола (санитайзер). Профиль хранит НАМЕРЕНИЕ и может прийти из импорта с нулём
 // или мусором; ниже этого значения видео перестаёт быть видео вообще.
 private const val FLOOR_HARD_MIN_BPS = 50_000
@@ -192,6 +206,11 @@ class RtmpStreamer @Inject constructor(
     // запущен. ВАЖНО: пол резолвится из профиля ПЕРВОГО выхода и действует на ОДИН общий энкодер
     // всех выходов (Р3 «консервативно» — один энкодер на мультистрим).
     private var floorVideoBitrateBps = 0
+    // interview_015 В2 — момент (elapsedRealtime), с которого эфир идёт БЕЗ обрывов. 0 = эфира нет
+    // ЛИБО он только что рвался. Лестница адаптива идёт ВВЕРХ только когда с этого момента прошло
+    // [ADAPTIVE_RECOVER_HOLD_MS]. Обнуляется на КАЖДОМ обрыве живого выхода — в том числе когда
+    // соседние выходы мультистрима остались живы: энкодер-то один на всех (Р3).
+    private var adaptiveLiveSinceMs = 0L
 
     // Живучесть, УРОВЕНЬ 4 — состояние политики слейта (plans/21 C3).
     // `slateOverride` — принуждение от харнеса (ВХОД политики, не второй писатель);
@@ -705,10 +724,18 @@ class RtmpStreamer @Inject constructor(
 
     /**
      * Шаг адаптера битрейта (idea 37): затык ЛЮБОГО живого выхода → минус
-     * [ADAPTIVE_DECREASE_PERCENT]% (пол — [floorVideoBitrateBps] из профиля кодера, Р7);
-     * канал чист и current < target → плюс [ADAPTIVE_RECOVER_PERCENT]% от target (потолок target).
+     * [ADAPTIVE_DECREASE_PERCENT]% от ТЕКУЩЕГО (пол — [floorVideoBitrateBps] из профиля кодера, Р7);
+     * канал чист и current < target → плюс [ADAPTIVE_RECOVER_PERCENT]% от ТЕКУЩЕГО (потолок target).
      * Энкодер ОДИН на все выходы → правим глобально setVideoBitrateOnFly. Деградируем КАЧЕСТВОМ,
      * а не плавностью.
+     *
+     * ОБЕ СТОРОНЫ ЛЕСТНИЦЫ — ОДНОЙ ФОРМЫ, и это ответ владельца, а не вкус агента (interview_015 В2,
+     * вариант «в»). Раньше вниз шли мультипликативно от current, а вверх — аддитивно от ЦЕЛИ, и эта
+     * асимметрия сама по себе давала пилу: с пола 250 первый же шаг вверх при цели 4000 выводил на
+     * 650 — в 2.6 раза выше канала, который только что не вытянул 250 (замер plans/21 A4b).
+     * Вторая половина того же ответа — ПАУЗА: вверх лестница трогается, только когда эфир прожил
+     * без обрывов [ADAPTIVE_RECOVER_HOLD_MS] (часы [adaptiveLiveSinceMs]). Снижение паузы НЕ знает
+     * и знать не должно: реагировать на затык надо немедленно, ждут только с подъёмом.
      *
      * Про пол (важно для будущих сессий): он берётся из профиля кодера ПЕРВОГО выхода и действует на
      * общий энкодер всех выходов — следствие решения Р3 «мультистрим консервативно, один энкодер».
@@ -731,22 +758,75 @@ class RtmpStreamer @Inject constructor(
         // ни поднимать. Молчание источника данных ≠ хорошая новость.
         val anyLive = outputStates.values.any { it.phase == OutputPhase.Live }
         val anyCongested = outputStates.values.any { it.phase == OutputPhase.Live && it.congested }
+        // interview_015 В2 — часы «эфир идёт без обрывов». Ведём их ЗДЕСЬ, а не в колбэках: шаг
+        // адаптива — единственный, кто ими пользуется. Обрыв обнуляет часы в [onLiveOutputBroken];
+        // здесь же ловится и случай «выход перестал быть Live без сбоя» (штатные фазы Connecting).
+        // Цена простоты: шаг ходит раз в 2 тика, поэтому фактическая пауза равна 10–12 с, а не ровно
+        // 10 — для «дать каналу устояться» дискретность в один шаг несущественна.
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!anyLive) adaptiveLiveSinceMs = 0L
+        else if (adaptiveLiveSinceMs == 0L) adaptiveLiveSinceMs = now
+        val settled = adaptiveLiveSinceMs != 0L && now - adaptiveLiveSinceMs >= ADAPTIVE_RECOVER_HOLD_MS
         val next = when {
             anyCongested ->
                 (currentVideoBitrateBps * (100 - ADAPTIVE_DECREASE_PERCENT) / 100)
                     .coerceAtLeast(floorVideoBitrateBps)
-            anyLive && currentVideoBitrateBps < targetVideoBitrateBps ->
-                (currentVideoBitrateBps + targetVideoBitrateBps * ADAPTIVE_RECOVER_PERCENT / 100)
+            anyLive && settled && currentVideoBitrateBps < targetVideoBitrateBps ->
+                (currentVideoBitrateBps + currentVideoBitrateBps * ADAPTIVE_RECOVER_PERCENT / 100)
                     .coerceAtMost(targetVideoBitrateBps)
             else -> currentVideoBitrateBps
         }
         if (next != currentVideoBitrateBps) {
             KLog.i(TAG, "adaptive: битрейт ${currentVideoBitrateBps / 1000}→${next / 1000} kbps " +
-                "(${if (anyCongested) "затык канала — снижаем" else "канал чист — восстанавливаем"})")
+                "(${if (anyCongested) "затык канала — снижаем" else "канал чист ${(now - adaptiveLiveSinceMs) / 1000}с — восстанавливаем"})")
             currentVideoBitrateBps = next
             runCatching { stream.setVideoBitrateOnFly(next) }
                 .onFailure { KLog.w(TAG, "adaptive: setVideoBitrateOnFly не прошёл: ${it.message}") }
         }
+    }
+
+    /**
+     * interview_015 В1 (ответ Криника — вариант «а») — ЖИВОЙ выход [index] оборвался: эфир
+     * возобновляем **с ПОЛА профиля кодера**, а не с того битрейта, на котором он умер.
+     *
+     * Зачем. Даже с гардом bug 75 (лестница не растёт, пока эфира нет) поток воскресал ровно на том
+     * битрейте, на котором лёг — в замере 2048 кбит/с в канал на 300, — и ложился снова. Пол следует
+     * из вижна «эфир завершает только кнопка Стоп» (idea 43): приоритет у того, чтобы поток НЕ
+     * рвался, а не у того, чтобы он был красивым.
+     *
+     * ЧЕСТНАЯ ГРАНИЦА, ЗАМЕРЕННАЯ 2026-07-31 (bugs/75 §10): петлю это НЕ убирает, а замедляет —
+     * период разрыва 12 с → 53–59 с на полосе 450. Эфир на полу действительно живёт, но через
+     * [ADAPTIVE_RECOVER_HOLD_MS] лестница снова уходит к цели, перелетает ёмкость канала в ~5.7
+     * раза и убивает сокет заново. Причина — у лестницы нет памяти о доказанном уровне; развилка
+     * «крыша после обрыва» у владельца (interviews/interview_016). Не считать это место закрытым.
+     *
+     * Цена названа владельцу и им принята: случайный обрыв (моргнул Wi-Fi) тоже уронит картинку на
+     * пол, и лестница будет выкарабкиваться десятки секунд. Отличить «канал не тянет» от «сервер
+     * перезагрузился» приложению в момент обрыва НЕЧЕМ, а ошибаться безопаснее в сторону стоящего
+     * эфира. Правило поэтому одно и без спец-случаев: оборвался живой выход — идём на пол.
+     *
+     * Правим ЗДЕСЬ, в момент обрыва, а не на успехе реконнекта: retriable-путь энкодер не гасит, он
+     * продолжает работать всю фазу Reconnecting, поэтому воскресший сокет с первого же пакета
+     * получает поток на полу — и между фазами ничего не надо помнить (нет новой сущности-памяти,
+     * которую владелец отклонил вариантом «в»).
+     *
+     * Мультистрим: энкодер ОДИН на все выходы (Р3 «консервативно»), поэтому обрыв одного выхода
+     * роняет битрейт и живым соседям. Это та же принятая цена, что у ветки снижения и у слейта, —
+     * и, как там, она обязана быть видна в логе.
+     */
+    private fun onLiveOutputBroken(index: Int, reason: String) {
+        // interview_015 В2 — «пауза после каждого обрыва»: часы «эфир идёт без обрывов» сброшены,
+        // подъём лестницы отложен на ADAPTIVE_RECOVER_HOLD_MS ПОСЛЕ возвращения эфира.
+        adaptiveLiveSinceMs = 0L
+        // Адаптив выключен в профиле = приложение битрейтом не управляет вовсе. Тогда и здесь не лезем.
+        if (!adaptiveBitrateEnabled || floorVideoBitrateBps <= 0) return
+        if (currentVideoBitrateBps <= floorVideoBitrateBps) return
+        val stream = rtmpStream ?: return
+        KLog.i(TAG, "adaptive: битрейт ${currentVideoBitrateBps / 1000}→${floorVideoBitrateBps / 1000} kbps " +
+            "(обрыв живого выхода[$index]: $reason — возобновляем с пола профиля, interview_015 В1)")
+        currentVideoBitrateBps = floorVideoBitrateBps
+        runCatching { stream.setVideoBitrateOnFly(floorVideoBitrateBps) }
+            .onFailure { KLog.w(TAG, "adaptive: setVideoBitrateOnFly не прошёл: ${it.message}") }
     }
 
     /** Debug-харнес (CMD simulate-congestion, idea 37): наблюдаемая приёмка петли без плохой сети. */
@@ -902,9 +982,14 @@ class RtmpStreamer @Inject constructor(
         }
         isStreamSetupInProgress = false
         val attempt = (outputStates[index]?.attempt ?: 0) + 1
+        // interview_015 В1/В2 — фазу читаем ДО updateOutput: через две строки она уже Reconnecting,
+        // и «оборвался ли ЖИВОЙ эфир» отличить будет не по чему.
+        val wasLive = outputStates[index]?.phase == OutputPhase.Live
 
         // Авто-реконнект этого выхода с бэкоффом — БЕЗ потолка попыток (уровень 1).
         if (retriable) {
+            // Обрыв живого эфира: возобновляем с пола профиля и ставим лестницу на паузу.
+            if (wasLive) onLiveOutputBroken(index, reason)
             val backoff = reconnectBackoffMs(attempt)
             // Битрейт обнуляем ЯВНО: выход не отправляет ни байта, и оставшееся от эфира число
             // (последняя EMA) выглядело бы в пульсе и в UI как живой поток. Тот же принцип честной
@@ -1373,6 +1458,9 @@ class RtmpStreamer @Inject constructor(
             targetVideoBitrateBps = encoder.videoBitrateBps
             currentVideoBitrateBps = targetVideoBitrateBps
             adaptiveBitrateEnabled = encoder.adaptiveBitrate
+            // interview_015 В2 — новый эфир начинает часы «идёт без обрывов» с нуля: чужая пауза от
+            // прошлой сессии не должна ни тормозить лестницу, ни, наоборот, отпускать её досрочно.
+            adaptiveLiveSinceMs = 0L
             // Р7 — пол из профиля, санитайзится ДВУМЯ шагами (не coerceIn!): coerceIn бросает
             // IllegalArgumentException при min > max, а состояние «цель 500к, пол 1000к из импорта»
             // достижимо и не должно ронять старт эфира.
