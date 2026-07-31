@@ -66,6 +66,9 @@ gl_preview_debug.txt
 
 # MediaMTX RTMP polygon binary (plans/01 C) — auto-downloaded, gitignored
 tools/bin/
+# Контур согласований /owner-reviews (plans/22): страницы — ПРОИЗВОДНОЕ от md (инвариант I1),
+# источник правды всегда документ. Сами решения (interviews/decisions/) — наоборот, версионируем.
+tools/owner-pages/
 # MediaMTX auto-generated TLS certs (пишутся в CWD при старте) — не версионируем
 auto.crt
 auto.key

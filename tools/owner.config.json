@@ -1,0 +1,11 @@
+{
+  "_": "Настройки контура согласований /owner-reviews (tools/owner.mjs, plans/22). Голос — ПАРАМЕТР, а не меню: на этой машине 186 голосов, пригоден один русский — Milena. Тихие часы ОБЯЗАТЕЛЬНЫ и пересекают полночь: в них контур молчит, что бы ни просили (инвариант I6).",
+  "owner": "Криник",
+  "voice": "Milena",
+  "sound": "/System/Library/Sounds/Submarine.aiff",
+  "quietHours": { "from": "23:00", "to": "09:00" },
+  "port": 8787,
+  "say": true,
+  "notify": true,
+  "timeoutSec": 3600
+}
