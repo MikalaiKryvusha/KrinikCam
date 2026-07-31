@@ -116,6 +116,18 @@ private const val ADAPTIVE_RECOVER_PERCENT = 20
 // начинаем разгонять поток, который ещё не доказал, что вообще живёт. 10 с = окно watchdog 6 с +
 // запас на дискретность шага адаптива (он ходит раз в 2 с).
 private const val ADAPTIVE_RECOVER_HOLD_MS = 10_000L
+// interview_016 В1 (ответ Криника — вариант «а») — КРЫША ЛЕСТНИЦЫ + ПРОБНЫЕ ШАГИ. Без крыши эфир
+// на узком канале рвался раз в ~55 с (замер bugs/75 §10): лестница не помнила, что канал только что
+// не вытянул, уходила выше его ёмкости в 5.7 раза и убивала собственный сокет. Крыша — это память
+// «выше вот этого мы уже пробовали, и не вышло»; проба — «а вдруг канал починился».
+// Период пробы — слово владельца дословно: «можно раз в минуту пробовать».
+private const val ADAPTIVE_PROBE_MS = 60_000L
+// interview_016 В1, вторая половина ответа дословно: «запоминаем битрейт, на котором эфир прожил
+// БЕЗ ЗАТЫКА N СЕКУНД». Это N. Оно обязано быть БОЛЬШЕ задержки обнаружения затыка, иначе «доказан»
+// будет уровень, на котором затык просто ещё не успел проявиться: замер (bugs/75 §10) дал задержку
+// ~20 с при небольшом перелёте ёмкости. 30 с — заведомо больше, и при этом достаточно быстро, чтобы
+// уровень успел стать доказанным между двумя пробами (те раз в минуту).
+private const val ADAPTIVE_PROVEN_MS = 30_000L
 // Абсолютный минимум пола (санитайзер). Профиль хранит НАМЕРЕНИЕ и может прийти из импорта с нулём
 // или мусором; ниже этого значения видео перестаёт быть видео вообще.
 private const val FLOOR_HARD_MIN_BPS = 50_000
@@ -211,6 +223,21 @@ class RtmpStreamer @Inject constructor(
     // [ADAPTIVE_RECOVER_HOLD_MS]. Обнуляется на КАЖДОМ обрыве живого выхода — в том числе когда
     // соседние выходы мультистрима остались живы: энкодер-то один на всех (Р3).
     private var adaptiveLiveSinceMs = 0L
+    // interview_016 В1 — КРЫША: выше этого лестница не поднимается. 0 = крыши нет (в этом эфире
+    // затыков ещё не было, ограничивать нечем и незачем — на широком канале поведение прежнее).
+    // Ставится ровно там, где канал сам себя показал: при затыке крыша = тот уровень, на который мы
+    // снизились. Обрыв крышу НЕ трогает — она уже хранит доказанное, а не догадку.
+    private var adaptiveCeilingBps = 0
+    // interview_016 В1 — момент, с которого ТЕКУЩИЙ УРОВЕНЬ битрейта держится без затыка
+    // (elapsedRealtime); 0 = уровень только что менялся, эфира нет или идёт затык. Один счётчик на
+    // две работы, и обе про «этот уровень стоит»: доказательство уровня ([ADAPTIVE_PROVEN_MS]) и
+    // пробный шаг крыши ([ADAPTIVE_PROBE_MS]). Отличается от [adaptiveLiveSinceMs]: тот считает
+    // «эфир без ОБРЫВОВ» (пауза В2) и переживает смену уровня.
+    private var adaptiveLevelSinceMs = 0L
+    // interview_016 В1 — ДОКАЗАННЫЙ УРОВЕНЬ: самый высокий битрейт, который эфир реально держал
+    // [ADAPTIVE_PROVEN_MS] без затыка. 0 = ничего ещё не доказано. Это и есть «память канала», ради
+    // которой владелец выбрал вариант (а): после обрыва выше доказанного не лезем.
+    private var adaptiveProvenBps = 0
 
     // Живучесть, УРОВЕНЬ 4 — состояние политики слейта (plans/21 C3).
     // `slateOverride` — принуждение от харнеса (ВХОД политики, не второй писатель);
@@ -737,6 +764,16 @@ class RtmpStreamer @Inject constructor(
      * без обрывов [ADAPTIVE_RECOVER_HOLD_MS] (часы [adaptiveLiveSinceMs]). Снижение паузы НЕ знает
      * и знать не должно: реагировать на затык надо немедленно, ждут только с подъёмом.
      *
+     * У ЛЕСТНИЦЫ ЕСТЬ КРЫША (interview_016 В1, ответ владельца «а») — [adaptiveCeilingBps]. Без неё
+     * замер дал петлю с периодом ~55 с даже после В1/В2 (bugs/75 §10): лестница шла к цели, потому
+     * что ей нечем было вспомнить, что канал этого уже не вытянул. Три правила, и все три —
+     * наблюдение, а не догадка:
+     *  • крышу ставит САМ ЗАТЫК (уровень после снижения) — «выше того, где поймали затык, не лезем»;
+     *  • пока затыка не было ни разу, крыши НЕТ (0) — на широком канале ничего не меняется;
+     *  • раз в [ADAPTIVE_PROBE_MS] спокойного эфира крыша поднимается на один шаг (проба «а вдруг
+     *    канал починился»); часы спокойствия — [adaptiveCalmSinceMs], их сбивает и затык, и обрыв.
+     * Крыша живёт один эфир: Стоп → Старт снимает её (сеть могла смениться целиком).
+     *
      * Про пол (важно для будущих сессий): он берётся из профиля кодера ПЕРВОГО выхода и действует на
      * общий энкодер всех выходов — следствие решения Р3 «мультистрим консервативно, один энкодер».
      * Логи печатают НАМЕРЕНИЕ: `setVideoBitrateOnFly` молча выходит, если энкодер не запущен
@@ -767,19 +804,54 @@ class RtmpStreamer @Inject constructor(
         if (!anyLive) adaptiveLiveSinceMs = 0L
         else if (adaptiveLiveSinceMs == 0L) adaptiveLiveSinceMs = now
         val settled = adaptiveLiveSinceMs != 0L && now - adaptiveLiveSinceMs >= ADAPTIVE_RECOVER_HOLD_MS
+
+        // interview_016 В1 — сколько ТЕКУЩИЙ уровень держится без затыка. Из этого числа растут обе
+        // половины ответа владельца: доказательство уровня и пробный шаг крыши.
+        if (!anyLive || anyCongested) adaptiveLevelSinceMs = 0L
+        else if (adaptiveLevelSinceMs == 0L) adaptiveLevelSinceMs = now
+        val heldMs = if (adaptiveLevelSinceMs == 0L) 0L else now - adaptiveLevelSinceMs
+
+        // «Запоминаем битрейт, на котором эфир прожил без затыка N секунд» — вот он.
+        if (heldMs >= ADAPTIVE_PROVEN_MS && currentVideoBitrateBps > adaptiveProvenBps) {
+            KLog.i(TAG, "adaptive: уровень ${currentVideoBitrateBps / 1000} kbps ДОКАЗАН " +
+                "(держится ${heldMs / 1000}с без затыка) — ниже него после обрыва не падаем")
+            adaptiveProvenBps = currentVideoBitrateBps
+        }
+        // Проба идёт ДО расчёта шага, чтобы поднятая крыша сработала тем же тиком, а не через два.
+        if (adaptiveCeilingBps > 0 && heldMs >= ADAPTIVE_PROBE_MS && adaptiveCeilingBps < targetVideoBitrateBps) {
+            val raised = (adaptiveCeilingBps + adaptiveCeilingBps * ADAPTIVE_RECOVER_PERCENT / 100)
+                .coerceAtMost(targetVideoBitrateBps)
+            KLog.i(TAG, "adaptive: крыша ${adaptiveCeilingBps / 1000}→${raised / 1000} kbps " +
+                "(проба: ${ADAPTIVE_PROBE_MS / 1000}с спокойного эфира — вдруг канал починился, interview_016)")
+            adaptiveCeilingBps = raised
+            adaptiveLevelSinceMs = now     // следующая проба — через минуту ПОСЛЕ этой, а не сразу
+        }
+        // Потолок подъёма: цель профиля, а при живой крыше — она (крыша всегда ниже или равна цели).
+        val climbLimit = if (adaptiveCeilingBps > 0) minOf(targetVideoBitrateBps, adaptiveCeilingBps)
+                         else targetVideoBitrateBps
+
         val next = when {
             anyCongested ->
                 (currentVideoBitrateBps * (100 - ADAPTIVE_DECREASE_PERCENT) / 100)
                     .coerceAtLeast(floorVideoBitrateBps)
-            anyLive && settled && currentVideoBitrateBps < targetVideoBitrateBps ->
+            anyLive && settled && currentVideoBitrateBps < climbLimit ->
                 (currentVideoBitrateBps + currentVideoBitrateBps * ADAPTIVE_RECOVER_PERCENT / 100)
-                    .coerceAtMost(targetVideoBitrateBps)
+                    .coerceAtMost(climbLimit)
             else -> currentVideoBitrateBps
+        }
+        // interview_016 В1 — крышу ставит САМ ЗАТЫК: уровень, с которого мы только что снизились,
+        // канал доказанно не тянет, значит выше нового значения лезть больше не за чем. Пока затык
+        // держится, крыша едет вниз вместе с лестницей — и в пределе садится на пол.
+        if (anyCongested && next != adaptiveCeilingBps) {
+            KLog.i(TAG, "adaptive: крыша ${if (adaptiveCeilingBps == 0) "—" else "${adaptiveCeilingBps / 1000}"}" +
+                "→${next / 1000} kbps (затык на ${currentVideoBitrateBps / 1000} — выше не лезем, interview_016)")
+            adaptiveCeilingBps = next
         }
         if (next != currentVideoBitrateBps) {
             KLog.i(TAG, "adaptive: битрейт ${currentVideoBitrateBps / 1000}→${next / 1000} kbps " +
                 "(${if (anyCongested) "затык канала — снижаем" else "канал чист ${(now - adaptiveLiveSinceMs) / 1000}с — восстанавливаем"})")
             currentVideoBitrateBps = next
+            adaptiveLevelSinceMs = now     // уровень сменился — «сколько держится» считаем заново
             runCatching { stream.setVideoBitrateOnFly(next) }
                 .onFailure { KLog.w(TAG, "adaptive: setVideoBitrateOnFly не прошёл: ${it.message}") }
         }
@@ -818,6 +890,23 @@ class RtmpStreamer @Inject constructor(
         // interview_015 В2 — «пауза после каждого обрыва»: часы «эфир идёт без обрывов» сброшены,
         // подъём лестницы отложен на ADAPTIVE_RECOVER_HOLD_MS ПОСЛЕ возвращения эфира.
         adaptiveLiveSinceMs = 0L
+        // interview_016 — обрыв обнуляет часы уровня: и доказательство, и минута до пробы считаются
+        // заново, иначе крыша поднялась бы сразу после возвращения эфира, ничего не доказавшего.
+        adaptiveLevelSinceMs = 0L
+        // interview_016 В1 — КРЫША САДИТСЯ НА ДОКАЗАННЫЙ УРОВЕНЬ. Обрыв означает ровно одно: всё,
+        // что выше доказанного, этот канал сейчас не держит. Замер без этого правила (лог k1e):
+        // крыша сползала по одному шагу за затык, эфир успевал умереть раньше, чем она доходила до
+        // рабочего уровня, — 2048 → 951 → … за обрыв каждые ~39 с. С правилом путь короче: обрыв
+        // сажает крышу сразу на то, что канал ДОКАЗАННО тянул.
+        // Если доказать ничего не успели (обрыв в первые секунды) — крыша = пол: самый безопасный
+        // уровень, который вообще есть, а пробы поднимут её обратно раз в минуту.
+        val proven = maxOf(adaptiveProvenBps, floorVideoBitrateBps)
+        if (adaptiveCeilingBps == 0 || adaptiveCeilingBps > proven) {
+            KLog.i(TAG, "adaptive: крыша ${if (adaptiveCeilingBps == 0) "—" else "${adaptiveCeilingBps / 1000}"}" +
+                "→${proven / 1000} kbps (обрыв: выше доказанного не лезем" +
+                "${if (adaptiveProvenBps == 0) ", доказанного нет — берём пол" else ""}, interview_016)")
+            adaptiveCeilingBps = proven
+        }
         // Адаптив выключен в профиле = приложение битрейтом не управляет вовсе. Тогда и здесь не лезем.
         if (!adaptiveBitrateEnabled || floorVideoBitrateBps <= 0) return
         if (currentVideoBitrateBps <= floorVideoBitrateBps) return
@@ -1461,6 +1550,12 @@ class RtmpStreamer @Inject constructor(
             // interview_015 В2 — новый эфир начинает часы «идёт без обрывов» с нуля: чужая пауза от
             // прошлой сессии не должна ни тормозить лестницу, ни, наоборот, отпускать её досрочно.
             adaptiveLiveSinceMs = 0L
+            // interview_016 — крыша живёт РОВНО ОДИН ЭФИР. Криник нажал Стоп и Старт заново = он
+            // вправе рассчитывать на полное качество: сеть с прошлого раза могла смениться целиком
+            // (ушёл из метро, переключился на домашний Wi-Fi), и старая крыша была бы враньём.
+            adaptiveCeilingBps = 0
+            adaptiveLevelSinceMs = 0L
+            adaptiveProvenBps = 0
             // Р7 — пол из профиля, санитайзится ДВУМЯ шагами (не coerceIn!): coerceIn бросает
             // IllegalArgumentException при min > max, а состояние «цель 500к, пол 1000к из импорта»
             // достижимо и не должно ронять старт эфира.
@@ -2162,10 +2257,21 @@ class RtmpStreamer @Inject constructor(
         KLog.i(TAG, "Scene: added image overlay '$name' (id=$id)")
     }
 
-    /** Удалить слой по id (камеру UI удалять не предлагает — первый заход). */
+    /**
+     * Удалить слой по id (камеру UI удалять не предлагает — первый заход).
+     *
+     * Лог печатает ФАКТ, а не намерение (поймано 2026-07-31 на живой отладке: восемь команд
+     * `remove-layer` напечатали восемь «removed layer id=…», а в сцене не изменилось НИЧЕГО — id
+     * были не те, и лог уверенно врал). Это тот же класс, что root cause bugs/75 и лог слейта на
+     * шаге C3: утверждение о состоянии печатается там, где состояние не проверено. Здесь оно стоит
+     * ровно одной проверки списка слоёв до и после.
+     */
     fun removeLayer(id: String) {
+        val existed = _scene.value.layers.any { it.id == id }
         mutateScene { it.remove(id) }
-        KLog.i(TAG, "Scene: removed layer id=$id")
+        if (existed) KLog.i(TAG, "Scene: removed layer id=$id")
+        else KLog.w(TAG, "Scene: слоя id=$id в сцене НЕТ — удалять нечего " +
+            "(есть: ${_scene.value.layers.joinToString { it.id }})")
     }
 
     /** Переключить видимость слоя по id (включает/выключает его в компоновке). */

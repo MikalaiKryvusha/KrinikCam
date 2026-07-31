@@ -60,6 +60,24 @@ const sleep = (ms) => execSync(`sleep ${ms / 1000}`); // синхронная п
 
 function fail(msg) { console.error(`\n❌ SMOKE FAIL: ${msg}`); process.exit(1); }
 
+/**
+ * Список id сцен приложения. Спрашиваем `scene-list` и читаем ОТВЕТ ИЗ LOGCAT: приложение печатает
+ * `scene-list: active=<id> count=<n> [id:имя*, …]`. Берём последнюю такую строку — иначе поймаем
+ * ответ на прошлый запрос и будем сравнивать состояние с самим собой.
+ */
+function sceneIds() {
+  try {
+    ui('cmd', 'scene-list');
+    execSync('sleep 1');
+    const out = adb('logcat', '-d', '-s', 'RtmpStreamer:I');
+    const lines = out.split('\n').filter((l) => l.includes('scene-list: active='));
+    const last = lines[lines.length - 1];
+    if (!last) return [];
+    const inside = last.slice(last.indexOf('[') + 1, last.lastIndexOf(']'));
+    return inside.split(',').map((s) => parseInt(s.trim(), 10)).filter(Number.isFinite);
+  } catch { return []; }
+}
+
 // ── Пайплайн ─────────────────────────────────────────────────────────────────
 function main() {
   if (!ADB_DEVICE) fail('нет подключённого ADB-устройства (adb devices)');
@@ -80,6 +98,19 @@ function main() {
   sleep(1000);
   adb('shell', 'am', 'start', '-n', `${PKG}/com.kriniks.kcam.MainActivity`);
   sleep(6000); // дать GL/композитору и (если есть) камере подняться
+
+  // ГИГИЕНА: смоук работает в СВОЕЙ сцене и убирает её за собой. Пойман 2026-07-31 глазами Криника
+  // («зачем тебе так много оверлеев? их огромное количество в слоях») — каждый прогон добавлял
+  // оверлей в АКТИВНУЮ сцену владельца, и они копились там месяцами. Тест, который меняет рабочее
+  // окружение человека, платит за себя чужим временем; своя сцена стоит двух команд.
+  // Имя — ASCII без пробелов: кириллица и пробелы в аргументе broadcast молча портятся (канон 2.1).
+  log('▶ сцена смоука (своя, чтобы не гадить в сцены владельца)…');
+  const sceneBefore = sceneIds();
+  ui('cmd', 'scene-new', 'smoke_agent');
+  sleep(1500);
+  const smokeSceneId = sceneIds().find((id) => !sceneBefore.includes(id));
+  if (smokeSceneId == null) log('  ⚠️ своя сцена НЕ создалась — работаю в активной (уберу оверлеи в конце)');
+  else log(`  ✓ сцена смоука id=${smokeSceneId}`);
 
   log('▶ harness: stream-to-file + virtual-camera + overlay…');
   ui('cmd', 'stream-to-file', 'on');
@@ -176,6 +207,17 @@ function main() {
   // WARN на вероятно-чёрный (камера не кормит): для ~6с 1080p контент > ~300 КБ, чёрное < ~150 КБ.
   const perSec = bytes / Math.max(DURATION, 1);
   const likelyBlack = perSec < 30_000; // ~30 КБ/с — эвристика чёрного кадра
+
+  // ГИГИЕНА (продолжение): убираем свою сцену. Приложение само переключит активную на первую
+  // оставшуюся — то есть владелец вернётся к своей. Делаем это ДО отчёта: упавший ассерт не должен
+  // оставлять мусор, ради которого весь этот блок и появился.
+  if (smokeSceneId != null) {
+    ui('cmd', 'scene-delete', String(smokeSceneId));
+    sleep(1200);
+    const left = sceneIds();
+    if (left.includes(smokeSceneId)) log(`  ⚠️ сцена смоука id=${smokeSceneId} НЕ удалилась — убрать вручную`);
+    else log(`  ✓ сцена смоука удалена, активной снова сцена владельца`);
+  }
 
   // ── Отчёт ────────────────────────────────────────────────────────────────
   log('\n── Результаты ─────────────────────────────');
