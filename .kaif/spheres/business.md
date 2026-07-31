@@ -57,12 +57,21 @@ never silently resolved; decisions the owner already recorded are settled — do
 | Silent scope change | the deliverable drifts from the brief, unflagged |
 | Stale commitments | prices, terms, regulations quoted from memory |
 | Decision re-litigation | reopening choices the owner already recorded as settled |
+| Voice without a corpus | a "portrait of the owner's style" or a re-voiced text whose rules carry no verbatim owner quotes with addresses — style derived from memory of the owner instead of their texts (`/owner-voice`) |
 
 ## Done, by example
 
 "The budget plan is done" means: every line item priced from a current source, the total reconciled
 against the stated constraint, trade-offs named, open decisions listed for the owner. Not: "a
 reasonable-looking allocation."
+
+## Owner's voice (KAIF 2.1)
+
+The voice carriers are the texts that go out signed by the owner: proposals, client letters,
+selling pages, investor updates. This sphere most often needs TWO registers (the formal contract
+voice vs the selling voice) — the portrait keeps them separate with quotas, never mixed. Typical
+corpora: pre-AI proposals and letters the owner wrote alone. Ritual and thresholds:
+`/owner-voice` + `.kaif/_owner-voice-template.md`.
 
 ## Adaptation notes
 

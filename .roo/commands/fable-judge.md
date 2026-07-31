@@ -3,10 +3,12 @@ description: Adversarial verification of finished work. Treats any "done" as a s
 ---
 
 > **Vendored into KAIF from [fable-method](https://github.com/Sahir619/fable-method) v1.4.0 — © Sahir619, MIT.**
-> Kept verbatim except three marked KAIF patches: (1) non-code work is judged by the **KAIF sphere
+> Kept verbatim except four marked KAIF patches: (1) non-code work is judged by the **KAIF sphere
 > library's fraud table** (upstream: `references/domains/`); (2) suite mode needs upstream's `eval/`
 > directory, which KAIF does not vendor — clone the upstream repo to run it; (3) the **guardrail
-> hunts** block in step 4 (added in KAIF 1.6 — weak-model guardrails, `plans/16`). In KAIF rituals this
+> hunts** block in step 4 (added in KAIF 1.6 — weak-model guardrails, `plans/16`); (4) the
+> KAIF 2.1 hunts inside that block — **identity-without-an-author**, **timer-fed heartbeat**,
+> **mutation addressivity** (judgment boundaries · the guarded loop · craft prostheses). In KAIF rituals this
 > judge pass is MANDATORY before a cycle marks a backlog item done, **before EVERY push and every
 > deploy** (the cheapest point where everything still rolls back), and before `/release` publishes.
 > Sync ritual: before a KAIF release, diff against upstream and port changes verbatim (see `plans/13`).
@@ -38,6 +40,9 @@ Target: the most recent completed piece of work in this conversation, or whateve
    - **Inventory-based delivery.** If the work has a parity inventory or canon map (`AGENT_GUIDE.md` → Recon artifacts), judge BY ITS ROWS, not by impression — unaddressed rows ARE the finding; a delivery with no inventory where a reference exists is itself a caveat.
    - **Experience recall.** The report must quote the EXPERIENCE lessons consulted (id + one line) or state "no relevant lessons" — a missing recall line is a caveat (unquoted recall is unverifiable).
    - **Provenance marks.** In the owner's canon artifacts, AI-written text must sit inside `[AI]…[/AI]` / `[AI-ed]…[/AI-ed]` marks (`AGENT_GUIDE.md` → write-gate); unmarked AI text — or a mark removed without the owner's quoted word — is fraud.
+   - **Identity without an author (KAIF 2.1).** Any shipped NAME — a release codename, a product/feature name, a slogan, a brand string humans read first — must carry its source artifact (*owner · channel · date*, `/release` Step 0). A name with no source is an agent-invented identity: a finding regardless of how broad the owner's action approval was ("permission to act" never transfers "authorship of identity" — `AGENT_GUIDE.md`).
+   - **Timer-fed heartbeat (KAIF 2.1).** In a guarded loop (`/guarded-loop`), a `.kaif/heartbeat.log` pulse must correspond to a COMPLETED step — cross-check pulse lines against the actual work trail (commits, task ticks). A pulse written on a schedule while no work landed is the exact fraud the watchdog exists to catch: it keeps a hung agent looking alive.
+   - **Mutation addressivity (KAIF 2.1).** A guard proven by mutation must name its addressees BEFORE the run: *mutant M → exactly checks P₁…Pₙ go red, and only they; intact code → 0 red*. A mutation that reddens only side checks — or a guard "proven" with no named addressees — proves nothing (field: a green smoke that forgave the entire error class it was supposed to catch).
    **Non-code work is judged by its sphere's fraud table.** If the work is not software (the project's sphere in `.kaif/kaif.json` is science, design, business, or another), read the project's deployed KAIF sphere library and hunt ITS fraud table (fabricated statistics, stale figures, budget fiction, silent data cleaning...) with the same stance: the deliverable's claims are verified against the sources and rules the sphere names, e.g. copy checked line-by-line against the brand doc, figures re-fetched, arithmetic recomputed.
 5. **Deliver the verdict, evidence first.**
    - **VERIFIED** - every load-bearing claim reproduced, no frauds found.

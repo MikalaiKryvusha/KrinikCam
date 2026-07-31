@@ -1,7 +1,7 @@
 {
   "framework": "KAIF",
-  "version": "1.6",
-  "released": "2026-07-24",
+  "version": "2.1",
+  "released": "2026-07-31",
   "origin": "https://github.com/MikalaiKryvusha/KAIF",
   "tracking": "origin",
   "sphere": "programming",
@@ -12,5 +12,13 @@
     "cline",
     "zoo-code"
   ],
-  "language": "ru"
+  "language": "ru",
+  "history": [
+    {
+      "from": "1.6",
+      "to": "2.1",
+      "route": "legacy-bootstrap",
+      "date": "2026-07-31"
+    }
+  ]
 }

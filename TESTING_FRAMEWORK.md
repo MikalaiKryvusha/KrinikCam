@@ -77,6 +77,15 @@ ships, walk the gates that apply:
    version first (see `BUG_FIXING_FRAMEWORK.md` → Guards); goldens for refactors are byte-exact —
    an empty diff is proof, "the numbers look the same" is not.
 
+## The taste class — when the observer must be human
+
+A subjectively-perceptual acceptance criterion (a perception adjective: beautiful, natural,
+pleasant, "feels right") is still verified by observation — but the OBSERVER is the human, by
+necessity, not the agent. The agent's role is to PREPARE the observation: produce a mock-up on the
+project's own material and hand over an artifact to perceive (`AGENT_GUIDE.md` → "The taste
+class"; the homework doc with its two standing fields). The agent's own "sounds good to me" is not
+a verification and never flips a marker; the owner's recorded verdict is.
+
 ## How this composes with the rest of KAIF
 
 - **fable-method** — Step 5 (verify by observation) is HOW a single check is performed; this framework

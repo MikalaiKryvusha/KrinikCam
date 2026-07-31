@@ -58,12 +58,22 @@ token system — surface the conflict.
 | Happy-path-only | error, empty, loading, overflow states missing, unmentioned |
 | Off-family surface | new work visibly foreign to neighboring pages, unflagged |
 | Placeholder debris | lorem ipsum, dummy images, dead links left in "finished" work |
+| Voice without a corpus | a "portrait of the owner's style" or a re-voiced text whose rules carry no verbatim owner quotes with addresses — style derived from memory of the owner instead of their texts (`/owner-voice`) |
 
 ## Done, by example
 
 "The page is done" means: rendered and reviewed at two widths, every value from tokens, contrast computed
 on new color pairs, all states present, consistent with sibling pages. Not: "the component compiles and
 looks fine."
+
+## Owner's voice (KAIF 2.1)
+
+The voice carriers are the words inside the design: microcopy, brand copy, headings, empty-state
+and error texts — plus the design doc narrated "as the owner". Typical corpora: the owner's
+pre-AI copy, brand materials they wrote themselves. Voice here overlaps the taste class
+(mock-up + homework stays for the visuals); the blind test from the portrait ritual is the
+acceptance for the words. Ritual and thresholds: `/owner-voice` +
+`.kaif/_owner-voice-template.md`.
 
 ## Adaptation notes
 

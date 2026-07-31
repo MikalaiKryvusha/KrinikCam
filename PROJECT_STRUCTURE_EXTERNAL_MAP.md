@@ -15,8 +15,12 @@ KrinikCam/
 ├── AGENT_GUIDE.md                        — КАНОН: правила, команды, соглашения (читать перед каждой задачей)
 ├── PHILOSOPHY.md                         — как агент мыслит: ПРОСТОТА (KISS + Оккам + набор принципов)
 ├── BUG_FIXING_FRAMEWORK.md               — как агент чинит баги (цикл фикс→сборка→тест, правило 3 попыток)
+├── TESTING_FRAMEWORK.md                  — канон тестирования: 7 принципов + маркеры [NOT-TESTED]/[TESTED]
+├── EXPERIENCE.md                         — журнал уроков агента (вспомнить до задачи, записать после)
 ├── GOAL.md                               — видение Криника (владелец пишет, агент читает)
-├── STATUS.md                             — живое состояние: что сделано, где мы, что дальше
+├── STATUS.md                             — живая СВОДКА настоящего (~200 строк): где мы, что дальше
+├── PROJECT_HISTORY.md                    — append-only летопись закрытого (сессии, фазы, релизы);
+│                                           бывший researches/status_archive.md влит сюда 2026-07-31
 ├── MASTER_PLAN.md                        — генеральный план: фазы от текущего состояния к GOAL
 ├── PROJECT_STRUCTURE_EXTERNAL_MAP.md     — этот файл (внешняя карта)
 ├── PROJECT_ARCHITECTURE_INTERNAL_MAP.md  — внутренняя карта (абстракции и взаимодействия)
@@ -34,8 +38,14 @@ KrinikCam/
 │   └── logs/                             — девайс-логи с ДЗ (gitignored — в git НЕ коммитим)
 │
 │  ── ФРЕЙМВОРК И ИНСТРУМЕНТЫ ──
-├── .kaif/kaif.json                       — маркер развёртывания KAIF (версия, sphere, agent, tracking)
-├── .claude/skills/                       — навыки-ритуалы (/resume, /pause, лупы, /kaif-* и др.)
+├── .kaif/kaif.json                       — маркер развёртывания KAIF (версия, sphere, agents, tracking, history)
+├── .kaif/kaif-core.mjs                   — машинерия жизненного цикла (check/diff/modules/update/adopt-current…)
+├── .kaif/KAIF_REFERENCE.md               — полный справочник механики фреймворка (§1–16), цитирует /help-kaif
+├── .kaif/deploy-manifest.json            — манифест развёртывания v2 (sha шаблонов ОТДЕЛЬНО от sha на диске)
+├── .kaif/last-update.json                — квитанция последнего обновления (что во что, каким маршрутом)
+├── .kaif/spheres/                        — библиотека сфер (у нас активна programming)
+├── .kaif/tools/                          — опциональные модули: гейт провенанса [AI], линтер канона
+├── .claude/skills/                       — навыки-ритуалы, 34 шт. (/resume, /pause, /end-chat, лупы, /plan-*, /kaif-*)
 ├── tools/                                — Node.js-инструменты автоматизации:
 │   ├── build.mjs / build-ui.mjs          —   сборка APK (+браузерный прогресс-бар)
 │   ├── commit.mjs                        —   bump build → git commit → push

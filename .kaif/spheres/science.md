@@ -58,11 +58,21 @@ never quietly adjust the analysis until it "agrees".
 | Post-hoc hypothesis | the hypothesis quietly rewritten to match the result |
 | Unreproducible number | no seed/script/pipeline behind a reported figure |
 | Stale constants | figures/constants from memory, not from a source |
+| Voice without a corpus | a "portrait of the owner's style" or a re-voiced text whose rules carry no verbatim owner quotes with addresses — style derived from memory of the owner instead of their texts (`/owner-voice`) |
 
 ## Done, by example
 
 "The analysis is done" means: the pipeline re-ran from raw data end-to-end, the text's numbers match the
 pipeline's output, every citation was opened, limitations stated. Not: "the notebook has the plots."
+
+## Owner's voice (KAIF 2.1)
+
+The voice carrier is the text published under the researcher's name: the paper, the thesis, the
+grant application, the review response. Typical corpora: prior sole-authored papers pre-AI, the
+thesis, lecture notes. The stakes are highest here — a journal reads the text as the author's;
+meaning identity (numbers, formulas, citations) is the hard invariant during any re-voicing.
+Ritual and thresholds: `/owner-voice` + `.kaif/_owner-voice-template.md`; one portrait per
+language.
 
 ## Adaptation notes
 

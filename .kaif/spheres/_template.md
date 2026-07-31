@@ -52,11 +52,28 @@ memory. Then one sentence: the sphere's classic conflict and which side wins.>`
 |---|---|
 | `<name the fraud in 2–3 words>` | `<the observable symptom a judge can hunt by diffing, re-running, or re-fetching>` |
 | … (4–7 rows) | |
+| Voice without a corpus | a "portrait of the owner's style" or a re-voiced text whose rules carry no verbatim owner quotes with addresses — style derived from memory of the owner instead of their texts (`/owner-voice`) — keep this row verbatim in every sphere |
 
 ## Done, by example
 
 "`<A typical deliverable>` is done" means: `<the observed checklist in one sentence>`. Not:
 "`<the sphere's classic hollow claim>`".
+
+## Owner's voice (KAIF 2.1)
+
+`<Who carries the owner's voice in this sphere — which artifact is written "as the owner" (a rule
+book, a paper, a selling page, a design doc)? Which corpora are typical here? What does "the text
+is accepted by the owner" mean in this sphere? The ritual itself is /owner-voice + the shipped
+skeleton .kaif/_owner-voice-template.md — this section only names the sphere's carriers.>`
+
+## Craft recipes (KAIF 2.1 — prostheses for weak sessions)
+
+`<The sphere's copy-not-derive recipes for the places weak sessions fail: what is this sphere's
+"guardian skeleton" (the invariant shape of any check — a failure must be able to STOP the process,
+empty input is red, the fixture is two-sided)? What are its "platform patterns" (the edge semantics
+every session gets wrong the same way — give the proven shape with one "when to take it" line)?
+What is its "measuring tool" and the rule that it changes only together with a re-measure? Keep it
+to recipes and samples — principles the sessions already "know" and don't apply belong nowhere.>`
 
 ## Adaptation notes
 

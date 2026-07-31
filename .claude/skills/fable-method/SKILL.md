@@ -5,10 +5,12 @@ trigger: /fable-method
 ---
 
 > **Vendored into KAIF from [fable-method](https://github.com/Sahir619/fable-method) v1.4.0 — © Sahir619, MIT.**
-> Kept verbatim except two marked KAIF patches: (1) the domain-adapter references now point to the
+> Kept verbatim except three marked KAIF patches: (1) the domain-adapter references now point to the
 > project's **KAIF sphere library** (which carries the same binding sections since KAIF 1.5); (2) the
 > on-demand references list reflects what KAIF vendors (`references/failure-modes.md`, `examples.md`,
-> `flowcharts.md`; upstream's `references/domains/` is replaced by KAIF spheres). Sync ritual: before a
+> `flowcharts.md`; upstream's `references/domains/` is replaced by KAIF spheres); (3) the **craft
+> slots** block in Step 5 (added in KAIF 2.1 — weak-model craft prostheses: `TWINS-MECH:` /
+> `AFTER-WORK:` / `BOTH-WAYS:`, the removal table, the deleted-text sweep). Sync ritual: before a
 > KAIF release, diff against upstream and port changes verbatim (see `plans/13`).
 
 # The Fable Method
@@ -103,6 +105,15 @@ Verification has two halves, and a third when you fixed a defect:
 - **(a)** the Step 1 done criterion passes, observed (it ran, it rendered, it counted), not inferred from reading the code;
 - **(b)** the surrounding system still works: existing tests, build, or lint for the touched area. A green targeted check with a broken build is a failed verification.
 - **(c) Twin check, whenever you fixed a defect.** A bug found in one place is presumed to recur elsewhere until you have searched. Name the exact wrong construct, search the whole project for it, and write one line that must appear verbatim in your report: `TWINS: searched <the pattern> - found <N> other sites: <files, or "none">`. Fix them or list them; a completeness claim with no search behind it is failure mode 14.
+
+**KAIF patch — the craft slots (KAIF 2.1, not upstream; distilled from two independent field audits, KLAS + NDim).** Weak sessions fail on CRAFT, not on intent: the rule they need exists in some list, but no one asks it at the moment of writing. Each slot below fires only on its trigger, and then its line appears verbatim in the report:
+
+- `TWINS-MECH:` — alongside every `TWINS:` line: state the defect's MECHANISM in one sentence with NO property/function names, list every syntax that mechanism can wear, grep each. A grep for the fixed line finds copies of the line, not copies of the defect (field: `drop-shadow` got fixed while `text-shadow`/`box-shadow` of the same mechanism survived).
+- **Moved logic owes a removal table.** Any refactor that extracts/moves logic produces the list of the OLD path's consumers (grep) with a verdict per row: *switched / removed / consciously kept*. Without the table the move is NOT complete — weak models fill tables reliably and "remember about duplicates" never (field: an extracted normalization layer left the old guard alive on the live path, resurrecting a closed bug).
+- `AFTER-WORK:` — when the change sets/clears progress or state marks: name every mark, and what remains in the system if execution dies on the line AFTER each one (field: a "done" flag written before the work it claimed was done).
+- `BOTH-WAYS:` — when the change touches an invariant between two worlds (stage/prod, demo/live, source/mirror): is it guarded in BOTH directions? Name the reverse guard, or record why one direction suffices (field: "demo never enters prod" was guarded; "prod never enters the emulator" was not — and nearly fired).
+- **Deleted-text sweep.** After a behavior-changing edit, grep the repo for the literals and numbers your diff REMOVED; every hit in a comment or doc is fixed in the same commit or explained (field: a canon comment kept confidently describing deleted behavior — a future session would have "repaired" the code back to it).
+- **Craft questions by diff type** — before writing, pull the matching recipe from the sphere library's craft section: writing a check/bench/watchdog → the guardian skeleton's six points; touching a process/stream/lock/download → the platform patterns; writing a parser → "does every special character of the format have a branch?".
 
 On failure, route: a mechanical mistake in the change goes back to Step 4; a failure that surprises you or contradicts your understanding goes back to Step 2. Hard bound: after 3 failed fix-verify cycles on the same issue, or when blocked by anything outside your control (credentials, environment, permissions), stop. Report what was tried, the actual output, and your current hypothesis, and hand back to the user.
 
