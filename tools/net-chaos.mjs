@@ -23,6 +23,7 @@
  *   node tools/net-chaos.mjs mode pass                     # вернуть нормальную пересылку
  *   node tools/net-chaos.mjs cut                           # разорвать текущие соединения
  *   node tools/net-chaos.mjs status / stop
+ *   node tools/net-chaos.mjs selftest                      # ГАРД: доказать полосу независимым приёмником
  *
  * УСТРОЙСТВО. Демон слушает --listen и на каждое входящее соединение открывает сокет к --target,
  * перекладывая байты в обе стороны. Направление «планшет → сервер» (аплинк) проходит через
@@ -32,7 +33,19 @@
  * Управление живым демоном — через файл состояния (демон перечитывает его раз в 200 мс), а не через
  * сигналы: так `set --kbps` работает на ходу и не требует перезапуска эфира.
  *
- * [NOT-TESTED] — до первого прогона с живым эфиром (шаг C6 в plans/21).
+ * ИЗВЕСТНОЕ ПОВЕДЕНИЕ (не дефект, но знать обязательно): при закрытии КЛИЕНТСКОГО сокета демон
+ * уничтожает обе стороны вместе с непереданной очередью. Живой RTMP-эфир держит соединение всё
+ * время сессии, поэтому для целевого сценария это безразлично; а вот синтетический зонд, который
+ * «залил и закрыл», получит на приёмнике ноль — и это будет свойством ЗОНДА, а не дросселя.
+ *
+ * [TESTED: 2026-07-31 · `selftest` — независимый приёмник считает байты сам: 0 кбит/с (без
+ * ограничения) → 193 476, 2000 → 1996, 300 → 299 кбит/с. Гард предварительно проверен НА СЛОМАННОЙ
+ * версии и покраснел ровно на точке 300 (см. историю правок ниже и EXPERIENCE).]
+ *
+ * ИСТОРИЯ ПРАВОК. 2026-07-31 — починены два независимых дефекта, из-за которых инструмент был
+ * непригоден именно на своей рабочей полосе: (1) токен-бакет требовал токенов на ЦЕЛЫЙ чанк TCP
+ * при капе в одну секунду полосы, отчего всякая полоса ниже ~524 кбит/с давала ровно ноль байт;
+ * (2) недостижимая цель не отличалась в логе от исправной работы. Добавлены `selftest` и пречек цели.
  */
 
 import net from 'node:net'
@@ -41,9 +54,19 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const STATE_FILE = path.join(__dirname, 'bin', 'net-chaos.json')
-const PID_FILE = path.join(__dirname, 'bin', 'net-chaos.pid')
-const LOG_FILE = path.join(__dirname, 'bin', 'net-chaos.log')
+
+// Суффикс файлов состояния. Нужен ровно для `selftest`: он поднимает СВОЙ экземпляр демона на
+// своих портах и не имеет права затирать состояние боевого дросселя, который в этот момент может
+// душить живой эфир. Пустой суффикс = боевой экземпляр.
+const SUFFIX = process.env.NET_CHAOS_SUFFIX || ''
+const STATE_FILE = path.join(__dirname, 'bin', `net-chaos${SUFFIX}.json`)
+const PID_FILE = path.join(__dirname, 'bin', `net-chaos${SUFFIX}.pid`)
+const LOG_FILE = path.join(__dirname, 'bin', `net-chaos${SUFFIX}.log`)
+
+// Минимальный размер записи в аплинк. Без него дроссель на узкой полосе либо крутится вхолостую,
+// отдавая по байту, либо (как было до 2026-07-31) не отдаёт вообще ничего. 1460 = типовой MSS,
+// то есть ровно то, чем оперирует настоящий узкий канал.
+const MIN_WRITE = 1460
 
 const DEFAULTS = {
   listen: 1936,
@@ -136,21 +159,36 @@ function runDaemon() {
         // stall (K5): перестаём читать сокет вообще — клиент упрётся в переполненное окно TCP,
         // соединение живо, но байты не движутся. Ровно «зомби-сервер».
         if (state.mode === 'stall') { setTimeout(step, 100); return }
-        fill()
-        const chunk = queue[0]
-        const unlimited = !(state.kbps > 0)
-        if (unlimited || tokens >= chunk.length) {
-          queue.shift()
-          if (!unlimited) tokens -= chunk.length
-          // blackhole (K4): байты ПРИНИМАЕМ и молча выбрасываем — для клиента отправка «удалась»,
-          // а до сервера ничего не доходит. Это «чёрная дыра», которую watchdog обязан заметить.
-          if (state.mode !== 'blackhole') { upstream.write(chunk); statOut += chunk.length }
-          setImmediate(step)
-        } else {
-          const deficit = chunk.length - tokens
-          const bytesPerSec = state.kbps * 1000 / 8
-          setTimeout(step, Math.max(5, Math.ceil(deficit / bytesPerSec * 1000)))
+
+        // blackhole (K4): байты ПРИНИМАЕМ и молча выбрасываем — для клиента отправка «удалась»,
+        // а до сервера ничего не доходит. Это «чёрная дыра», которую watchdog обязан заметить.
+        const send = (buf) => {
+          if (state.mode !== 'blackhole') { upstream.write(buf); statOut += buf.length }
         }
+
+        if (!(state.kbps > 0)) { send(queue.shift()); setImmediate(step); return }
+
+        fill()
+        const head = queue[0]
+        // РЕЖЕМ чанк, а не ждём токенов на него целиком: канал — поток БАЙТ, а не поток чанков,
+        // и настоящий узкий линк тоже не придерживает 64 КБ до полной оплаты.
+        // Прежнее условие `tokens >= chunk.length` вставало НАМЕРТВО, когда кап бакета (одна
+        // секунда полосы) оказывался меньше чанка TCP: 300 кбит/с → кап 37 500 Б < чанк 65 536 Б,
+        // условие не выполнялось никогда, выход стоял в нуле. Мёртвой была всякая полоса ниже
+        // ~524 кбит/с — то есть ровно рабочий диапазон сценария K1, ради которого инструмент писан.
+        // (Замерено и починено 2026-07-31; стережёт `selftest`, точка kbps=300.)
+        const need = Math.min(MIN_WRITE, head.length)
+        if (tokens < need) {
+          const bytesPerSec = state.kbps * 1000 / 8
+          setTimeout(step, Math.max(5, Math.ceil((need - tokens) / bytesPerSec * 1000)))
+          return
+        }
+        const n = Math.min(Math.floor(tokens), head.length)
+        tokens -= n
+        if (n === head.length) queue.shift()
+        else queue[0] = head.subarray(n)          // хвост головы остаётся первым в очереди
+        send(head.subarray(0, n))
+        setImmediate(step)
       }
       step()
     }
@@ -167,10 +205,13 @@ function runDaemon() {
     // Обратное направление не душим (см. шапку).
     upstream.on('data', (chunk) => { if (state.mode !== 'blackhole') client.write(chunk) })
 
-    const close = (who) => () => {
+    // Причину закрытия ОБЯЗАТЕЛЬНО в лог. 2026-07-29 дроссель стоял с недостижимой целью
+    // (опечатка в порту), и это выглядело в логе как обычное закрытие: диагноз «цель мертва»
+    // был неотличим от «дроссель душит». Мёртвая цель обязана называть себя вслух.
+    const close = (who) => (err) => {
       sockets.delete(client); sockets.delete(upstream)
       client.destroy(); upstream.destroy()
-      log(`- соединение закрыто (${who})`)
+      log(`- соединение закрыто (${who}${err && err.message ? ': ' + err.message : ''})`)
     }
     client.on('close', close('клиент')); client.on('error', close('клиент/ошибка'))
     upstream.on('close', close('сервер')); upstream.on('error', close('сервер/ошибка'))
@@ -180,6 +221,75 @@ function runDaemon() {
     log(`дроссель слушает :${state.listen} → ${state.target} (kbps=${state.kbps || '∞'}, mode=${state.mode})`)
   })
   process.on('SIGTERM', () => { log('SIGTERM — выключаюсь'); server.close(); process.exit(0) })
+}
+
+// ── selftest ────────────────────────────────────────────────────────────────
+
+/**
+ * Гард дросселя: доказывает, что заданная полоса РЕАЛЬНО соблюдается — независимым приёмником,
+ * а не собственной статистикой демона.
+ *
+ * Почему гард именно такой. 2026-07-29 дроссель отработал вживую и напечатал «выход 0 кбит/с»;
+ * это неотличимо от «задушил насмерть», и дефект прожил незамеченным до 2026-07-31, когда
+ * замер показал, что на 300 кбит/с не проходит НИ ОДНОГО байта (токен-бакет капился одной
+ * секундой полосы — 37 500 Б — и никогда не набирал на целый TCP-чанк в 65 536 Б).
+ * Собственный лог демона такой отказ показать не может ПО ПОСТРОЕНИЮ — считать обязан приёмник.
+ *
+ * Ключевая точка матрицы — 300 кбит/с: это рабочая полоса сценария K1 и ровно та, на которой
+ * инструмент был мёртв. Проверено на сломанной версии (гард покраснел), см. EXPERIENCE.
+ */
+async function selfTest() {
+  const LISTEN = 19936, SINK = 19999, SECONDS = 6
+  const CASES = [
+    { kbps: 0, min: 10_000, max: Infinity, note: 'без ограничения — должен лить свободно' },
+    { kbps: 2000, min: 1500, max: 2500, note: 'широкая полоса' },
+    { kbps: 300, min: 225, max: 375, note: 'УЗКАЯ полоса — рабочая точка сценария K1' },
+  ]
+
+  // Приёмник: считает байты сам. Это и есть независимость измерения.
+  let received = 0
+  const sink = net.createServer((s) => s.on('data', (ch) => { received += ch.length }))
+  await new Promise((res, rej) => { sink.once('error', rej); sink.listen(SINK, res) })
+
+  const { spawn } = await import('node:child_process')
+  const env = { ...process.env, NET_CHAOS_DAEMON: '1', NET_CHAOS_SUFFIX: '-selftest' }
+  let failures = 0
+
+  for (const c of CASES) {
+    // Свежий демон на каждый случай: полоса читается из состояния при старте соединения.
+    fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true })
+    fs.writeFileSync(
+      path.join(__dirname, 'bin', 'net-chaos-selftest.json'),
+      JSON.stringify({ listen: LISTEN, target: `127.0.0.1:${SINK}`, kbps: c.kbps, mode: 'pass', cutSeq: 0 }))
+    const daemon = spawn(process.execPath, [fileURLToPath(import.meta.url)], { env, stdio: 'ignore' })
+    await new Promise((r) => setTimeout(r, 700))
+
+    received = 0
+    const t0 = Date.now()
+    // Источник льёт непрерывно и НЕ закрывает сокет: на закрытии клиента демон уничтожает
+    // непереданную очередь, и замер выродился бы в ноль по вине зонда, а не дросселя.
+    const payload = Buffer.alloc(16 * 1024, 0x41)
+    const src = net.connect(LISTEN, '127.0.0.1')
+    await new Promise((r) => src.once('connect', r))
+    const pump = () => {
+      while (Date.now() - t0 < SECONDS * 1000) if (!src.write(payload)) { src.once('drain', pump); return }
+    }
+    pump()
+    await new Promise((r) => setTimeout(r, SECONDS * 1000 + 500))
+    const sec = (Date.now() - t0) / 1000
+    const kbps = received * 8 / 1000 / sec
+    src.destroy(); daemon.kill('SIGKILL')
+    await new Promise((r) => setTimeout(r, 300))
+
+    const ok = kbps >= c.min && kbps <= c.max
+    if (!ok) failures++
+    const want = c.kbps === 0 ? `≥ ${c.min}` : `${c.min}…${c.max}`
+    console.log(`${ok ? '✅' : '❌'} kbps=${String(c.kbps).padStart(4)} → замерено ${kbps.toFixed(0).padStart(6)} кбит/с (ждали ${want}) · ${c.note}`)
+  }
+
+  sink.close()
+  console.log(failures ? `\n⛔ ПРОВАЛ: ${failures} из ${CASES.length}` : `\n✅ дроссель соблюдает полосу на всех ${CASES.length} точках`)
+  process.exit(failures ? 1 : 0)
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
@@ -192,6 +302,7 @@ function arg(name, def) {
 const cmd = process.argv[2]
 
 if (process.env.NET_CHAOS_DAEMON) { runDaemon() }
+else if (cmd === 'selftest') { await selfTest() }
 else if (cmd === 'start') {
   if (daemonAlive()) { console.log('уже работает (pid ' + daemonAlive() + ')'); process.exit(0) }
   const s = writeState({
@@ -200,13 +311,29 @@ else if (cmd === 'start') {
     kbps: parseInt(arg('kbps', 0), 10),
     mode: 'pass',
   })
+  // Пречек цели. Дроссель с недостижимой целью ведёт себя как исправный (соединения принимает,
+  // байты глотает) — так 2026-07-29 опечатка в порту стоила прогона. Проверяем ДО запуска.
+  const [pfHost, pfPort] = String(s.target).split(':')
+  const reachable = await new Promise((res) => {
+    const probe = net.connect(parseInt(pfPort, 10), pfHost)
+    const done = (ok) => { probe.destroy(); res(ok) }
+    probe.once('connect', () => done(true))
+    probe.once('error', () => done(false))
+    setTimeout(() => done(false), 1500)
+  })
+  if (!reachable) {
+    console.error(`⛔ цель ${s.target} НЕ отвечает — дроссель бы принимал байты и выбрасывал их в никуда.`)
+    console.error(`   Подними приёмник (node tools/rtmp-server.mjs start) или укажи верный --target.`)
+    process.exit(1)
+  }
+
   const { spawn } = await import('node:child_process')
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
     detached: true, stdio: 'ignore', env: { ...process.env, NET_CHAOS_DAEMON: '1' },
   })
   child.unref()
   fs.writeFileSync(PID_FILE, String(child.pid))
-  console.log(`✓ дроссель запущен (pid ${child.pid}) :${s.listen} → ${s.target}`)
+  console.log(`✓ дроссель запущен (pid ${child.pid}) :${s.listen} → ${s.target} (цель отвечает)`)
   console.log(`  полоса: ${s.kbps ? s.kbps + ' кбит/с' : 'без ограничения'}`)
   console.log(`  публиковать на:  rtmp://<ip-мака>:${s.listen}/live/test   ← порт ДРОССЕЛЯ`)
 }
@@ -247,6 +374,8 @@ else {
                               stall (K5) — перестаём читать сокет
   cut                     разорвать текущие соединения
   status | stop
+  selftest                ГАРД: независимый приёмник доказывает, что полоса реально соблюдается
+                          (точки 0 / 2000 / 300 кбит/с; 300 — рабочая полоса сценария K1)
 
 Публиковать эфир НА ПОРТ ДРОССЕЛЯ: rtmp://<ip-мака>:1936/live/test`)
 }
