@@ -74,6 +74,7 @@ const DEFAULTS = {
   kbps: 0,          // 0 = без ограничения
   mode: 'pass',     // pass | blackhole | stall
   cutSeq: 0,        // счётчик: увеличение = команда разорвать соединения
+  queueMs: 1000,    // глубина буфера узкого места В МИЛЛИСЕКУНДАХ ПОЛОСЫ (см. maxQueueBytes)
 }
 
 // ── состояние ───────────────────────────────────────────────────────────────
@@ -126,7 +127,7 @@ function runDaemon() {
     if (!statIn && !statOut) return
     const kbpsIn = (statIn * 8 / 1000 / 5).toFixed(0)
     const kbpsOut = (statOut * 8 / 1000 / 5).toFixed(0)
-    log(`стат: вход ${kbpsIn} кбит/с · выход ${kbpsOut} кбит/с · в очереди ${statQueued} чанков`)
+    log(`стат: вход ${kbpsIn} кбит/с · выход ${kbpsOut} кбит/с · в очереди ${(statQueued / 1024).toFixed(0)} КБ`)
     statIn = 0; statOut = 0
   }, 5000)
 
@@ -141,7 +142,23 @@ function runDaemon() {
     let tokens = 0
     let lastFill = Date.now()
     const queue = []
+    let queuedBytes = 0
     let draining = false
+
+    // Глубина очереди — это МОДЕЛЬ БУФЕРА УЗКОГО МЕСТА, и она обязана быть в БАЙТАХ и соразмерна
+    // полосе. Прежний кап «2048 чанков» держал на 300 кбит/с около 8 МБ — это 3.5 минуты вещания:
+    // приложение не чувствовало сузившийся канал ЦЕЛУЮ МИНУТУ, спокойно лило 1400 кбит/с в трубу
+    // на 300, а потом получало удар разом (замер 2026-07-31, prod-прогон K1). Это не узкий канал,
+    // а буферблоат исполинского размера, и он делал прогон невалидным: измерялся буфер, а не
+    // реакция приложения. Секунда полосы — защитимая модель очереди бутылочного горлышка.
+    const maxQueueBytes = () => {
+      if (!(state.kbps > 0)) return 8 * 1024 * 1024
+      return Math.max(8192, Math.round(state.kbps * 1000 / 8 * (state.queueMs / 1000)))
+    }
+    // Снять паузу, когда очередь опустела наполовину: гистерезис против дребезга pause/resume.
+    const maybeResume = () => {
+      if (client.isPaused() && queuedBytes < maxQueueBytes() / 2) client.resume()
+    }
 
     const fill = () => {
       const now = Date.now()
@@ -166,7 +183,10 @@ function runDaemon() {
           if (state.mode !== 'blackhole') { upstream.write(buf); statOut += buf.length }
         }
 
-        if (!(state.kbps > 0)) { send(queue.shift()); setImmediate(step); return }
+        if (!(state.kbps > 0)) {
+          const c = queue.shift(); queuedBytes -= c.length; send(c); maybeResume()
+          setImmediate(step); return
+        }
 
         fill()
         const head = queue[0]
@@ -187,18 +207,21 @@ function runDaemon() {
         tokens -= n
         if (n === head.length) queue.shift()
         else queue[0] = head.subarray(n)          // хвост головы остаётся первым в очереди
+        queuedBytes -= n
         send(head.subarray(0, n))
+        maybeResume()
         setImmediate(step)
       }
       step()
     }
 
     client.on('data', (chunk) => {
-      queue.push(chunk); statIn += chunk.length; statQueued = queue.length
-      // Не даём очереди расти бесконечно: при узком канале это ровно то давление, которое
-      // должно дойти до приложения (переполнение окна), а не съесть память Мака.
-      if (queue.length > 2048) client.pause()
-      else if (client.isPaused() && queue.length < 512) client.resume()
+      queue.push(chunk); queuedBytes += chunk.length
+      statIn += chunk.length; statQueued = queuedBytes
+      // Переполнили буфер узкого места — перестаём читать сокет. Окно TCP закрывается, и давление
+      // доходит до приложения: ровно то, что делает с отправителем настоящий забитый канал.
+      if (queuedBytes > maxQueueBytes()) client.pause()
+      else maybeResume()
       drain()
     })
 
@@ -309,6 +332,7 @@ else if (cmd === 'start') {
     listen: parseInt(arg('listen', DEFAULTS.listen), 10),
     target: arg('target', DEFAULTS.target),
     kbps: parseInt(arg('kbps', 0), 10),
+    queueMs: parseInt(arg('queue-ms', DEFAULTS.queueMs), 10),
     mode: 'pass',
   })
   // Пречек цели. Дроссель с недостижимой целью ведёт себя как исправный (соединения принимает,
@@ -355,7 +379,9 @@ else if (cmd === 'status') {
   const pid = daemonAlive()
   const s = readState()
   console.log(pid ? `✅ работает (pid ${pid}) :${s.listen} → ${s.target}` : '⛔ не запущен')
+  const capKb = s.kbps > 0 ? Math.round(s.kbps * 1000 / 8 * (s.queueMs / 1000) / 1024) : 0
   console.log(`   полоса: ${s.kbps ? s.kbps + ' кбит/с' : 'без ограничения'} · режим: ${s.mode}`)
+  console.log(`   буфер узкого места: ${s.queueMs} мс полосы${capKb ? ` (${capKb} КБ)` : ''}`)
 }
 else if (cmd === 'stop') {
   const pid = daemonAlive()
@@ -367,7 +393,10 @@ else if (cmd === 'stop') {
 else {
   console.log(`net-chaos.mjs — TCP-дроссель между планшетом и RTMP-полигоном (sudo не нужен)
 
-  start [--listen 1936] [--target 127.0.0.1:1935] [--kbps N]   поднять дроссель
+  start [--listen 1936] [--target 127.0.0.1:1935] [--kbps N] [--queue-ms 1000]
+                          поднять дроссель. --queue-ms — глубина буфера узкого места В МС ПОЛОСЫ
+                          (не в чанках!): слишком глубокий буфер маскирует сужение канала и
+                          превращает прогон в замер буфера вместо замера приложения
   set --kbps N            сменить полосу НА ХОДУ (0 = снять ограничение)
   mode pass|blackhole|stall   pass — обычная пересылка
                               blackhole (K4) — байты принимаем и выбрасываем

@@ -714,16 +714,28 @@ class RtmpStreamer @Inject constructor(
      * общий энкодер всех выходов — следствие решения Р3 «мультистрим консервативно, один энкодер».
      * Логи печатают НАМЕРЕНИЕ: `setVideoBitrateOnFly` молча выходит, если энкодер не запущен
      * (проверено байткодом, plans/21 Ш0), поэтому факт доказывает только пульс/приёмник.
+     *
+     * ОБЕ ветки требуют живого выхода — и это не симметрия ради красоты (bug 75, 2026-07-31).
+     * Пока гард `phase == Live` стоял только в ветке снижения, в фазе Reconnecting выходило так:
+     * живых выходов нет → `anyCongested = false` → управление проваливалось в ветку восстановления
+     * и растило битрейт НА ОСНОВАНИИ ОТСУТСТВИЯ СВЕДЕНИЙ, печатая при этом «канал чист» про канал,
+     * о котором ничего не известно. На узком живом канале (класс K1) это давало несходящуюся петлю:
+     * эфир умирал, за время реконнекта адаптив возвращался на ПОТОЛОК, эфир воскресал на 4000 кбит/с
+     * в трубу на 300 и ложился снова — цикл ~12 с без конца, прямо против вижна «эфир завершает
+     * только кнопка Стоп». Замер и форензика — bugs/75.
      */
     private fun adaptiveBitrateStep() {
         if (!adaptiveBitrateEnabled || targetVideoBitrateBps <= 0) return
         val stream = rtmpStream ?: return
+        // Нет ни одного живого выхода — о канале НИЧЕГО не известно, и это не повод ни снижать,
+        // ни поднимать. Молчание источника данных ≠ хорошая новость.
+        val anyLive = outputStates.values.any { it.phase == OutputPhase.Live }
         val anyCongested = outputStates.values.any { it.phase == OutputPhase.Live && it.congested }
         val next = when {
             anyCongested ->
                 (currentVideoBitrateBps * (100 - ADAPTIVE_DECREASE_PERCENT) / 100)
                     .coerceAtLeast(floorVideoBitrateBps)
-            currentVideoBitrateBps < targetVideoBitrateBps ->
+            anyLive && currentVideoBitrateBps < targetVideoBitrateBps ->
                 (currentVideoBitrateBps + targetVideoBitrateBps * ADAPTIVE_RECOVER_PERCENT / 100)
                     .coerceAtMost(targetVideoBitrateBps)
             else -> currentVideoBitrateBps
