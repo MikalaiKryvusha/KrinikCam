@@ -221,6 +221,14 @@ four shapes of the answer slot and five shapes of the status line in fifteen fil
   "document_comment": [ { "at": "…", "text": "…" } ] }
 ```
 
+🔴 **An ARTIFACT decision goes into the md too — all three places, not two.** Field gap, found live:
+approval landed in `<doc>.decision.json` and the archive while the document itself stayed silent, so
+the next session — which reads the MD, that being its normal path — could not see that a decision
+existed. Append a dated block (`## Решение по артефакту <id>` · verdict · `by` · the sha it is bound
+to); re-approval of new bytes appends, never overwrites. And a question whose answer is given by the
+artifact CARD carries **no text answer slot at all** — an empty slot next to a decided artifact makes
+the guard report the document as hanging forever, i.e. lie.
+
 🔴 **The owner's already-written words are NEVER overwritten.** A re-answer arrives as a separate
 dated clarification block under the original; the original stays verbatim. The document-wide comment
 is appended as its own dated block at the END of the file and comments accumulate. (The neighbouring

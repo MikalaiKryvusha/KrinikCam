@@ -1039,6 +1039,29 @@ function writeAnswersIntoDoc(doc, answers, by, at) {
   return { text, changed: edits.length };
 }
 
+/**
+ * Решение по ИСХОДЯЩЕМУ АРТЕФАКТУ — тоже в исходный md (инвариант I2: ответ живёт в ТРЁХ местах).
+ * ⚠️ Пробел, найденный на живом прогоне 2026-08-02: одобрение артефакта ложилось только в
+ * `<док>.decision.json` и в архив, а документ об этом молчал — следующая сессия, читающая ТОЛЬКО md
+ * (а это её штатный путь), не узнала бы, что решение принято. Блок датированный и накопительный:
+ * переодобрение новых байтов не затирает историю прошлого.
+ */
+function appendArtifactDecisions(text, artifacts, by, at) {
+  const blocks = Object.entries(artifacts).map(([id, a]) => {
+    const verdict = a.status === 'approved' ? '**ОДОБРЕНО**'
+      : a.status === 'rejected' ? '**ОТКЛОНЕНО**' : '**НА ПРАВКУ**';
+    return ['', '---', '',
+      `## Решение по артефакту \`${id}\` · ${humanDate(at)}`,
+      '',
+      `${verdict} · by ${by} · sha256 тела: \`${(a.sha256 || '').slice(0, 16)}…\``,
+      ...(a.comment ? ['', ...a.comment.split('\n').map((l) => `> ${l}`.trimEnd())] : []),
+      '',
+      '_записано контуром `/owner-reviews`. Одобрение привязано к этим байтам: правка тела',
+      'аннулирует его автоматически (I3)._', ''].join('\n');
+  });
+  return text.replace(/\s*$/, '\n') + blocks.join('');
+}
+
 /** Комментарий по документу целиком — отдельным датированным блоком в КОНЕЦ файла. Копится. */
 function appendDocumentComment(text, comment, by, at) {
   const block = [
@@ -1063,6 +1086,9 @@ function recordDecision(doc, payload, by) {
   if (Object.keys(payload.answers || {}).length) {
     const r = writeAnswersIntoDoc(doc, payload.answers, by, at);
     if (r.changed) { text = r.text; touched = true; }
+  }
+  if (Object.keys(payload.artifacts || {}).length) {
+    text = appendArtifactDecisions(text, payload.artifacts, by, at); touched = true;
   }
   if (payload.comment) { text = appendDocumentComment(text, payload.comment, by, at); touched = true; }
   if (touched) { fs.writeFileSync(doc.path, text, 'utf8'); written.push(doc.relPath); }
@@ -1893,6 +1919,18 @@ function selftest() {
     /первый общий комментарий/.test(commented) && /второй общий комментарий/.test(commented) &&
     (commented.match(/## Комментарий владельца/g) || []).length === 2);
 
+  // T6e. Решение по АРТЕФАКТУ пишется в исходный md (I2 — три места, а не два). Пробел найден на
+  // живом прогоне: одобрение README лежало в json и архиве, а документ о нём молчал.
+  const artText = appendArtifactDecisions('# Док\n\nтело\n',
+    { 'readme-seo-draft': { status: 'approved', sha256: 'abc123def456ghi789', comment: 'ок' } },
+    'Криник', isoNow());
+  ok('артефакт: решение вписано в документ с вердиктом, автором и sha',
+    /## Решение по артефакту `readme-seo-draft`/.test(artText) && /\*\*ОДОБРЕНО\*\* · by Криник/.test(artText)
+    && /abc123def456ghi7/.test(artText));
+  ok('артефакт: переодобрение НЕ затирает прошлое решение',
+    (appendArtifactDecisions(artText, { 'readme-seo-draft': { status: 'rejected', sha256: 'zzz' } }, 'Криник', isoNow())
+      .match(/## Решение по артефакту/g) || []).length === 2);
+
   // T7. ДЕТЕКТОР ПРОТУХШЕГО СТАТУСА: ответы есть, а статус кричит «ЖДЁТ»
   const staleDoc = path.join(sandbox, 'interview_993_stale.md');
   fs.writeFileSync(staleDoc, [
@@ -2073,7 +2111,7 @@ if (invokedDirectly) main().catch((e) => { console.error('💥', e); process.exi
 
 export {
   normalizeBody, sha256, parseDoc, parseLines, renderPage, writeAnswersIntoDoc, appendDocumentComment,
-  recordDecision, gate, guard, collectOrphans, inQuietHours, beepWav, loadConfig, decisionPathFor,
+  recordDecision, appendArtifactDecisions, gate, guard, collectOrphans, inQuietHours, beepWav, loadConfig, decisionPathFor,
   findAppBrowser,
   isoNow, GATE_EXIT, ROOT, PAGES_DIR, DECISIONS_DIR, ARCHIVE_DIR, BEEP_HZ,
 };
