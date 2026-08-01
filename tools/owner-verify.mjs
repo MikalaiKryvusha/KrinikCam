@@ -67,6 +67,9 @@ const FIXTURE_MD = [
   '',
   '**Статус:** ⏳ ЖДЁТ ОТВЕТА КРИНИКА',
   '',
+  'ПРЕАМБУЛА-МАЯК: контекст решения живёт ДО первого вопроса — мокапы, образцы звука, объяснение',
+  'зачем всё это. Страница, показывающая только карточки вопросов, молча его выбрасывает.',
+  '',
   '## В1. Первый вопрос — варианты таблицей?',
   '',
   'Тело вопроса с `кодом`, ссылкой и таблицей.',
@@ -98,6 +101,9 @@ const FIXTURE_MD = [
   '',
   '**Ответ Криника:** ПЕРВОИСТОЧНИК ВЛАДЕЛЬЦА — эта строка не смеет исчезнуть',
   '',
+  '---',
+  '',
+  'ХВОСТ-МАЯК: ключ слепого сравнения и оговорки живут ПОСЛЕ последнего вопроса.',
   '',
 ].join('\n');
 
@@ -217,7 +223,9 @@ async function run() {
     tables: document.querySelectorAll('table').length,
     whoField: document.querySelectorAll('.who, input[name=by]').length,
     docComment: document.querySelectorAll('.doccomment-text').length,
-    externals: document.querySelectorAll('[src^="http"],link[href^="http"],script[src]').length
+    externals: document.querySelectorAll('[src^="http"],link[href^="http"],script[src]').length,
+    hasPreamble: document.body.innerText.includes('ПРЕАМБУЛА-МАЯК'),
+    hasEpilogue: document.body.innerText.includes('ХВОСТ-МАЯК')
   })`);
   ok('страница: три карточки вопросов', shape.cards === 3, `найдено ${shape.cards}`);
   ok('страница: теги «ждёт вас» на двух неотвеченных', shape.waitTags === 2, `найдено ${shape.waitTags}`);
@@ -228,6 +236,10 @@ async function run() {
   ok('страница: таблица вопроса отрисована', shape.tables === 1);
   ok('страница: поля «кто отвечает» НЕТ (правка Криника 1.2)', shape.whoField === 0);
   ok('страница: поле общего комментария по документу есть', shape.docComment === 1);
+  // Контекст решения и хвост документа обязаны быть НА СТРАНИЦЕ, а не только в md: без них
+  // владелец судит вслепую (поймано на живых интервью 020/021 — мокапы и образцы звука пропадали).
+  ok('страница: преамбула документа отрисована', shape.hasPreamble === true);
+  ok('страница: хвост документа (после последнего ---) отрисован', shape.hasEpilogue === true);
   ok('страница: НИ ОДНОЙ внешней загрузки', shape.externals === 0, `найдено ${shape.externals}`);
 
   // 3.2. Полоса состояния — ПИКСЕЛЯМИ и ЦВЕТОМ (а не «полоса вроде есть»)
@@ -257,14 +269,31 @@ async function run() {
   await cdp.clickSelector(optText2);
   let s4 = await state();
   ok('выбор: сосед гасит прежний', s4.a === false && s4.b === true);
-  await cdp.clickSelector('section.q[data-qid="В1"] input[type=radio]:nth-of-type(1)').catch(() => {});
-  await cdp.clickSelector('section.q[data-qid="В1"] .reset');
-  let s5 = await state();
-  ok('выбор: кнопка «× сбросить» снимает всё', s5.a === false && s5.b === false);
+  // Кнопки «× сбросить» на странице БЫТЬ НЕ ДОЛЖНО (правка Криника 2026-08-02): выбор снимается
+  // повторным кликом по самому варианту, отдельная кнопка — лишний элемент.
+  ok('страница: кнопки «сбросить» нет (правка Криника)',
+    (await cdp.evalJs('document.querySelectorAll(".reset").length')) === 0);
   // возвращаем выбор (а) — с ним и пойдёт запись
   await cdp.clickSelector('section.q[data-qid="В1"] label.opt:nth-of-type(1) input');
   const s6 = await state();
   ok('выбор: клик по САМОМУ кружку работает так же', s6.a === true);
+
+  // 🔴 Розовый квадратик вокруг радиокнопки (правка Криника 2026-08-02): рамка фокуса на radio
+  // не рисуется. Проверяем ФАКТИЧЕСКИЙ вычисленный стиль СФОКУСИРОВАННОГО элемента, а не CSS-текст.
+  const focusRing = await cdp.evalJs(`(function(){
+    var r=document.querySelector('section.q[data-qid="В1"] input[type=radio]');
+    r.focus();
+    var s=getComputedStyle(r);
+    return {w:s.outlineWidth, style:s.outlineStyle, shadow:s.boxShadow};})()`);
+  ok('🔴 радиокнопка: розового квадратика (рамки фокуса) нет',
+    (parseFloat(focusRing.w) === 0 || focusRing.style === 'none') && (focusRing.shadow === 'none' || !focusRing.shadow),
+    `outline ${focusRing.w}/${focusRing.style}, shadow ${focusRing.shadow}`);
+  // а у текстового поля рамка фокуса ОСТАЁТСЯ — иначе не видно, куда печатаешь
+  const textRing = await cdp.evalJs(`(function(){
+    var t=document.querySelector('section.q[data-qid="В1"] .free'); t.focus();
+    var s=getComputedStyle(t); return {w:s.outlineWidth, style:s.outlineStyle};})()`);
+  ok('текстовое поле: рамка фокуса на месте', parseFloat(textRing.w) > 0 && textRing.style !== 'none',
+    `outline ${textRing.w}/${textRing.style}`);
 
   // 3.4. Обе темы и отсутствие горизонтального уезда на двух ширинах
   const paint = async () => cdp.evalJs(`(function(){var s=getComputedStyle(document.body);
@@ -353,8 +382,11 @@ async function run() {
   // ── БЛОК 7. МУТАЦИИ ГАРДА: гард, который ни разу не краснел, ничего не доказывает ───────────
   const guardRun = () => spawnSync(process.execPath, [path.join(ROOT, 'tools', 'owner.mjs'), 'guard'],
     { encoding: 'utf8', timeout: 60000 });
+  // ⚠️ Проверки гарда НЕ привязываем к живому состоянию репозитория (в нём в любой момент может
+  // законно висеть интервью — и тогда «гард зелёный» покраснеет не по делу; это ровно тот
+  // анти-паттерн, о котором предупреждает qa-suite). Судим ОТНОСИТЕЛЬНО исходного состояния:
+  // мутация обязана ДОБАВИТЬ свою находку, а уборка — вернуть всё как было.
   const clean = guardRun();
-  ok('гард: на чистом репозитории зелёный', clean.status === 0, `exit ${clean.status}`);
   ok('гард: печатает число унаследованного долга ВСЕГДА', /унаследованный долг/.test(clean.stdout));
 
   const mutantOrphan = path.join(ROOT, 'plans', '_verify_mutant_question.md');
@@ -373,7 +405,9 @@ async function run() {
   fs.rmSync(mutantStale, { force: true });
 
   const m3 = guardRun();
-  ok('мутация 3: после уборки мутантов гард снова зелёный', m3.status === 0, `exit ${m3.status}`);
+  ok('мутация 3: после уборки мутантов находки исчезли, состояние вернулось к исходному',
+    !m3.stdout.includes('_verify_mutant') && !/СТАТУС ПРОТУХ/.test(m3.stdout) && m3.status === clean.status,
+    `exit ${m3.status} (исходный ${clean.status})`);
 
   // ── БЛОК 8. АВТОЗАКРЫТИЕ (правка Криника 1.4) — проверяем платформенную правду, на которой оно
   // держится: браузер разрешает window.close() ТОЛЬКО окну, которое открыл сам скрипт/ключ --app.

@@ -258,12 +258,15 @@ change style because the answer arrived from a page.
 │ path/to/document.md                       (monospace, dimmed)      │
 │ asked by the agent · <date>   ⟨ждут вас: N⟩ ⟨отвечено: M⟩          │
 └────────────────────────────────────────────────────────────────────┘
+┌ intro card — the document's PREAMBLE (everything before question 1) ┐
+│ why this is being asked · mock-ups · audio samples · constraints    │
+└────────────────────────────────────────────────────────────────────┘
 ┃ ← 4–5 px STATE STRIPE, colour = state
 ┃ ┌ question card ───────────────────────────────────────────────┐
 ┃ │ (В1)  Heading of the question              ⟨ждёт вас⟩        │
 ┃ │ …rendered markdown body: prose, tables, quotes, code…        │
 ┃ │ [ embedded media, if any: audio / image / srcdoc frame ]     │
-┃ │ ─ Твой выбор ── (повторный клик снимает)      × сбросить     │
+┃ │ ─ Твой выбор ── (повторный клик снимает)                     │
 ┃ │ ( ) (а) option one            ⟨рекомендация агента⟩          │
 ┃ │ (•) (б) option two                                           │
 ┃ │ ─ Свой ответ / уточнение ──                                  │
@@ -271,6 +274,9 @@ change style because the answer arrived from a page.
 ┃ │ ─ Комментарий ──                                             │
 ┃ │ [ textarea                                              ]    │
 ┃ └──────────────────────────────────────────────────────────────┘
+┌ outro card — the document's EPILOGUE (everything after the last ---)┐
+│ the key to a blind comparison · caveats · where this came from      │
+└────────────────────────────────────────────────────────────────────┘
 ┌ document-wide comment ─────────────────────────────────────────────┐
 │ «ответов нет, но есть что сказать» — legitimate outcome on its own │
 └────────────────────────────────────────────────────────────────────┘
@@ -280,6 +286,14 @@ change style because the answer arrived from a page.
 ```
 
 **There is NO "who is answering" field.** The owner answers; the server writes `by` from config.
+
+🔴 **Render the PREAMBLE and the EPILOGUE, not only the question cards.** A page built from question
+sections alone silently drops everything before the first question and after the last one — which is
+exactly where the CONTEXT of the decision lives: why it is being asked, the mock-ups, the audio
+samples, the key to a blind comparison. Caught on two live interviews where the owner would have
+seen zero of the images and zero of the sound he was asked to judge. Convention: preamble = from the
+top (minus the H1 title and the metadata block) to the first question; epilogue = everything after
+the final `---` that follows the last answer slot.
 
 State tag and stripe colour, one table for both:
 
@@ -328,9 +342,14 @@ Why exactly this and not the two obvious alternatives:
 - ⚠️ **A listener on the label (or on the document) fires TWICE** for one click on the text: once for
   the label, once for the synthetic click the label dispatches to its input. Two toggles = no toggle.
   If you must listen higher up, skip events whose target is the label.
-- Keep an explicit **`× сбросить`** control per question anyway: it is one line of code and it makes
-  the capability discoverable instead of folkloric.
-- `sync(r)` re-paints the state tag/stripe, and enables/disables the reset control.
+- `sync(r)` re-paints the chosen row's highlight — that highlight is the ONLY feedback the choice
+  needs.
+- 🔴 **No separate "clear" button, and no focus ring on the radio.** Both were shipped and both were
+  rejected by the owner within minutes of the first live page: the extra button is clutter next to a
+  mechanic that already works, and the accent-coloured focus outline draws *«маленький розовый
+  квадратик»* around the circle — «напрягает». Scope the focus outline to text fields only
+  (`textarea:focus, input[type=text]:focus`) and set `input[type=radio]{outline:none}`. The generic
+  `input:focus` selector is the trap: it silently includes radios.
 
 **Verify this in a real browser** (`qa-suite.md` §2): click → selected · click again → cleared ·
 third click → selected · neighbour clears the previous. An agent cannot see a browser by reasoning.

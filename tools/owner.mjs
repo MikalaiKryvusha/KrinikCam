@@ -81,7 +81,9 @@ const CONFIG_FILE = path.join(ROOT, 'tools', 'owner.config.json');
 // чтобы во всех проектах и на всех машинах звучал ОДИН И ТОТ ЖЕ сигнал (требование Криника).
 const DEFAULTS = {
   owner: 'Криник',
-  voice: 'Milena',
+  voice: 'Milena',              // ступень 2 лестницы голоса — системный синтезатор (откат)
+  neuralVoice: true,            // ступень 1 — локальный нейроголос Silero, если тракт на месте
+  neuralSpeaker: 'baya',        // голос нейротракта; выбор голоса — вкус владельца, не агента
   soundFile: null,          // null = синтезированные три писка; путь = проиграть этот файл вместо них
   quietHours: { from: '23:00', to: '09:00' },
   port: 8787,
@@ -343,14 +345,39 @@ function parseLines(raw, absPath) {
       }
       questions.push(buildQuestion(lines, start, end, `${qHeads[k].prefix === 'Q' ? 'Q' : 'В'}${qHeads[k].num}`,
         qHeads[k].text, slots));
+      questions[questions.length - 1].endIndex = end;
     }
   } else if (slots.length) {
     // Запасной путь: вопрос = кусок текста, заканчивающийся слотом ответа
     let prev = 0;
     slots.forEach((s, k) => {
       questions.push(buildQuestion(lines, prev, s + 1, `В${k + 1}`, '', slots));
+      questions[questions.length - 1].endIndex = s + 1;
       prev = s + 1;
     });
+  }
+
+  // ⚠️ ПРЕАМБУЛА И ХВОСТ ДОКУМЕНТА. Страница, показывающая ТОЛЬКО карточки вопросов, молча
+  // выбрасывает контекст: вводную часть до первого вопроса (а в ней живут мокапы, образцы звука и
+  // объяснение, ЗАЧЕМ вопрос) и хвост после последнего (ключ слепого сравнения, оговорки).
+  // Поймано на живых интервью 020/021: владелец не увидел бы ни одной картинки и ни одного образца.
+  const firstQ = qHeads.length ? qHeads[0].index : (slots.length ? 0 : lines.length);
+  const dropMeta = (arr) => {
+    const text = arr.join('\n')
+      .replace(/^```(?:yaml|yml)\n[\s\S]*?\n```\n?/m, '')   // метаблок — служебный, не для глаз
+      .replace(/^#\s+.*\n?/m, '');                          // заголовок документа уже в шапке страницы
+    return text.trim();
+  };
+  const preamble = qHeads.length ? dropMeta(lines.slice(0, firstQ)) : '';
+  // Хвост документа — то, что идёт после ПОСЛЕДНЕГО слота ответа за горизонтальной линейкой:
+  // закрывающая оговорка, ключ слепого сравнения, ссылка на первоисточник. Конвенция явная:
+  // «всё после финального ---». Иначе такой текст виден только в md, а владелец смотрит страницу.
+  let epilogue = '';
+  if (slots.length) {
+    const lastSlot = slots[slots.length - 1];
+    for (let i = lastSlot + 1; i < lines.length; i++) {
+      if (HR_RE.test(lines[i])) { epilogue = lines.slice(i + 1).join('\n').trim(); break; }
+    }
   }
 
   const emptySlots = slots.filter((s) => !slotFilled(lines, s)).length;
@@ -371,6 +398,8 @@ function parseLines(raw, absPath) {
     // а пустых слотов нет — документ выглядит живым, следующая сессия ждёт того, что давно дано.
     staleStatus: statusKind === 'waiting' && slots.length > 0 && emptySlots === 0,
     questions,
+    preamble,
+    epilogue,
     optionCandidates: questions.reduce((n, q) => n + q.optionCandidates, 0),
     optionsParsed: questions.reduce((n, q) => n + q.optionsRaw, 0),
     meta: parseMetaBlock(raw),
@@ -618,6 +647,8 @@ h1{font-size:1.6rem;line-height:1.25;margin:.2em 0}
 .chip.rec{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);border-color:transparent}
 .card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line);
 border-radius:14px;padding:18px 20px;margin:18px 0}
+.card.intro{border-left-color:var(--line);color:var(--fg)}
+.card.intro>*:first-child{margin-top:0}
 .q.state-wait{border-left-color:var(--warn)}
 .q.state-done{border-left-color:var(--ok)}
 .card h2,.card h3{margin-top:.2em}
@@ -630,11 +661,14 @@ label.opt:hover{border-color:var(--accent)}
 label.opt.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
 label.opt input{margin-top:4px}
 textarea,input[type=text]{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:15px/1.5 inherit;resize:vertical}
-textarea:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px}
+/* Рамку фокуса даём ТОЛЬКО текстовым полям. На радиокнопке она рисовала розовый квадратик вокруг
+   кружка — правка Криника 2026-08-02: «этот маленький квадратик розовый напрягает». Состояние
+   выбора и так видно: подсветкой всей строки варианта. */
+textarea:focus,input[type=text]:focus{outline:2px solid var(--accent);outline-offset:1px}
+input[type=radio]{outline:none}
+input[type=radio]:focus,input[type=radio]:focus-visible{outline:none;box-shadow:none}
 .lbl{display:flex;gap:10px;align-items:baseline;margin:12px 0 6px;color:var(--muted);font-size:13px;font-weight:600;letter-spacing:.02em;text-transform:uppercase}
 .lbl .hint{text-transform:none;letter-spacing:0;font-weight:400;font-style:italic}
-.reset{margin-left:auto;background:transparent;border:1px solid var(--line);color:var(--muted);
-border-radius:8px;padding:3px 10px;font-size:12px;cursor:pointer;text-transform:none;letter-spacing:0}
 pre{background:var(--code-bg);padding:12px 14px;border-radius:10px;overflow-x:auto}
 code{background:var(--code-bg);padding:.12em .35em;border-radius:5px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
 pre code{background:none;padding:0}
@@ -685,11 +719,11 @@ var $$=function(s,r){return [].slice.call((r||document).querySelectorAll(s));};
    Почему не иначе: mousedown на input НЕ приходит, когда кликают по тексту (кликабельна вся строка
    label); а слушатель на label срабатывает ДВАЖДЫ за один клик по тексту (сам label + синтетический
    клик, который label шлёт своему input) — два переключения это отсутствие переключения. */
+/* Подсветка выбранной строки — единственная обратная связь о выборе: отдельной кнопки сброса нет
+   (правка Криника 2026-08-02), выбор снимается повторным кликом по самому варианту. */
 function syncOpt(r){
   var card=r.closest('.q,.art'); if(!card) return;
   $$('label.opt',card).forEach(function(l){l.classList.toggle('on', !!l.querySelector('input:checked'));});
-  var btn=$('.reset',card);
-  if(btn) btn.hidden = !card.querySelector('input[type=radio]:checked');
 }
 $$('input[type=radio]').forEach(function(r){
   r.addEventListener('click',function(){
@@ -698,15 +732,6 @@ $$('input[type=radio]').forEach(function(r){
     r.dataset.on='1'; syncOpt(r);
   });
 });
-$$('.reset').forEach(function(btn){
-  btn.onclick=function(){
-    var card=btn.closest('.q,.art');
-    $$('input[type=radio]',card).forEach(function(o){o.checked=false;o.dataset.on='';});
-    $$('label.opt',card).forEach(function(l){l.classList.remove('on');});
-    btn.hidden=true;
-  };
-});
-
 /* Живой макет отдельным окном: окно открывает СКРИПТ — значит скрипт может его и закрыть. */
 $$('button[data-mock]').forEach(function(b){
   b.onclick=function(){
@@ -815,7 +840,7 @@ function renderQuestionCard(q, baseDir) {
   <div class="q-head"><span class="q-id">${esc(q.id)}</span><h2>${esc(q.heading)}</h2>${tag}</div>
   ${body}
   ${answered}
-  ${opts ? `<div class="lbl">Твой выбор <em class="hint">— повторный клик по варианту снимает его</em><button type="button" class="reset" hidden>× сбросить</button></div><div class="opts">${opts}</div>` : ''}
+  ${opts ? `<div class="lbl">Твой выбор <em class="hint">— повторный клик по варианту снимает его</em></div><div class="opts">${opts}</div>` : ''}
   <div class="lbl">Свой ответ / уточнение</div>
   <textarea class="free" rows="3" placeholder="Своими словами — если ни один вариант не подходит или хочешь добавить условие"></textarea>
   <div class="lbl">Комментарий к этому вопросу</div>
@@ -829,7 +854,7 @@ function renderArtifactCard(a, bytes, sha) {
     <span class="chip wait tag">ждёт вас</span></div>
   <p class="hint">Ровно эти байты и уйдут — страница показывает файл <code>${esc(a.body_file)}</code>, хеш считается по нему (I3).</p>
   <pre><code>${esc(bytes)}</code></pre>
-  <div class="lbl">Решение <em class="hint">— повторный клик снимает</em><button type="button" class="reset" hidden>× сбросить</button></div>
+  <div class="lbl">Решение <em class="hint">— повторный клик снимает</em></div>
   <div class="opts">
     <label class="opt"><input type="radio" name="art_${esc(a.id)}" value="approved"><span><strong>Одобрить</strong> — можно отправлять как есть</span></label>
     <label class="opt"><input type="radio" name="art_${esc(a.id)}" value="rejected"><span><strong>Отклонить</strong> — с причиной ниже</span></label>
@@ -843,7 +868,13 @@ function renderArtifactCard(a, bytes, sha) {
 function renderPage(docs, cfg) {
   const many = docs.length > 1;
   const sections = docs.map((d) => {
-    const cards = d.questions.map((q) => renderQuestionCard(q, d.dir)).join('\n');
+    // Вводная часть документа — это КОНТЕКСТ решения: зачем вопрос, мокапы, образцы звука.
+    // Без неё владелец судит вслепую (см. parseLines: преамбула/хвост).
+    const intro = d.preamble
+      ? `<section class="card intro">${embedMedia(mdToHtml(d.preamble), d.dir)}</section>` : '';
+    const outro = d.epilogue
+      ? `<section class="card intro">${embedMedia(mdToHtml(d.epilogue), d.dir)}</section>` : '';
+    const cards = intro + d.questions.map((q) => renderQuestionCard(q, d.dir)).join('\n');
     const arts = (d.meta.artifacts || []).map((a) => {
       const p = path.resolve(ROOT, a.body_file);
       if (!fs.existsSync(p)) return `<section class="card"><p>⚠️ Артефакт <code>${esc(a.id)}</code>: файл <code>${esc(a.body_file)}</code> не найден.</p></section>`;
@@ -859,7 +890,7 @@ function renderPage(docs, cfg) {
   <p class="hint">Ответов может и не быть — а сказать есть что. Ляжет отдельным датированным блоком в конец документа; прошлые комментарии не затираются.</p>
   <textarea class="doccomment-text" rows="3" placeholder="Необязательно"></textarea>
 </section>`;
-    return `<div class="doc" data-doc="${esc(d.relPath)}">${head}${cards}${arts}${docComment}</div>`;
+    return `<div class="doc" data-doc="${esc(d.relPath)}">${head}${cards}${arts}${outro}${docComment}</div>`;
   }).join('\n');
 
   const first = docs[0];
@@ -1105,6 +1136,21 @@ function soundPlayer(file) {
   return { cmd: 'aplay', args: ['-q', file] };
 }
 
+/**
+ * ЛЕСТНИЦА ГОЛОСА (решение Криника, interview_017 В3=б):
+ *   1. ЛОКАЛЬНЫЙ НЕЙРОГОЛОС — Silero v4_ru, офлайн, на процессоре (`tools/owner-voice/`);
+ *   2. системный синтезатор — если тракта нет, он сломан или ему нечего сказать;
+ *   3. только звук — если и системного нет.
+ * Тракт зовётся КОМАНДОЙ и живёт отдельно (venv + модель ~38 МБ, оба gitignored): инструмент не
+ * тащит в репозиторий чужие байты и честно работает без них.
+ */
+const NEURAL = {
+  python: path.join(ROOT, 'tools', 'owner-voice', 'venv', 'bin', 'python'),
+  script: path.join(ROOT, 'tools', 'owner-voice', 'speak.py'),
+  model: path.join(ROOT, 'tools', 'owner-voice', 'model', 'v4_ru.pt'),
+};
+const neuralReady = () => Object.values(NEURAL).every((p) => fs.existsSync(p));
+
 /** Синтезатор речи для текущей ОС. Текст едет ФАЙЛОМ — кириллица в argv молча портится. */
 function voiceCommand(file, cfg) {
   if (process.platform === 'darwin') return { cmd: 'say', args: ['-v', cfg.voice, '-f', file] };
@@ -1142,8 +1188,29 @@ function signal(cfg, text, { force = false } = {}) {
     if (!cfg.say) return cleanup();
     const f = path.join(tmpDir, 'say.txt');
     fs.writeFileSync(f, text, 'utf8');                       // текст ФАЙЛОМ, не аргументом
-    const v = voiceCommand(f, cfg);
-    fire(v.cmd, v.args, cleanup);
+
+    // Ступень 2 лестницы — системный синтезатор. Он же ОТКАТ для ступени 1.
+    const systemVoice = () => { const v = voiceCommand(f, cfg); fire(v.cmd, v.args, cleanup); };
+
+    // Ступень 1 — локальный нейроголос. Синтез идёт в файл (3–4 с на CPU) и НИЧЕГО не держит:
+    // страница давно на экране, писки уже отзвучали. Любая осечка тракта = откат, а не тишина.
+    if (cfg.neuralVoice !== false && neuralReady()) {
+      const wav = path.join(tmpDir, 'voice.wav');
+      try {
+        const p = spawn(NEURAL.python, [NEURAL.script, '--in', f, '--out', wav,
+          '--speaker', cfg.neuralSpeaker || 'baya'], { stdio: 'ignore', detached: true });
+        p.on('error', systemVoice);
+        p.on('close', (code) => {
+          if (code === 0 && fs.existsSync(wav)) { const s = soundPlayer(wav); return fire(s.cmd, s.args, cleanup); }
+          if (code === 2) return cleanup();                  // говорить нечего — это не ошибка
+          console.log('🗣  нейроголос не отозвался — зову системным синтезатором');
+          systemVoice();
+        });
+        p.unref();
+        return;
+      } catch { /* провалимся в системный */ }
+    }
+    systemVoice();
   };
 
   // Нотификацию шлём сразу и параллельно: она мгновенная, ни от чего не зависит и НИКОГДА не
