@@ -163,6 +163,13 @@ async function run() {
 
   fs.rmSync(SANDBOX, { recursive: true, force: true });
   fs.mkdirSync(SANDBOX, { recursive: true });
+  // Прогон обязан начинаться с ЧИСТОГО состояния СВОЕЙ песочницы: упавший прошлый прогон оставляет
+  // хвосты в архиве, и следующий краснеет не по делу («в архиве уже есть копия»). Чистим только
+  // собственное пространство имён фикстур — живые решения владельца не трогаем НИКОГДА.
+  if (fs.existsSync(ARCHIVE_DIR)) {
+    fs.readdirSync(ARCHIVE_DIR).filter((f) => /^interview_99[01]_verify/.test(f))
+      .forEach((f) => fs.rmSync(path.join(ARCHIVE_DIR, f), { force: true }));
+  }
   fs.writeFileSync(FIXTURE, FIXTURE_MD, 'utf8');
   const relFixture = path.relative(ROOT, FIXTURE);
   const decisionPath = decisionPathFor(relFixture);
@@ -253,7 +260,11 @@ async function run() {
     new Set(stripes.map((s) => s.color)).size === 2, stripes.map((s) => s.state + ':' + s.color).join(' '));
 
   // 3.3. 🔴 СНЯТИЕ ВЫБОРА — кликаем по ТЕКСТУ подписи, а не по кружку: ломалось именно здесь
-  const state = () => cdp.evalJs(`(function(){var r=[...document.getElementsByName('В1')];
+  // Ищем кнопки ВНУТРИ карточки: имя радиогруппы теперь включает документ (фикс перекрёстного
+  // гашения ответов в пачке), и глобальный getElementsByName('В1') больше не работает.
+  const state = () => cdp.evalJs(`(function(){
+    var c=document.querySelector('section.q[data-qid="В1"]');
+    var r=[...c.querySelectorAll('input[type=radio]')];
     return {a:r[0].checked,b:r[1].checked};})()`);
   const optText = 'section.q[data-qid="В1"] label.opt:nth-of-type(1) span';
   const optText2 = 'section.q[data-qid="В1"] label.opt:nth-of-type(2) span';
@@ -372,6 +383,72 @@ async function run() {
     /## Комментарий владельца · 20/.test(md) && /общий комментарий QA по документу/.test(md));
   ok('комментарий к вопросу попал в документ', /комментарий QA/.test(md));
 
+  // ── БЛОК 5б. 🔴 ПАЧКА: ответы РАЗНЫХ документов не должны гасить друг друга ─────────────────
+  // Дефект, пойманный ВЛАДЕЛЬЦЕМ 2026-08-02 (дважды подряд): имя радиогруппы было просто «В1», и на
+  // странице-пачке одноимённые вопросы ЧЕТЫРЁХ интервью становились ОДНОЙ группой — ответ на В1 в
+  // одном документе молча снимал ответ на В1 в другом. Проверка утверждает ФАКТ независимости.
+  const fixtureB = path.join(SANDBOX, 'interview_991_verify_batch.md');
+  fs.writeFileSync(fixtureB, [
+    '# Интервью 991 — второй документ пачки (фикстура)', '', '**Статус:** ⏳ ЖДЁТ ОТВЕТА КРИНИКА', '',
+    '## В1. Тот же номер вопроса, что и в соседнем документе?', '',
+    '- **(а)** Первый вариант', '- **(б)** Второй вариант', '',
+    '**Ответ Криника:**', '', '>', '',
+  ].join('\n'), 'utf8');
+  const relB = path.relative(ROOT, fixtureB);
+  const decB = decisionPathFor(relB);
+  fs.rmSync(decB, { force: true });
+  // Фикстуру A перезаписываем заново: прошлый блок уже записал в неё ответы
+  fs.writeFileSync(FIXTURE, FIXTURE_MD, 'utf8');
+  fs.rmSync(decisionPath, { force: true });
+
+  const child2 = spawn(process.execPath, [path.join(ROOT, 'tools', 'owner.mjs'), 'ask', relFixture, relB,
+    '--no-open', '--no-signal', '--port', '8901', '--timeout', '90'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out2 = '', exit2 = null;
+  child2.stdout.on('data', (c) => { out2 += c; });
+  child2.stderr.on('data', (c) => { out2 += c; });
+  child2.on('exit', (c) => { exit2 = c; });
+  const up2 = await until(() => /http:\/\/127\.0\.0\.1:\d+\//.test(out2), 10000);
+  ok('пачка: страница на два документа поднялась', up2);
+  if (up2) {
+    const url2 = out2.match(/http:\/\/127\.0\.0\.1:\d+\//)[0];
+    const t2 = await (await fetch(`http://127.0.0.1:${dp}/json/new?${url2}`, { method: 'PUT' })).json();
+    const cdp2 = new CDP(t2.webSocketDebuggerUrl);
+    await cdp2.connect(); await cdp2.send('Runtime.enable'); await cdp2.send('Page.enable');
+    await until(() => cdp2.evalJs('document.querySelectorAll(".doc").length===2'), 10000);
+
+    const names = await cdp2.evalJs(`(function(){
+      var n=[...document.querySelectorAll('input[type=radio]')].map(function(r){return r.name;});
+      return {unique: new Set(n).size, total: n.length,
+              perDoc: [...document.querySelectorAll('.doc')].map(function(d){
+                return [...d.querySelectorAll('input[type=radio]')].map(function(r){return r.name;});})};})()`);
+    const crossTalk = names.perDoc[0].some((n) => names.perDoc[1].includes(n));
+    ok('🔴 пачка: радиогруппы РАЗНЫХ документов не пересекаются', crossTalk === false,
+      `имён ${names.unique} на ${names.total} кнопок`);
+
+    // Кликаем «В1» в ОБОИХ документах и требуем, чтобы оба остались выбранными
+    await cdp2.clickSelector('.doc:nth-of-type(1) section.q[data-qid="В1"] label.opt:nth-of-type(1) span');
+    await cdp2.clickSelector('.doc:nth-of-type(2) section.q[data-qid="В1"] label.opt:nth-of-type(1) span');
+    const both = await cdp2.evalJs(`(function(){
+      var d=[...document.querySelectorAll('.doc')];
+      return d.map(function(x){var r=x.querySelector('section.q[data-qid="В1"] input[type=radio]:checked');
+        return r? r.value : null;});})()`);
+    ok('🔴 пачка: ответ на В1 во ВТОРОМ документе НЕ снимает ответ в первом',
+      both[0] === 'а' && both[1] === 'а', JSON.stringify(both));
+
+    await cdp2.clickSelector('#send');
+    await until(() => exit2 !== null, 12000);
+    const dA = fs.existsSync(decisionPath) ? JSON.parse(fs.readFileSync(decisionPath, 'utf8')) : {};
+    const dB = fs.existsSync(decB) ? JSON.parse(fs.readFileSync(decB, 'utf8')) : {};
+    ok('🔴 пачка: ОБА ответа доехали в свои файлы решений',
+      dA.answers?.['В1']?.choice === 'а' && dB.answers?.['В1']?.choice === 'а',
+      `A=${dA.answers?.['В1']?.choice} B=${dB.answers?.['В1']?.choice}`);
+    fs.rmSync(decB, { force: true });
+    const archB = fs.existsSync(ARCHIVE_DIR) ? fs.readdirSync(ARCHIVE_DIR).filter((f) => f.startsWith('interview_991_verify_batch--')) : [];
+    archB.forEach((f) => fs.rmSync(path.join(ARCHIVE_DIR, f), { force: true }));
+  }
+  try { child2.kill('SIGKILL'); } catch {}
+  fs.rmSync(fixtureB, { force: true });
+
   // ── БЛОК 6. Гейт ПОСЛЕ ответа и дрейф текста ────────────────────────────────────────────────
   ok('гейт: после ответа ОТКРЫТ по В1', gate(relFixture, { question: 'В1', quiet: true }) === GATE_EXIT.OK);
   fs.writeFileSync(FIXTURE, md.replace('## В1. Первый вопрос — варианты таблицей?',
@@ -448,10 +525,14 @@ async function run() {
   // ── БЛОК 9. Уборка за собой — и ПРОВЕРКА, что след убран ────────────────────────────────────
   if (!KEEP) {
     fs.rmSync(decisionPath, { force: true });
-    if (archived) archived.forEach((f) => fs.rmSync(path.join(ARCHIVE_DIR, f), { force: true }));
+    // Архив пересканируем ЗДЕСЬ: прогон пачки дописал в него новые копии уже после первого замера,
+    // и уборка по устаревшему списку оставляла хвост (поймано самой проверкой «след убран»).
+    fs.readdirSync(ARCHIVE_DIR)
+      .filter((f) => /^interview_99[01]_verify/.test(f))
+      .forEach((f) => fs.rmSync(path.join(ARCHIVE_DIR, f), { force: true }));
     fs.rmSync(FIXTURE, { force: true });
     const traceGone = !fs.existsSync(decisionPath) && !fs.existsSync(FIXTURE) &&
-      !fs.readdirSync(ARCHIVE_DIR).some((f) => f.startsWith('interview_990_verify--')) &&
+      !fs.readdirSync(ARCHIVE_DIR).some((f) => /^interview_99[01]_verify/.test(f)) &&
       !fs.existsSync(mutantOrphan) && !fs.existsSync(mutantStale);
     ok('уборка: след прогона убран полностью', traceGone);
   } else {

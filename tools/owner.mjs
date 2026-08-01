@@ -659,6 +659,7 @@ border-radius:14px;padding:18px 20px;margin:18px 0}
 .q.state-wait{border-left-color:var(--warn)}
 .q.state-done{border-left-color:var(--ok)}
 .card h2,.card h3{margin-top:.2em}
+.q-status{display:flex;justify-content:flex-start;margin:0 0 10px}
 .q-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
 .q-id{color:var(--accent);font-weight:700}
 .q-head h2{font-size:1.15rem;margin:.1em 0;flex:1 1 240px}
@@ -828,10 +829,20 @@ $('#done').onclick=async function(){
 };
 `;
 
-function renderQuestionCard(q, baseDir) {
+/**
+ * 🔴 ИМЯ РАДИОГРУППЫ ОБЯЗАНО ВКЛЮЧАТЬ ДОКУМЕНТ (дефект, пойманный владельцем 2026-08-02).
+ * Браузер группирует радиокнопки по атрибуту name. На странице-ПАЧКЕ у четырёх интервью есть свой
+ * «В1» — и при общем имени они становятся ОДНОЙ группой: владелец отвечает на В1 в одном документе,
+ * потом на В1 в другом, и первый ответ МОЛЧА снимается. Ровно так дважды пропали ответы по интервью
+ * 018 (его В3/В4 записались — эти номера были уникальны на странице, а В1/В2 — нет).
+ * Класс дефекта худший из возможных: страница выглядит исправной, а работа человека исчезает.
+ */
+const groupName = (docKey, qid) => `${docKey}::${qid}`;
+
+function renderQuestionCard(q, baseDir, docKey) {
   const opts = q.options.map((o) => {
     const isRec = q.recommended && o.key.toLowerCase() === String(q.recommended).toLowerCase();
-    return `<label class="opt"><input type="radio" name="${esc(q.id)}" value="${esc(o.key)}">` +
+    return `<label class="opt"><input type="radio" name="${esc(groupName(docKey, q.id))}" value="${esc(o.key)}">` +
       `<span><strong>(${esc(o.key)})</strong> ${esc(o.label)}` +
       `${isRec ? ' <span class="chip rec">рекомендация агента</span>' : ''}</span></label>`;
   }).join('');
@@ -843,8 +854,12 @@ function renderQuestionCard(q, baseDir) {
     ? `<p class="answered">Уже отвечено в документе: ${esc(q.answerText || '(см. документ)')}<br>` +
       '<span class="hint">Новый ответ НЕ затрёт этот — он ляжет отдельным датированным уточнением.</span></p>' : '';
   const body = embedMedia(mdToHtml(stripLeadingHeading(q.body)), baseDir);
+  // Пилюля состояния стоит ПЕРВОЙ в заголовке карточки — правка Криника 2026-08-02: «там
+  // начинается чтение карточки, там нужен статус, ближе к глазам». Глаз находит «ждёт вас» до
+  // того, как начал читать сам вопрос.
   return `<section class="q card ${q.answered ? 'state-done' : 'state-wait'}" data-qid="${esc(q.id)}" data-sha="${q.sha256}" data-state="${q.answered ? 'done' : 'wait'}">
-  <div class="q-head"><span class="q-id">${esc(q.id)}</span><h2>${esc(q.heading)}</h2>${tag}</div>
+  <div class="q-status">${tag}</div>
+  <div class="q-head"><span class="q-id">${esc(q.id)}</span><h2>${esc(q.heading)}</h2></div>
   ${body}
   ${answered}
   ${opts ? `<div class="lbl">Твой выбор <em class="hint">— повторный клик по варианту снимает его</em></div><div class="opts">${opts}</div>` : ''}
@@ -855,17 +870,17 @@ function renderQuestionCard(q, baseDir) {
 </section>`;
 }
 
-function renderArtifactCard(a, bytes, sha) {
+function renderArtifactCard(a, bytes, sha, docKey) {
   return `<section class="art card state-wait" data-artid="${esc(a.id)}" data-sha="${sha}">
-  <div class="q-head"><span class="q-id">${esc(a.id)}</span><h2>${esc(a.target || 'исходящий артефакт')}</h2>
-    <span class="chip wait tag">ждёт вас</span></div>
+  <div class="q-status"><span class="chip wait tag">ждёт вас</span></div>
+  <div class="q-head"><span class="q-id">${esc(a.id)}</span><h2>${esc(a.target || 'исходящий артефакт')}</h2></div>
   <p class="hint">Ровно эти байты и уйдут — страница показывает файл <code>${esc(a.body_file)}</code>, хеш считается по нему (I3).</p>
   <pre><code>${esc(bytes)}</code></pre>
   <div class="lbl">Решение <em class="hint">— повторный клик снимает</em></div>
   <div class="opts">
-    <label class="opt"><input type="radio" name="art_${esc(a.id)}" value="approved"><span><strong>Одобрить</strong> — можно отправлять как есть</span></label>
-    <label class="opt"><input type="radio" name="art_${esc(a.id)}" value="rejected"><span><strong>Отклонить</strong> — с причиной ниже</span></label>
-    <label class="opt"><input type="radio" name="art_${esc(a.id)}" value="edit"><span><strong>Править</strong> — что именно, ниже</span></label>
+    <label class="opt"><input type="radio" name="${esc(groupName(docKey, 'art_' + a.id))}" value="approved"><span><strong>Одобрить</strong> — можно отправлять как есть</span></label>
+    <label class="opt"><input type="radio" name="${esc(groupName(docKey, 'art_' + a.id))}" value="rejected"><span><strong>Отклонить</strong> — с причиной ниже</span></label>
+    <label class="opt"><input type="radio" name="${esc(groupName(docKey, 'art_' + a.id))}" value="edit"><span><strong>Править</strong> — что именно, ниже</span></label>
   </div>
   <div class="lbl">Причина / правка / ответ</div>
   <textarea class="comment" rows="3" placeholder="Отказ и правка тоже попадают в архив — след решений хранит и их"></textarea>
@@ -881,12 +896,12 @@ function renderPage(docs, cfg) {
       ? `<section class="card intro">${embedMedia(mdToHtml(d.preamble), d.dir)}</section>` : '';
     const outro = d.epilogue
       ? `<section class="card intro">${embedMedia(mdToHtml(d.epilogue), d.dir)}</section>` : '';
-    const cards = intro + d.questions.map((q) => renderQuestionCard(q, d.dir)).join('\n');
+    const cards = intro + d.questions.map((q) => renderQuestionCard(q, d.dir, d.relPath)).join('\n');
     const arts = (d.meta.artifacts || []).map((a) => {
       const p = path.resolve(ROOT, a.body_file);
       if (!fs.existsSync(p)) return `<section class="card"><p>⚠️ Артефакт <code>${esc(a.id)}</code>: файл <code>${esc(a.body_file)}</code> не найден.</p></section>`;
       const bytes = fs.readFileSync(p, 'utf8');
-      return renderArtifactCard(a, bytes, sha256(bytes));
+      return renderArtifactCard(a, bytes, sha256(bytes), d.relPath);
     }).join('\n');
     const head = many
       ? `<h2 style="margin-top:32px">${esc(d.title)}</h2><div class="path">${esc(d.relPath)}</div>` : '';

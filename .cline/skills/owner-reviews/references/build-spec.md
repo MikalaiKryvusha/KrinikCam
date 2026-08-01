@@ -347,6 +347,13 @@ Why exactly this and not the two obvious alternatives:
 - ⚠️ **`mousedown` on the input does not fire when the owner clicks the label text** — and the whole
   row is a `<label>`, which is the point. One project shipped `mousedown` and the owner reported the
   selection could not be cleared.
+- 🔴 **The radio group NAME must include the DOCUMENT, not just the question id.** Browsers group
+  radios by `name`, so on a BATCH page four interviews that each have a «В1» become ONE group: the
+  owner answers В1 in one document, answers В1 in the next, and the first answer is silently cleared
+  before it is ever submitted. Caught by the owner after losing the same two answers TWICE
+  (*«я уже отвечал про рестрим два раза!»*) — the page looked perfect and the work vanished. Use
+  `name="<doc path>::<question id>"`, and put a check in the QA that clicks the same question id in
+  two documents and asserts BOTH stay selected and BOTH reach their own decision files.
 - ⚠️ **A listener on the label (or on the document) fires TWICE** for one click on the text: once for
   the label, once for the synthetic click the label dispatches to its input. Two toggles = no toggle.
   If you must listen higher up, skip events whose target is the label.
