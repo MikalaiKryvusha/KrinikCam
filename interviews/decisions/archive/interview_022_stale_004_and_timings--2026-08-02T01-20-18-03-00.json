@@ -1,0 +1,24 @@
+{
+  "kind": "interview",
+  "document": "interviews/interview_022_stale_004_and_timings.md",
+  "by": "Криник",
+  "at": "2026-08-02T01:20:18+03:00",
+  "answers": {
+    "В1": {
+      "choice": "а",
+      "text": "",
+      "comment": "",
+      "sha256": "cf361b9a18a1639e95496c631a631af03007b385c507a039d1aa2e73aa7fa4f3",
+      "at": "2026-08-02T01:20:18+03:00"
+    },
+    "В2": {
+      "choice": "а",
+      "text": "",
+      "comment": "",
+      "sha256": "282ef1c8eb4495bebb3fd0d0ba8b57bebe5aa13d669089bec47d4f72258230b3",
+      "at": "2026-08-02T01:20:18+03:00"
+    }
+  },
+  "artifacts": {},
+  "document_comment": []
+}

@@ -1,0 +1,24 @@
+{
+  "kind": "interview",
+  "document": "interviews/interview_014_slate_plaque_mockups.md",
+  "by": "Криник",
+  "at": "2026-08-02T01:20:18+03:00",
+  "answers": {
+    "В2": {
+      "choice": "",
+      "text": "",
+      "comment": "два языка хорошо. Язык приложения KrinikCam + EN. или только  EN если он и спользуется стримером как язык приложения",
+      "sha256": "3caadec00f8fd50b2ae0da1b63e59bb72bb43b9c36d5e1831233bf60727fd857",
+      "at": "2026-08-02T01:20:18+03:00"
+    },
+    "В3": {
+      "choice": "",
+      "text": "",
+      "comment": "да,\n\n да - не нужно",
+      "sha256": "56121164dfbea3ef2321700a0dedb67518eb1b1c93a4f79f91bc29965c7673e6",
+      "at": "2026-08-02T01:20:18+03:00"
+    }
+  },
+  "artifacts": {},
+  "document_comment": []
+}
