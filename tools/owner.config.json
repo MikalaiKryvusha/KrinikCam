@@ -3,7 +3,7 @@
   "owner": "Криник",
   "voice": "Milena",
   "neuralVoice": true,
-  "neuralSpeaker": "baya",
+  "neuralSpeaker": "eugene",
   "soundFile": null,
   "quietHours": {
     "from": "23:00",

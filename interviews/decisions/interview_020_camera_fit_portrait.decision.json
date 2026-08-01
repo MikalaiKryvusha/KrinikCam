@@ -1,0 +1,17 @@
+{
+  "kind": "interview",
+  "document": "interviews/interview_020_camera_fit_portrait.md",
+  "by": "Криник",
+  "at": "2026-08-02T00:46:48+03:00",
+  "answers": {
+    "В2": {
+      "choice": "",
+      "text": "мы уже давным давно это решили и реализовали",
+      "comment": "",
+      "sha256": "4c69feea9f3dc8cb718db48f3bbd11f1256ceddfc6072716428a7a1e67b35c3d",
+      "at": "2026-08-02T00:46:48+03:00"
+    }
+  },
+  "artifacts": {},
+  "document_comment": []
+}

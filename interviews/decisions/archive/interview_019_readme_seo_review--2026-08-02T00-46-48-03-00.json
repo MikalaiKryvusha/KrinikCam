@@ -1,0 +1,30 @@
+{
+  "kind": "outbound draft",
+  "document": "interviews/interview_019_readme_seo_review.md",
+  "by": "Криник",
+  "at": "2026-08-02T00:46:48+03:00",
+  "answers": {
+    "В1": {
+      "choice": "",
+      "text": "Оставить, но без имён: «в отличие от типовых USB-камер-приложений…» - тон нейтрально-фактический",
+      "comment": "",
+      "sha256": "a01a49840840529e54aea6daa140d36e139fe985d9ed9203b71e143381e26a6f",
+      "at": "2026-08-02T00:46:48+03:00"
+    },
+    "В2": {
+      "choice": "а",
+      "text": "",
+      "comment": "",
+      "sha256": "1d3798eb92f4606c7abd4027ae9bc7e6a553de9a4032292e2e9e32cc1791d34c",
+      "at": "2026-08-02T00:46:48+03:00"
+    }
+  },
+  "artifacts": {
+    "readme-seo-draft": {
+      "status": "approved",
+      "sha256": "9766e231dbd2dd2a02067182b26aee662243712b591a024e5f1f00e0c01664b9",
+      "comment": ""
+    }
+  },
+  "document_comment": []
+}

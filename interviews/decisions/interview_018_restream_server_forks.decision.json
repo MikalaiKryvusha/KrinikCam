@@ -1,0 +1,24 @@
+{
+  "kind": "interview",
+  "document": "interviews/interview_018_restream_server_forks.md",
+  "by": "Криник",
+  "at": "2026-08-02T00:46:48+03:00",
+  "answers": {
+    "В3": {
+      "choice": "а",
+      "text": "",
+      "comment": "",
+      "sha256": "1f4602ead6f9b1785e6a818f47c6442868339c5596ad3e727624f0af8a83ed3d",
+      "at": "2026-08-02T00:46:48+03:00"
+    },
+    "В4": {
+      "choice": "а",
+      "text": "",
+      "comment": "",
+      "sha256": "d77c451ae69847b5d6269b89934c51cedf500c97d196d290b09091649b4083f0",
+      "at": "2026-08-02T00:46:48+03:00"
+    }
+  },
+  "artifacts": {},
+  "document_comment": []
+}

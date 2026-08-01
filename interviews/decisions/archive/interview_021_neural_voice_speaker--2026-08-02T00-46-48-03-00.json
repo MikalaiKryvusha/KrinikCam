@@ -1,0 +1,24 @@
+{
+  "kind": "interview",
+  "document": "interviews/interview_021_neural_voice_speaker.md",
+  "by": "Криник",
+  "at": "2026-08-02T00:46:48+03:00",
+  "answers": {
+    "В1": {
+      "choice": "д",
+      "text": "",
+      "comment": "",
+      "sha256": "949c6bd79f9168dd1000ed13f74955e2711cf6d5d746688317a11ba772320e34",
+      "at": "2026-08-02T00:46:48+03:00"
+    },
+    "В2": {
+      "choice": "",
+      "text": "должен ждать, что ждём моего решения по такому-то документу или вопросу",
+      "comment": "",
+      "sha256": "3a9d0ae0db04f2319231c37c2e42f1d30054b11a6f50b68ac71b36f9cd9c5021",
+      "at": "2026-08-02T00:46:48+03:00"
+    }
+  },
+  "artifacts": {},
+  "document_comment": []
+}
