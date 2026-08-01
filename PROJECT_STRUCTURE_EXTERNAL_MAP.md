@@ -52,6 +52,10 @@ KrinikCam/
 │   ├── release.mjs / version.mjs         —   релиз в GitHub Releases / версия version.json
 │   ├── ui.mjs                            —   ⭐ UI-автоматизация на девайсе (cmd/dump/tap/allow/screen…)
 │   ├── adb.mjs                           —   ADB: screen/tap/logcat/install/start/stop
+│   ├── owner.mjs + owner-verify.mjs      —   ⭐ контур согласований «агент ↔ Криник» (`/owner-reviews`):
+│   │                                     —   guard/baseline/ask/gate/queue/inbox/selftest + QA живым браузером
+│   ├── owner.config.json                 —   настройки контура (владелец, голос, тихие часы, порт, акцент)
+│   ├── owner-guard-*.json                —   исключения гарда С ПРИЧИНАМИ и базовая линия долга (ратчет)
 │   ├── kaif.mjs                          —   ручки жизненного цикла KAIF (npm run kaif:*)
 │   ├── readme-pdf.mjs / setup.mjs        —   README.pdf / первичная настройка окружения
 │   ├── graphics/ (render.mjs, batch.mjs) —   SVG→PNG, SVG→Android mipmap set

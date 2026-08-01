@@ -1,0 +1,29 @@
+{
+  "generated": "2026-08-01T23:44:25+03:00",
+  "items": [
+    {
+      "key": "plans/04_bug29_camera_pipeline.md:c29cbd0080a49ddac45700b5675fdbf32a3053c2",
+      "file": "plans/04_bug29_camera_pipeline.md",
+      "why": "спросить/уточнить у владельца",
+      "text": "УТОЧНИТЬ у Криника, но дефолт OBS = crop-to-fill; можно как трансформа слоя)."
+    },
+    {
+      "key": "ideas/38_restream_server_and_respectfull_mobile_usage.md:d65f4dd22e05f49398a2989bd65bc1f8d1526f33",
+      "file": "ideas/38_restream_server_and_respectfull_mobile_usage.md",
+      "why": "явное «ждёт ответа/Криника»",
+      "text": "Ф0-Ф3, безопасность, 4 развилки Кринику (§5). Реализация не начиналась — ждёт ответов на развилки."
+    },
+    {
+      "key": "researches/readme_seo_draft.md:65224c52aded6ff248bcc072126f7029c3688f2d",
+      "file": "researches/readme_seo_draft.md",
+      "why": "на ревю владельца",
+      "text": "# README SEO-оптимизация + сравнение конкурентов — ЧЕРНОВИК (на ревью Криника)"
+    },
+    {
+      "key": "researches/restream_server.md:7002acf58944befd333063683a820efbfbe0d6bc",
+      "file": "researches/restream_server.md",
+      "why": "явное «ждёт ответа/Криника»",
+      "text": "🔬 Скелет-ресёрч готов (2026-07-18, ночь). Реализация НЕ начиналась — ждёт ответов Криника на"
+    }
+  ]
+}
