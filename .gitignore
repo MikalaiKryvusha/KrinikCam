@@ -85,3 +85,8 @@ KAIF_UPDATE_TASK.superseded.md
 # ставятся командой, а не хранятся в репозитории. Сам скрипт speak.py версионируется.
 tools/owner-voice/venv/
 tools/owner-voice/model/
+
+# Фикстуры QA-прогона контура (tools/owner-verify.mjs): решения по ним — мусор прогона, а не
+# слово владельца. Упавший прогон не должен уметь занести их в репозиторий.
+interviews/decisions/interview_99*_verify*
+interviews/decisions/archive/interview_99*_verify*
