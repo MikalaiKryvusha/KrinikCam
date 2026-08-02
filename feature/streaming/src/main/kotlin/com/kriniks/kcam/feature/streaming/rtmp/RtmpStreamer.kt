@@ -650,9 +650,14 @@ class RtmpStreamer @Inject constructor(
                         // Пульс пишем по КАЖДОМУ выходу отдельно — в мультистриме тонет обычно один.
                         val st2 = outputStates[i]
                         if (st2 != null) {
+                            // bug 80 — `src` = возраст последнего кадра самого протухшего слоя-камеры.
+                            // Все остальные числа пульса про СЕТЬ; это единственное про ИСТОЧНИК.
+                            // Отказ источника при здоровой сети (Live, cache=0, dropV=0, а в эфире
+                            // брендовая заглушка) виден только здесь — растущий `src` и есть улика.
                             KLog.i(TAG, "пульс[$i] ${st2.phase} bitrate=${st2.bitrateKbps}kbps " +
                                 "cache=$cache sentV=$sentV sentA=$sentA dropV=$dropV " +
-                                "congested=${st2.congested} attempt=${st2.attempt}")
+                                "congested=${st2.congested} attempt=${st2.attempt} " +
+                                "src=${compositorSource.oldestFrameAgeMs}мс")
                         }
                         // Живучесть, УРОВЕНЬ 3 — детектор замершего отправителя. Стоит ЗДЕСЬ, сразу
                         // после пульса, чтобы судить ровно по опубликованным числам.
