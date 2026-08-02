@@ -28,6 +28,8 @@
 | **Selection** | click highlights · **second click clears** · third selects again · a neighbour clears the previous · the `× сбросить` control does the same · clicking the LABEL TEXT behaves identically to clicking the circle |
 | **Answer in one click** | reached all three places · provenance `by`/`at` present · **the original text is not overwritten** · a re-answer lands as a separate dated clarification |
 | **🔴 Wake-up (I8)** | the contour TERMINATED BY ITSELF after the save, exit 0 — assert the process exit, not the file |
+| **🔴 Endless wait (I9)** | with the default (no deadline) the contour ANNOUNCES it waits as long as needed and is still alive well past the old default · the repeated call fires ≥ 2 times under `--remind 2` and names how many questions remain · `SIGTERM` still ends it cleanly with code 10 (no orphans). Prove absence-of-death, not the infinity itself · wait for the "waiting" LINE, not for the URL — asserting right after the URL is a race with the output, and it will go red for the wrong reason |
+| **Heartbeat vs. sleep** | pure-function cases: never fetched → no verdict · fresh beat → alive · silent past the tolerance → gone · **our own tick overslept → grace, not death** · after the grace the page must prove itself again |
 | **Auto-close** | in an app window the page closes ~2 s after recording; in a plain tab the honest message appears instead of a silent hang. The platform truth underneath (`window.close()` really closes a `--app=` window) is only meaningful HEADFUL — run it headful once and **announce the skip out loud** otherwise: "green because we did not run it" is a lie, not a result |
 | **Gate after approval** | passes · a text drift voids it · **CRLF + BOM do NOT break it** |
 | **Option count** | candidate lines === parsed options **across ALL live documents** |
@@ -97,6 +99,11 @@ Break the code on purpose, confirm the SPECIFIC checks go red, restore. Minimum 
 
 Also mutate the wake-up: make `/submit` record and keep the server alive — the I8 check must go red.
 This is the mutation nobody wrote in the field, which is why the defect shipped.
+
+And mutate the sleep grace: delete the "our tick overslept" branch of the heartbeat verdict — exactly
+one self-test case must go red ("the machine slept 8 hours ≠ the page died"). Without this mutation
+the branch is a comment, not a guard: no other check in the suite can reach it, because no test can
+put the machine to sleep.
 
 ---
 

@@ -104,6 +104,21 @@ Not "the page opened" — "the owner answered, the agent was woken, and never ha
   Without them an orphaned page sat for three hours and woke the agent with its timeout in the middle
   of the night, AFTER the chat was closed — a wake-up caused by a ghost is worse than none, because
   the agent acts on it.
+- **I9. ⏳ The wait itself has NO deadline** (owner's ruling, 2026-08-02). A hard timeout is the only
+  way the contour can die WITHOUT learning the decision: a question asked at a bad hour expires into
+  nothing, the owner never knows it was there, and the agent re-opens it tomorrow. Wait as long as
+  the owner needs — the honest deaths of I8 are enough, and none of them self-approves anything (I4).
+  This does not soften I8: it forbids outliving the NEED, and while the answer is missing the need
+  stands. An endless wait costs exactly two things, and both are mandatory:
+  **(a) the heartbeat must tell a CLOSED page from a SLEEPING MACHINE.** If your own watchdog tick
+  overslept its period, nobody was running — grant the page a fresh full grace period instead of a
+  verdict. Otherwise a laptop shut for the night executes a page that is still open, and the owner's
+  morning "Save" lands on a dead server. Make the verdict a PURE function of (now, last beat, previous
+  tick, tick period, tolerance) and feed each outcome its own case in the self-test: sleep is the one
+  event you cannot reproduce by hand.
+  **(b) the call must REPEAT while the answer is missing** — hourly by default, silent in quiet hours
+  (I6). One beep at hour X is the owner's only chance to learn they are being waited for; with a
+  one-hour timeout a missed beep cost an hour, with an endless wait it costs the whole wait.
 
 ## The fixed part of the tool (do not re-decide these)
 
@@ -120,6 +135,8 @@ across projects. Exact values, code shapes and reasons: `references/build-spec.m
 | **Question widget** | A 4–5 px state stripe along the left edge, coloured BY STATE, plus an explicit state TAG on every question: *waiting for you* / *answered*. One detail carrying two meanings: it separates the cards and it reports |
 | **What the owner must JUDGE** | Embedded, not linked: audio as `data:` URI, images as frames, a live `srcdoc` iframe for interactive mock-ups. A choice among four mock-ups opens as a SEPARATE window (the script opens it, so the script can close it); an inline frame is for quick previews of smaller decisions. A `file://` link from a page served over http is blocked by the browser — embedding is the only working path |
 | **Comments** | One per question AND one for the whole document at the very bottom. A document-wide comment is a legitimate outcome on its own ("no answers, but here is what I think"); it lands as a separate dated block at the end of the md, and comments accumulate instead of overwriting |
+| **How long the contour waits** | Forever — no default deadline (`timeoutSec: 0`). A deadline is the only death that loses the decision instead of recording it. An explicit `--timeout N` stays for QA and one-off runs; the exit code `7` exists only for it |
+| **Repeating the call** | Every hour while the answer is missing, quiet hours silent. The console line is printed on EVERY reminder even when the sound is suppressed — that line is what QA asserts, and a `--remind <sec>` override is what makes an hourly behaviour testable in seconds |
 | **Dependencies** | Zero. A markdown mini-renderer is ~120 lines; the temptation to take a static-site generator or a UI framework is large and the win is zero |
 
 ## Rakes to warn about (in falling price order — every one of them was paid)
@@ -183,6 +200,7 @@ copy gives you two truths and two places to fix.
 ```bash
 node tools/owner.mjs guard         # ВСЕ висящие вопросы + долг числом (в ритуалах /resume, /end-chat, лупов)
 node tools/owner.mjs ask <док>     # страница + сигнал; ЛЮБАЯ запись будит агента (I8)
+                                   # ⏳ ЖДЁТ БЕСКОНЕЧНО (I9) — запускать ФОНОМ, зов повторяется раз в час
 node tools/owner.mjs gate <док> [--q В1|--artifact <id>]   # fail-closed перед зависимой работой
 node tools/owner.mjs queue <док> && node tools/owner.mjs inbox   # копить в лупах, звать раз на пачку
 node tools/owner.mjs selftest      # ядро: каждому гарду скармливается ровно его дефект

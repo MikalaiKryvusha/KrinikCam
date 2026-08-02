@@ -92,7 +92,16 @@ const DEFAULTS = {
   appWindow: true,          // окно-приложение Chrome: только в нём работает автозакрытие страницы
   say: true,
   notify: true,
-  timeoutSec: 3600,
+  // ⏳ ОЖИДАНИЕ БЕСКОНЕЧНО (решение Криника 2026-08-02). 0 = таймаута нет вовсе: контур ждёт ответа
+  // столько, сколько нужно владельцу — сутки, выходные, отпуск. Прежние 3600 с означали, что
+  // вопрос, заданный в неудачный час, тихо умирал кодом 7, и агент возвращался к нему сам.
+  // Ненулевое значение оставлено ради QA и разовых прогонов: `--timeout 120`.
+  timeoutSec: 0,
+  // Сколько молчания страницы считаем её смертью. Усыплённая машина смертью НЕ считается (judgeBeat).
+  aliveTimeoutSec: 90,
+  // 🔔 Раз ждать можно сутками — зов обязан ПОВТОРЯТЬСЯ (решение Криника 2026-08-02: «да, раз в час»).
+  // Тихие часы гасят звук сами (I6), 0 = напоминать молча (только строкой в консоль).
+  remindEverySec: 3600,
 };
 
 const BEEP_HZ = [880, 660, 990];   // ЗАФИКСИРОВАНО спецификацией навыка — не «настройка вкуса»
@@ -1612,7 +1621,42 @@ async function stopAll() {
 //  СЕРВЕР И ПОБУДКА (I8): поднялся → показал → ЗАПИСАЛ → умер, разбудив агента.
 //  Долгоживущий сервер и побудка взаимоисключающи; выигрывает побудка. Осталось неотвеченное —
 //  страницу поднимает заново АГЕНТ.
+//
+//  ⏳ ОЖИДАНИЕ БЕСКОНЕЧНО (правка Криника 2026-08-02). Часовой таймаут был единственным способом
+//  контура умереть, НЕ узнав решения: вопрос, заданный не в тот час, тихо истекал кодом 7. Теперь
+//  ждём столько, сколько нужно владельцу. Это НЕ противоречит I8: инвариант требует, чтобы контур
+//  не пережил СВОЮ НАДОБНОСТЬ, а пока ответа нет — надобность есть. Умереть контур по-прежнему
+//  может пятью честными способами: запись ответа · кнопка «Закрыть» на странице · закрытая страница
+//  (сторож пульса) · выгон новым `ask` по тому же документу · `stop` в ритуале закрытия сессии.
+//  Цена бесконечности — два новых требования, оба реализованы ниже:
+//    • сторож пульса ОБЯЗАН отличать закрытую страницу от УСЫПЛЁННОЙ МАШИНЫ (judgeBeat);
+//    • зов ОБЯЗАН повторяться, иначе один писк в час X — единственный шанс владельца узнать, что
+//      его ждут (напоминание раз в час, в тихие часы молча).
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * ПРИГОВОР СТОРОЖА ПУЛЬСА — чистой функцией, потому что ловит он событие, которое руками не
+ * воспроизвести: усыпление машины. Ноутбук закрыли на ночь — вместе с ним замирает и наш процесс,
+ * и страница; на пробуждении `lastBeat` протух на восемь часов, хотя окно владельца живо и открыто.
+ * Наивный сторож казнит его первым же тиком, и утреннее «Записать» упирается в мёртвый сервер.
+ *
+ * Улика сна — не часы, а МЫ САМИ: если между двумя нашими тиками прошло много больше периода,
+ * значит не работал никто, и молчание страницы ничего не доказывает. Тогда — отсрочка: страница
+ * получает полный срок доказать, что жива (её пульс идёт раз в 20 с, так что живая докажет быстро).
+ *
+ * @param {object} p
+ * @param {number} p.now       текущее время, мс
+ * @param {number} p.lastBeat  когда страница подавала голос последний раз (0 — браузер её ещё не забирал)
+ * @param {number} p.prevTick  когда сторож просыпался в прошлый раз
+ * @param {number} p.tickMs    его собственный период
+ * @param {number} p.aliveMs   сколько молчания считаем смертью страницы
+ * @returns {'idle'|'wait'|'grace'|'gone'} idle — не судим · wait — жива · grace — спала машина · gone — ушла
+ */
+function judgeBeat({ now, lastBeat, prevTick, tickMs, aliveMs }) {
+  if (!lastBeat) return 'idle';                     // в режиме --no-open пульса нет и быть не должно
+  if (now - prevTick > tickMs * 3) return 'grace';  // проспал НАШ тик → спала машина, а не страница
+  return now - lastBeat < aliveMs ? 'wait' : 'gone';
+}
 
 const APP_BROWSERS = [
   { name: 'Google Chrome', check: '/Applications/Google Chrome.app' },
@@ -1639,7 +1683,14 @@ function openDefaultBrowser(url) {
   try { spawnSync(cmd, [url], { stdio: 'ignore', shell: process.platform === 'win32' }); } catch {}
 }
 
-async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSec, noOpen = false, noSignal = false, port = cfg.port, aliveTimeoutSec = cfg.aliveTimeoutSec ?? 90 } = {}) {
+async function ask(docArgs, cfg, {
+  fromQueue = false,
+  timeoutSec = cfg.timeoutSec,
+  noOpen = false, noSignal = false,
+  port = cfg.port,
+  aliveTimeoutSec = cfg.aliveTimeoutSec ?? 90,
+  remindEverySec = cfg.remindEverySec ?? 3600,
+} = {}) {
   const docs = docArgs.map((d) => {
     const abs = path.resolve(ROOT, d);
     if (!fs.existsSync(abs)) { console.error(`нет такого документа: ${d}`); process.exit(1); }
@@ -1660,7 +1711,7 @@ async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSe
   let pageFetched; const pageOnScreen = new Promise((r) => { pageFetched = r; });
   let lastBeat = 0;                     // 0 = страницу ещё ни разу не забирали; пульс не судим
   let autoClose = false;          // правду о режиме окна знает сервер, страница узнаёт её в ответе
-  let exitCode = 7;               // 7 — таймаут: решения НЕТ, гейт остаётся закрытым
+  let exitCode = 7;               // 7 — решения НЕТ (истёк явный --timeout либо контур упал), гейт закрыт
 
   const finishSoon = (code, ms) => {
     exitCode = code;
@@ -1668,17 +1719,27 @@ async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSe
   };
 
   // Сторож тишины: страница пропала (закрыли окно/вкладку) → контур закрывается сам, код 9.
-  // Судим ТОЛЬКО после того, как браузер её однажды забрал: в режиме --no-open пульса нет и быть
-  // не должно, и проверка, которая красит такой прогон, была бы ложной тревогой.
+  // Судим ТОЛЬКО после того, как браузер её однажды забрал, и НЕ судим после сна машины — приговор
+  // выносит judgeBeat, где обе оговорки живут явно и проверяются самотестом.
+  const BEAT_TICK_MS = 5000;
+  let prevTick = Date.now();
   const beatWatch = setInterval(() => {
-    if (!lastBeat) return;
-    if (Date.now() - lastBeat < aliveTimeoutSec * 1000) return;
+    const now = Date.now();
+    const verdict = judgeBeat({ now, lastBeat, prevTick, tickMs: BEAT_TICK_MS, aliveMs: aliveTimeoutSec * 1000 });
+    prevTick = now;
+    if (verdict === 'grace') {
+      // Машина спала: молчали ОБА — и страница, и мы. Даём странице полный срок доказать, что жива.
+      lastBeat = now;
+      console.log(`\n😴 машина спала — сторож пульса начинает срок заново (ждём бесконечно, но живую страницу не хороним).`);
+      return;
+    }
+    if (verdict !== 'gone') return;
     clearInterval(beatWatch);
-    console.log(`\n🚪 страница закрыта владельцем (пульса нет ${aliveTimeoutSec} с) — контур закрывается сам, не дожидаясь таймаута.`);
+    console.log(`\n🚪 страница закрыта владельцем (пульса нет ${aliveTimeoutSec} с) — контур закрывается сам, ждать больше некого.`);
     const left = docs.reduce((n, d) => n + parseDoc(path.resolve(ROOT, d.relPath)).slotsEmpty, 0);
     if (left) console.log(`   Без ответа осталось: ${left} — гард их не забудет, поднимать страницу заново обязан АГЕНТ (I8).`);
     finishSoon(9, 200);
-  }, 5000);
+  }, BEAT_TICK_MS);
   beatWatch.unref?.();
 
   const server = http.createServer((req, res) => {
@@ -1780,27 +1841,55 @@ async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSe
     }
   }
 
+  // Что произносит голос — слово владельца (interview_021 В2): «должен сказать, что ждём моего
+  // решения по такому-то документу или вопросу». Поэтому документ НАЗЫВАЕМ всегда, и в пачке тоже.
+  const names = docs.map((d) => d.meta.title || d.title);
+  const callText = (again) => (docs.length > 1
+    ? `Криник, агент ${again ? 'всё ещё ждёт' : 'ждёт'} твоих решений по документам: ${names.slice(0, 2).join(', ')}` +
+      `${names.length > 2 ? ` и ещё ${names.length - 2}` : ''}.`
+    : `Криник, агент ${again ? 'всё ещё ждёт' : 'ждёт'} твоего решения по документу: ${names[0]}.`)
+    + ` Страница ${again ? 'всё это время открыта' : 'открыта'} в браузере.`;
+
   if (!noSignal) {
-    // Что произносит голос — слово владельца (interview_021 В2): «должен сказать, что ждём моего
-    // решения по такому-то документу или вопросу». Поэтому документ НАЗЫВАЕМ всегда, и в пачке тоже.
-    const names = docs.map((d) => d.meta.title || d.title);
-    const text = docs.length > 1
-      ? `Криник, агент ждёт твоих решений по документам: ${names.slice(0, 2).join(', ')}` +
-        `${names.length > 2 ? ` и ещё ${names.length - 2}` : ''}. Страница открыта в браузере.`
-      : `Криник, агент ждёт твоего решения по документу: ${names[0]}. Страница открыта в браузере.`;
     console.log('🔔 зову владельца (три писка + голос идут ФОНОМ — страницу не держат)');
-    signal(cfg, text);
+    signal(cfg, callText(false));
   }
-  console.log(`⏳ жду ответ (таймаут ${timeoutSec} с). Ответ НИКОГДА не самоодобряется по таймауту (I4).`);
+
+  // ⏳ Бесконечность — это ОТСУТСТВИЕ таймера, а не большое число: часы не переполняются, машина
+  // может спать, а `setTimeout` на неделю — заявка на дефект. Ненулевой срок остаётся для QA.
+  const waitsForever = !(timeoutSec > 0);
+  console.log(waitsForever
+    ? '⏳ жду ответ СКОЛЬКО ПОНАДОБИТСЯ — таймаута нет (правка Криника 2026-08-02).\n'
+      + '   Контур закроют: записанный ответ (I8) · кнопка «Закрыть» · закрытая страница · выгон новым ask · node tools/owner.mjs stop.'
+    : `⏳ жду ответ (таймаут ${timeoutSec} с). Ответ НИКОГДА не самоодобряется по таймауту (I4).`);
+
+  // 🔔 ПОВТОРНЫЙ ЗОВ. У бесконечного ожидания есть цена: единственный писк в час X легко пропустить,
+  // и тогда вопрос висит не потому, что владелец его решает, а потому, что он о нём не знает.
+  // Строку в консоль печатаем ВСЕГДА (её проверяет QA), звук отдаём signal() — он же молчит в
+  // тихие часы (I6), так что ночью напоминание остаётся немым по инварианту, а не по случайности.
+  let reminders = 0;
+  const remindWatch = remindEverySec > 0 ? setInterval(() => {
+    reminders += 1;
+    const left = docs.reduce((n, d) => n + parseDoc(path.resolve(ROOT, d.relPath)).slotsEmpty, 0);
+    console.log(`\n🔔 напоминаю (${reminders}): ответа всё ещё нет, без ответа вопросов ${left} — страница ждёт на ${url}`);
+    if (!noSignal) signal(cfg, callText(true));
+  }, remindEverySec * 1000) : null;
+  remindWatch?.unref?.();
 
   return new Promise((resolve) => {
-    const t = setTimeout(() => {
+    const t = waitsForever ? null : setTimeout(() => {
       console.log('⏱️  ответа не дождались. Решения НЕТ — гейт остаётся закрытым.');
       releaseServing();
       try { server.close(); } catch {}
       resolve(7);
     }, timeoutSec * 1000);
-    server.on('close', () => { clearTimeout(t); clearInterval(beatWatch); releaseServing(); resolve(exitCode); });
+    server.on('close', () => {
+      if (t) clearTimeout(t);
+      clearInterval(beatWatch);
+      if (remindWatch) clearInterval(remindWatch);
+      releaseServing();
+      resolve(exitCode);
+    });
     // Нас выгоняет другой контур или ритуал закрытия сессии — уходим тихо и чисто.
     for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
       process.on(sig, () => { console.log(`\n🛑 контур остановлен (${sig}).`); releaseServing(); try { server.close(); } catch {} process.exit(10); });
@@ -1841,6 +1930,23 @@ function selftest() {
   ok('тихие часы 23:00–09:00: 12:00 — ГРОМКО', !inQuietHours(at(12), '23:00', '09:00'));
   ok('тихие часы 23:00–09:00: 22:59 — ГРОМКО', !inQuietHours(at(22, 59), '23:00', '09:00'));
   ok('обычное окно 09:00–23:00: 12:00 — тихо', inQuietHours(at(12), '09:00', '23:00'));
+
+  // T1б. СТОРОЖ ПУЛЬСА ПОД БЕСКОНЕЧНЫМ ОЖИДАНИЕМ (правка Криника 2026-08-02). Пока таймаут был
+  // часовым, ложная смерть страницы стоила час; теперь она стоит ВСЁ ожидание, поэтому приговор
+  // вынесен чистой функцией — и каждому его исходу здесь скармливается ровно его случай.
+  // Время берём числом: самотест, зависящий от настоящих часов, однажды покраснеет ночью.
+  const T = 1e12;
+  const beat = (o) => judgeBeat({ tickMs: 5000, aliveMs: 90000, ...o });
+  ok('пульс: браузер ещё не забирал страницу — не судим (режим --no-open)',
+    beat({ now: T, lastBeat: 0, prevTick: T - 5000 }) === 'idle');
+  ok('пульс: свежий — страница перед владельцем',
+    beat({ now: T, lastBeat: T - 20000, prevTick: T - 5000 }) === 'wait');
+  ok('пульс: молчит дольше срока — страницу закрыли',
+    beat({ now: T, lastBeat: T - 95000, prevTick: T - 5000 }) === 'gone');
+  ok('🔴 пульс: машина спала 8 часов — это НЕ смерть страницы, а сон нас обоих',
+    beat({ now: T, lastBeat: T - 8 * 3600e3, prevTick: T - 8 * 3600e3 }) === 'grace');
+  ok('пульс: отсрочка не вечна — после сна страница обязана доказать себя заново',
+    beat({ now: T + 95000, lastBeat: T, prevTick: T + 90000 }) === 'gone');
 
   // T2. Ловушка подстроки: «закрытие» НЕ должно читаться как статус «ЗАКРЫТ»
   ok('статус: «речь про закрытие вопроса» ≠ отвечено',
@@ -2127,8 +2233,11 @@ tools/owner.mjs — контур согласований «агент ↔ вл�
   node tools/owner.mjs selftest              ядро: каждому гарду скармливается его дефект
   node tools/owner.mjs verify [--headful]    QA ЖИВЫМ браузером: клики, теги, цвета, побудка
 
-  Флаги ask/inbox: --timeout <сек> (деф. 3600) · --alive-timeout <сек> (деф. 90 — через сколько
-  закрыть контур после того, как владелец закрыл страницу) · --no-open · --no-signal · --port <N>
+  Флаги ask/inbox: --timeout <сек> (деф. 0 = ЖДАТЬ БЕСКОНЕЧНО, пока владелец не ответит) ·
+  --alive-timeout <сек> (деф. 90 — через сколько закрыть контур после того, как владелец ЗАКРЫЛ
+  страницу; усыплённая машина закрытием НЕ считается) · --remind <сек> (деф. 3600 — как часто
+  повторять зов, пока ответа нет; в тихие часы молча; 0 = не напоминать) ·
+  --no-open · --no-signal · --port <N>
   Настройки: tools/owner.config.json (владелец, голос, тихие часы, порт, цвет акцента)
   Спецификация: .claude/skills/owner-reviews/references/build-spec.md
 `;
@@ -2138,7 +2247,11 @@ async function main() {
   const cfg = loadConfig();
   const flag = (name) => rest.includes(name);
   const val = (name, def) => { const i = rest.indexOf(name); return i >= 0 && rest[i + 1] ? rest[i + 1] : def; };
-  const positional = rest.filter((a, i) => !a.startsWith('--') && !(i > 0 && ['--timeout', '--q', '--artifact', '--port', '--alive-timeout'].includes(rest[i - 1])));
+  // Числовой флаг: мусор («--timeout скоро») откатывается на дефолт, а не превращается в NaN.
+  // NaN в сроке — это таймер, который срабатывает НЕМЕДЛЕННО: контур умер бы, не показав страницы.
+  const num = (name, def) => { const n = Number(val(name, def)); return Number.isFinite(n) ? n : Number(def); };
+  const VALUED = ['--timeout', '--q', '--artifact', '--port', '--alive-timeout', '--remind'];
+  const positional = rest.filter((a, i) => !a.startsWith('--') && !(i > 0 && VALUED.includes(rest[i - 1])));
 
   switch (cmd) {
     case 'guard':
@@ -2163,10 +2276,11 @@ async function main() {
     case 'ask': {
       if (!positional.length) { console.error('нужен путь к документу'); process.exit(1); }
       const code = await ask(positional, cfg, {
-        timeoutSec: Number(val('--timeout', cfg.timeoutSec)),
+        timeoutSec: num('--timeout', cfg.timeoutSec),
         noOpen: flag('--no-open'), noSignal: flag('--no-signal'),
-        port: Number(val('--port', cfg.port)),
-        aliveTimeoutSec: Number(val('--alive-timeout', cfg.aliveTimeoutSec ?? 90)),
+        port: num('--port', cfg.port),
+        aliveTimeoutSec: num('--alive-timeout', cfg.aliveTimeoutSec ?? 90),
+        remindEverySec: num('--remind', cfg.remindEverySec ?? 3600),
       });
       process.exit(code);
       break;
@@ -2185,10 +2299,11 @@ async function main() {
         process.exit(0);
       }
       const code = await ask(items.map((i) => i.doc), cfg, {
-        fromQueue: true, timeoutSec: Number(val('--timeout', cfg.timeoutSec)),
+        fromQueue: true, timeoutSec: num('--timeout', cfg.timeoutSec),
         noOpen: flag('--no-open'), noSignal: flag('--no-signal'),
-        port: Number(val('--port', cfg.port)),
-        aliveTimeoutSec: Number(val('--alive-timeout', cfg.aliveTimeoutSec ?? 90)),
+        port: num('--port', cfg.port),
+        aliveTimeoutSec: num('--alive-timeout', cfg.aliveTimeoutSec ?? 90),
+        remindEverySec: num('--remind', cfg.remindEverySec ?? 3600),
       });
       process.exit(code);
       break;
@@ -2228,7 +2343,7 @@ if (invokedDirectly) main().catch((e) => { console.error('💥', e); process.exi
 
 export {
   normalizeBody, sha256, parseDoc, parseLines, renderPage, writeAnswersIntoDoc, appendDocumentComment,
-  recordDecision, appendArtifactDecisions, gate, guard, readServing, stopAll, collectOrphans, inQuietHours, beepWav, loadConfig, decisionPathFor,
+  recordDecision, appendArtifactDecisions, gate, guard, readServing, stopAll, collectOrphans, inQuietHours, judgeBeat, beepWav, loadConfig, decisionPathFor,
   findAppBrowser,
   isoNow, GATE_EXIT, ROOT, PAGES_DIR, DECISIONS_DIR, ARCHIVE_DIR, BEEP_HZ,
 };

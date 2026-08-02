@@ -528,6 +528,15 @@ Self-test it on both sides of midnight and on a normal window: 23:30 quiet · 08
 2. **A page heartbeat.** The page pings `/alive` every 20 s; no ping for ~90 s after the browser
    first fetched it means the window is closed — exit with a distinct code instead of waiting out the
    timeout. (Judge the heartbeat only AFTER the first fetch, or a `--no-open` run fails falsely.)
+   🔴 **And judge it only when YOU were awake.** Since the wait has no deadline (§7.1), the machine
+   may sleep for a night in the middle of it: on wake `lastBeat` is eight hours stale while the
+   owner's window is still open, and a naive watchdog kills a live page — the owner's morning "Save"
+   then lands on a dead server. The evidence of sleep is your OWN tick: if more than ~3 periods
+   passed between two ticks, nobody was running, so the page's silence proves nothing. Grant a fresh
+   full grace period and return. Keep the verdict a pure function — `judgeBeat({now, lastBeat,
+   prevTick, tickMs, aliveMs}) → idle | wait | grace | gone` — because sleep is the one event you
+   cannot reproduce by hand, and each outcome must get its own self-test case (including "grace is
+   not an amnesty": after the grace period the page must prove itself again).
 3. **The session-closing ritual stops all of them** (`stop` command, wired into the project's
    end-of-session ritual). A page must not survive the chat that opened it.
 
@@ -539,6 +548,26 @@ stale entry behind.
 Exit-code contract for `ask`/`inbox`: `0` something was recorded (the agent may continue) · `7`
 timeout, nothing recorded · `8` the owner closed the page without recording · `9` the page is gone
 (no heartbeat) · `10` evicted or stopped. **Nothing self-approves by timeout, ever.**
+
+### 7.1. The wait has no deadline (I9)
+
+The default is **no timeout at all** (`timeoutSec: 0` — the ABSENCE of a timer, not a large number;
+a `setTimeout` for a week is a defect application, and the clock jumps when the machine sleeps).
+A deadline is the only death that loses the decision instead of recording it: in the field a
+one-hour default meant a question asked at a bad hour expired into code `7` while the owner never
+learned it existed. Exit `7` survives for an explicit `--timeout N` (QA needs a contour that ends).
+
+Two obligations come with it, and a contour that skips them is worse than the timeout it replaced:
+
+- **Sleep-proof the heartbeat** (§7, item 2) — an endless wait means the machine WILL sleep mid-wait.
+- **Repeat the call** every hour while the answer is missing, silent in quiet hours (I6). Print the
+  reminder line to the console on every tick even when the sound is suppressed: the line is what a
+  QA run can assert, and `--remind <sec>` is what makes an hourly behaviour provable in seconds.
+  Say in the line how many questions are still unanswered and where the page is waiting.
+
+The agent's side of an endless wait: launch `ask` as a BACKGROUND process and let the harness wake
+you when it exits. Waiting in the foreground now means blocking until the owner answers — the wait is
+unbounded by design, and I8's wake-up (the process TERMINATES on save) is what returns control.
 
 ---
 
