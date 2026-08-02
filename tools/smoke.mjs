@@ -28,6 +28,7 @@ import { execSync, execFileSync } from 'child_process';
 import { existsSync, mkdtempSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { resolveDevice } from './device.mjs';
 
 // ── Аргументы ────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -44,14 +45,12 @@ const PKG = 'com.kriniks.kcam.debug';
 const REC_DIR = `/sdcard/Android/data/${PKG}/files/rec`;
 const JBR = '/Applications/Android Studio.app/Contents/jbr/Contents/Home';
 
-// ── ADB (то же разрешение устройства, что в ui.mjs) ───────────────────────────
-const ADB_DEVICE = process.env.ADB_DEVICE || (() => {
-  try {
-    const lines = execSync('adb devices', { encoding: 'utf8' }).split('\n').slice(1)
-      .filter((l) => l.trim() && !l.startsWith('*') && l.includes('\tdevice'));
-    return lines.length ? lines[0].split('\t')[0].trim() : null;
-  } catch { return null; }
-})();
+// ── ADB ───────────────────────────────────────────────────────────────────────
+// Разрешение устройства вынесено в device.mjs и ОБЩЕЕ с ui.mjs: раньше здесь и там лежали две
+// копии одной логики, и они выбирали устройство независимо — в парке из двух девайсов smoke мог
+// мерить одно железо, а ui.mjs тыкать в другое. Теперь источник один, и он ОТКАЗЫВАЕТСЯ гадать,
+// когда подключено больше одного устройства (см. шапку tools/device.mjs).
+const ADB_DEVICE = resolveDevice();
 const adb = (...a) => execSync(['adb', ...(ADB_DEVICE ? ['-s', ADB_DEVICE] : []), ...a].join(' '), { encoding: 'utf8' });
 const ui = (...a) => execSync(`node ${join(import.meta.dirname, 'ui.mjs')} ${a.join(' ')}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 

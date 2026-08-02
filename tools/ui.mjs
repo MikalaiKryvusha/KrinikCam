@@ -34,6 +34,7 @@ import { execSync, execFileSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync, statSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, isAbsolute, dirname } from 'path';
+import { resolveDevice } from './device.mjs';
 
 // JPEG quality for screenshots — full resolution kept, just compressed so the image is light
 // for AI analysis (Krinik: don't downscale, compress to 80%).
@@ -41,18 +42,10 @@ const SCREENSHOT_JPEG_QUALITY = 80;
 
 // ── ADB device detection ────────────────────────────────────────────────────
 
-const ADB_DEVICE = process.env.ADB_DEVICE || (() => {
-  try {
-    const lines = execSync('adb devices', { encoding: 'utf8' })
-      .split('\n')
-      .slice(1)
-      .filter(l => l.trim() && !l.startsWith('*') && l.includes('device'));
-    if (!lines.length) throw new Error('No ADB devices connected');
-    return lines[0].split('\t')[0].trim();
-  } catch {
-    return null;
-  }
-})();
+// Target resolution lives in device.mjs — shared with smoke.mjs so the two can never disagree about
+// which device the harness is talking to. It refuses to guess when the park has several devices
+// attached (KrinikCam runs two since 2026-08-02). See tools/device.mjs for the full rationale.
+const ADB_DEVICE = resolveDevice();
 
 function adb(...args) {
   const deviceFlag = ADB_DEVICE ? ['-s', ADB_DEVICE] : [];

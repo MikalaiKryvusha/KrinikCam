@@ -645,6 +645,7 @@ git push origin main # дальше пушит без интерактива, т
 | `node tools/ui.mjs start\|restart [debug\|release]` | запуск/перезапуск нужной сборки |
 | `node tools/ui.mjs screen [out.jpg]` | скриншот → `tools/screenshots/adb_screen.jpg` (сжатый JPEG q80, full-res; папка gitignored) |
 | `node tools/adb.mjs screen` | скриншот → `tools/screenshots/adb_screen.jpg` (тоже JPEG q80, через `sharp`) |
+| `node tools/device.mjs list\|selftest` | **кого харнес считает целью** (парк с 2026-08-02 — ДВА устройства). Один общий разрешатель для `ui.mjs`/`smoke.mjs`/`adb.mjs`: `ADB_DEVICE` → одно подключённое → **при НЕСКОЛЬКИХ отказывается гадать** и печатает готовые строки `ADB_DEVICE=<serial>`. Раньше копии этой логики жили в двух файлах и выбирали независимо — smoke мог мерить одно железо, а `ui.mjs` тыкать в другое, и никто бы не заметил. `selftest` (6 проверок) скармливает гарду ровно его дефект — проверено и на СЛОМАННОЙ версии (краснеет) |
 | `node tools/adb.mjs tap <x> <y>` | тап по координатам (устарело — используй ui.mjs tap) |
 | `node tools/adb.mjs logcat [tag] [lines]` | дамп logcat с устройства |
 | `node tools/avd.mjs create\|start\|stop\|status\|smoke` | **эмулятор как тест-девайс (Idea 28)**: планшет недоступен → headless AVD (Pixel_7_Pro_Android_15; KCAM_AVD=<имя> для другого) + smoke на нём (функциональный порог --min-fps 3; софт-GPU медленный). Харнес: `ADB_DEVICE=emulator-5554 node tools/ui.mjs …` |
