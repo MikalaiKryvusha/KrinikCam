@@ -1,0 +1,24 @@
+{
+  "kind": "interview",
+  "document": "interviews/interview_023_fab_state_indication.md",
+  "by": "Криник",
+  "at": "2026-08-02T12:58:41+03:00",
+  "answers": {
+    "В1": {
+      "choice": "",
+      "text": "так же, как и ЭФИР. И писать не ЗАПИСЬ, а \"ФАЙЛ\"",
+      "comment": "",
+      "sha256": "b36e5cbf5907781bf6bb0304b6e6058960753e78e577a68db5f313239ee35830",
+      "at": "2026-08-02T12:58:41+03:00"
+    },
+    "В2": {
+      "choice": "в",
+      "text": "Это, как мне кажется. очень большая фича, которая тянет на Эпик, ресёрч.",
+      "comment": "",
+      "sha256": "c021994b97b30b6abe9ca3b5e72caae60365ea99d25de44ef47c6d430d275ff5",
+      "at": "2026-08-02T12:58:41+03:00"
+    }
+  },
+  "artifacts": {},
+  "document_comment": []
+}
