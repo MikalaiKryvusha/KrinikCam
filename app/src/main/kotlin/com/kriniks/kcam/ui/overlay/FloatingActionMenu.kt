@@ -40,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kriniks.kcam.R
+import com.kriniks.kcam.ui.sessionBadgeRes   // bug 79 — один источник подписи «ЭФИР»/«ЗАПИСЬ»
 import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isActive   // bug 45 — «Стоп» и в фазе подготовки
 import com.kriniks.kcam.feature.streaming.model.isLive
@@ -115,14 +116,16 @@ fun FloatingActionMenu(
                 modifier = Modifier.size(60.dp),
             ) {
                 if (streamState.isLive && !expanded) {
-                    // LIVE-бейдж вместо иконки в эфире.
+                    // Бейдж состояния вместо иконки во время сессии. bug 79 — подпись берётся из
+                    // ЕДИНСТВЕННОГО источника (sessionBadgeRes), а не пишется здесь константой:
+                    // раньше FAB безусловно печатал «ЭФИР» и врал во время записи в файл.
                     Box(
                         Modifier
                             .size(60.dp)
                             .background(fabColor, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(stringResource(R.string.fab_live_badge), color = Color.White, fontSize = 13.sp,
+                        Text(stringResource(sessionBadgeRes(streamState)), color = Color.White, fontSize = 13.sp,
                             style = MaterialTheme.typography.labelMedium)
                     }
                 } else {

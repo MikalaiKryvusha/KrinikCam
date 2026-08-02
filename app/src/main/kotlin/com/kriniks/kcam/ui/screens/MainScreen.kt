@@ -78,6 +78,7 @@ import com.kriniks.kcam.streaming.UvcCameraOpener
 import com.kriniks.kcam.streaming.VirtualCameraOpener
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
 import com.kriniks.kcam.feature.usb.ui.UsbViewModel
+import com.kriniks.kcam.ui.sessionBadgeRes   // bug 79 — один источник подписи «ЭФИР»/«ЗАПИСЬ»
 import com.kriniks.kcam.ui.overlay.FloatingActionMenu
 import com.kriniks.kcam.ui.overlay.RotationMenu
 import com.kriniks.kcam.ui.overlay.ScenesManagerOverlay
@@ -743,7 +744,9 @@ private fun StreamStatusWidget(state: StreamState, encoderSummary: String?) {
     }
     // bug 53 / Криник — табличные цифры: символы не пляшут при смене чисел.
     val tnum = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
-    val label = stringResource(if (live.isRecording) R.string.fab_rec_badge else R.string.fab_live_badge)
+    // bug 79 — подпись берётся из ЕДИНСТВЕННОГО источника (sessionBadgeRes), общего с главным FAB:
+    // пока это решение принималось здесь и там по отдельности, кнопка и плашка расходились.
+    val label = stringResource(sessionBadgeRes(live))
 
     // Криник — ХОЧУ так: шапка = самостоятельная скруглённая ПИЛЮЛЯ (все 4 угла), а развёрнутый низ —
     // ОТДЕЛЬНАЯ карточка ЧУТЬ УЖЕ, «выпадающая» из-под шапки. От яркой шапки идём в ТЁМНЫЙ, БОРДОВО-красный

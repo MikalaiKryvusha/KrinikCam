@@ -267,7 +267,11 @@ fun StreamLayersOverlay(
                 containerColor = DarkSurface,
                 title = { Text(stringResource(R.string.layers_add_video_capture_title), color = Color.White, fontSize = 17.sp) },
                 text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    // bug 78 (близнец) — список источников РАСТЁТ с их числом (UVC + камеры устройства
+                    // + виртуалка), а `AlertDialog` слот `text` сам не прокручивает и просто обрезает
+                    // лишнее. На телефоне в ландшафте нижние источники стали бы недостижимы — ровно
+                    // тот же дефект, что в модалке «Редактировать сцену».
+                    Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                         Text(stringResource(R.string.layer_source_video), color = Color(0xFF999999), fontSize = 13.sp)
                         Spacer(Modifier.height(8.dp))
                         SourcePickerColumn(
@@ -425,7 +429,9 @@ private fun LayerSettingsDialog(
         containerColor = DarkSurface,
         title = { Text(stringResource(R.string.layer_settings_title, layer.name), color = Color.White, fontSize = 17.sp) },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            // bug 78 (близнец) — та же причина, что в модалке добавления слоя: содержимое зависит от
+            // типа слоя и числа источников, а `AlertDialog` обрезает то, что не влезло по высоте.
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                 when (layer) {
                     is Layer.VideoCapture -> {
                         Text(stringResource(R.string.layer_source_video), color = Color(0xFF999999), fontSize = 13.sp)

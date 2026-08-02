@@ -16,6 +16,10 @@ package com.kriniks.kcam.ui.overlay
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+// bug 78 — содержимое модалки редактирования сцены должно ПРОКРУЧИВАТЬСЯ: на телефоне в ландшафте
+// высоты не хватает, и нижняя часть (чипы длительности) оказывалась недостижима.
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -75,6 +79,9 @@ private val ScenesAccent = Color(0xFFFF1A8C)
 private val ScenesItemBg = Color(0x66151515)
 private val ScenesActiveBg = Color(0x33FF1A8C)   // активная сцена — лёгкая акцентная подложка
 
+// bug 78 — FlowRow (перенос чипов целиком на узком диалоге телефона) пока экспериментальный API;
+// та же аннотация стоит в EncoderProfilesOverlay, где FlowRow уже используется.
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ScenesManagerOverlay(
     scenes: List<SceneProfileMeta>,
@@ -131,7 +138,15 @@ fun ScenesManagerOverlay(
             onDismissRequest = { renameTarget = null },
             title = { Text(stringResource(R.string.scenes_edit_title)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // bug 78 — ПРОКРУТКА содержимого. `AlertDialog` не прокручивает слот `text` сам: если
+                // контент выше доступной высоты, он просто ОБРЕЗАЕТСЯ. На планшете (1600×2560) места
+                // хватало, а на телефоне в ландшафте (высота 1080) ряд чипов длительности уезжал под
+                // кнопки действий — элементы оставались кликабельными в дампе, но невидимыми и
+                // недостижимыми для пальца. Прокрутка делает содержимое достижимым при ЛЮБОЙ высоте.
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
                     OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
@@ -143,12 +158,18 @@ fun ScenesManagerOverlay(
                         stringResource(R.string.scenes_transition_label),
                         color = Color(0xCCFFFFFF), fontSize = 12.sp, fontWeight = FontWeight.Bold,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // bug 78 — FlowRow, а не Row: на узком диалоге телефона три чипа в одну строку не
+                    // влезали, и подпись рвалась ПОСЕРЕДИНЕ СЛОВА («Выез/д»). FlowRow переносит чип
+                    // ЦЕЛИКОМ на следующую строку. Та же идиома уже используется в EncoderProfilesOverlay.
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         SceneTransition.entries.forEach { t ->
                             FilterChip(
                                 selected = transition == t,
                                 onClick = { transition = t },
-                                label = { Text(transitionLabel(t), fontSize = 12.sp) },
+                                label = { Text(transitionLabel(t), fontSize = 12.sp, maxLines = 1) },
                                 colors = scenesChipColors(),
                                 border = scenesChipBorder(transition == t),
                             )
@@ -159,7 +180,11 @@ fun ScenesManagerOverlay(
                         stringResource(R.string.scenes_transition_duration_label),
                         color = Color(0xCCFFFFFF), fontSize = 12.sp, fontWeight = FontWeight.Bold,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // bug 78 — та же причина, что и у ряда переходов: «1,5 с» рвалось на две строки.
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         DURATION_PRESETS_MS.forEach { ms ->
                             FilterChip(
                                 selected = durationMs == ms,
@@ -167,12 +192,11 @@ fun ScenesManagerOverlay(
                                 enabled = transition != SceneTransition.NONE,
                                 // bug 65 Ш4 — суффикс единицы был вшит по-русски прямо здесь, поэтому
                                 // на английском интерфейсе чип всё равно писал «с». Теперь ресурс.
-                                // [NOT-TESTED] — сборка зелёная и ресурс есть в values/ и values-ru/,
-                                //   но САМ чип глазами не проверен: он доступен только при выбранном
-                                //   переходе (enabled ниже), а до этой ветки UI дойти не успели.
-                                //   Проверять: Сцены → выбрать переход → чипы длительности; на ru_RU
-                                //   ожидается «0,5 с», при английском языке приложения — «0.5 s».
-                                label = { Text(stringResource(R.string.duration_seconds_fmt, ms / 1000f), fontSize = 12.sp) },
+                                // [TESTED: 2026-08-02 · A51 (ru_RU), скриншот: чипы отрисованы через
+                                //  ресурс — «0,2 с», «0,4 с», «0,8 с», «1,5 с», тап переключает выбор.
+                                //  ⚠️ ТОЛЬКО русская локаль: английская форма «0.2 s» глазами НЕ
+                                //  проверена — на устройстве системная локаль ru_RU]
+                                label = { Text(stringResource(R.string.duration_seconds_fmt, ms / 1000f), fontSize = 12.sp, maxLines = 1) },
                                 colors = scenesChipColors(),
                                 border = scenesChipBorder(durationMs == ms),
                             )
