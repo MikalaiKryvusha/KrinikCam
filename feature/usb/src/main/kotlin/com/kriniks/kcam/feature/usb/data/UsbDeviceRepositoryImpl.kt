@@ -276,28 +276,56 @@ class UsbDeviceRepositoryImpl @Inject constructor(
         val libCanary = canaryOk(libConn)
         KLog.i(TAG, "cam-controls: канал библиотеки fd=${libConn.fileDescriptor} проба GET_DESCRIPTOR rc=$libCanary")
 
-        // Если канал библиотеки не отвечает — пробуем СВОЁ соединение к тому же устройству.
-        // Разрешение у нас уже есть (иначе камера не открылась бы), а Android допускает второе
-        // соединение; нулевой endpoint не требует захвата интерфейса.
-        var ownConn: android.hardware.usb.UsbDeviceConnection? = null
-        val conn = if (libCanary >= 0) libConn else {
-            val dev = block.device
-            ownConn = runCatching { usbManager.openDevice(dev) }.getOrNull()
-            val ownCanary = ownConn?.let { canaryOk(it) } ?: -999
-            KLog.i(TAG, "cam-controls: своё соединение fd=${ownConn?.fileDescriptor} проба GET_DESCRIPTOR rc=$ownCanary")
-            if (ownConn != null && ownCanary >= 0) ownConn else libConn
-        }
-
         val label = "VID=${block.venderId} PID=${block.productId}"
         val topo = UvcControlProbe.parseTopology(raw)
         if (topo == null) {
             UvcControlProbe.dumpToLog(label, null, emptyList())
             return "$label: VideoControl-интерфейс не найден (дескрипторов ${raw.size} байт)"
         }
+
+        // Канал библиотеки ЖИВ (стандартная проба вернула 18 байт), но КЛАСС-СПЕЦИФИЧНЫЕ запросы
+        // отказывали с rc=-1. Разница между ними ровно одна: класс-специфичный адресован
+        // ИНТЕРФЕЙСУ, а ядро отдаёт такие запросы только тому, кто интерфейс ЗАХВАТИЛ. Поэтому
+        // берём СВОЁ соединение и захватываем на нём VideoControl: у библиотеки свой файловый
+        // дескриптор, и её видеопоток (это другой интерфейс, VideoStreaming) мы не трогаем.
+        val dev = block.device
+        val vcIfaceObj = (0 until dev.interfaceCount).map { dev.getInterface(it) }
+            .firstOrNull { it.id == topo.vcInterface }
+        var ownConn: android.hardware.usb.UsbDeviceConnection? = null
+        var claimed: android.hardware.usb.UsbInterface? = null
+        val conn: android.hardware.usb.UsbDeviceConnection = run {
+            val own = runCatching { usbManager.openDevice(dev) }.getOrNull()
+            ownConn = own
+            if (own == null) {
+                KLog.w(TAG, "cam-controls: своё соединение открыть не удалось — работаем каналом библиотеки")
+                libConn
+            } else {
+                val ownCanary = canaryOk(own)
+                // Сначала вежливо (force=false). Если интерфейс уже держит библиотека — забираем
+                // ПРИНУДИТЕЛЬНО и НЕНАДОЛГО: VideoControl (id=0) отвечает только за управление,
+                // видеопоток идёт по другому интерфейсу (VideoStreaming), поэтому картинка не должна
+                // пострадать. Захват снимается сразу после пробы (`releaseInterface` ниже) — держать
+                // его дольше значит оспаривать устройство у библиотеки, которая гонит эфир.
+                var ok = vcIfaceObj?.let { own.claimInterface(it, false) } ?: false
+                var forced = false
+                if (!ok && vcIfaceObj != null) {
+                    ok = own.claimInterface(vcIfaceObj, true)
+                    forced = ok
+                }
+                if (ok) claimed = vcIfaceObj
+                KLog.i(
+                    TAG,
+                    "cam-controls: своё соединение fd=${own.fileDescriptor} проба=$ownCanary " +
+                        "claim(VideoControl id=${vcIfaceObj?.id})=$ok${if (forced) " (принудительно)" else ""}",
+                )
+                if (ownCanary >= 0) own else libConn
+            }
+        }
         val readings = UvcControlProbe.probe(conn, topo)
         UvcControlProbe.dumpToLog(label, topo, readings)
-        // Своё соединение держим ровно на время пробы: оставить его открытым значит оспаривать
+        // Своё соединение и захват держим РОВНО на время пробы: оставить их значит оспаривать
         // устройство у библиотеки, которая на нём же гонит видео.
+        claimed?.let { runCatching { ownConn?.releaseInterface(it) } }
         ownConn?.close()
 
         val declared = readings.count { it.declared }
