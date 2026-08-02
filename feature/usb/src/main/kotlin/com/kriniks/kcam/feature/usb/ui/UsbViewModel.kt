@@ -129,6 +129,19 @@ class UsbViewModel @Inject constructor(
         repository.simulateDetach(id)
     }
 
+    /**
+     * ЭПИК «настройки камер», фаза 0 (`plans/25`) — спросить АКТИВНУЮ камеру, какие у неё ручки.
+     * Возвращает короткую сводку; подробная таблица уходит в лог по тегу `UvcControlProbe`.
+     */
+    fun dumpUvcControls(): String {
+        val id = _uiState.value.activeCameraId
+        if (id == null) {
+            KLog.w(TAG, "dumpUvcControls: нет активной камеры — нечего спрашивать")
+            return "нет активной камеры"
+        }
+        return repository.dumpUvcControls(id).also { KLog.i(TAG, "dumpUvcControls: $it") }
+    }
+
     override fun onCleared() {
         super.onCleared()
         repository.stopMonitoring()

@@ -135,6 +135,7 @@ function main() {
     ['gesture-pinch', 'out', '0.05'],
     ['gesture-twist', '2', '0.5'],
     ['select-source', 'virtual'],
+    ['cam-controls'],
     ['rotation-mode', 'on'],
     ['rotation-mode', 'off'],
     ['simulate-congestion', 'off'], // idea 37 — контракт протокола; off = безопасный no-op

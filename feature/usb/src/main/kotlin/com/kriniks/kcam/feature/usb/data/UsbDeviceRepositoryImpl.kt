@@ -29,6 +29,7 @@ import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.kriniks.kcam.core.logging.KLog
 import com.kriniks.kcam.feature.usb.domain.UsbDeviceRepository
 import com.kriniks.kcam.feature.usb.model.UsbEvent
+import com.kriniks.kcam.feature.usb.uvc.UvcControlProbe
 import com.kriniks.kcam.feature.usb.model.UvcDevice
 import com.kriniks.kcam.feature.usb.model.UvcFormat
 import com.kriniks.kcam.feature.usb.model.UvcVideoProfile
@@ -74,6 +75,11 @@ class UsbDeviceRepositoryImpl @Inject constructor(
     // Camera objects keyed by device ID — created on permission grant, opened by UvcPreviewView
     private val openCameras = mutableMapOf<Int, MultiCameraClient.Camera>()
 
+    // ЭПИК «настройки камер» (`plans/24`) — блоки управления USB по deviceId. Это наш канал К КАМЕРЕ:
+    // из него берутся UsbDeviceConnection (для controlTransfer) и сырые дескрипторы (что камера
+    // декларирует). Чистится там же, где openCameras, — иначе будем говорить с отключённым железом.
+    private val ctrlBlocks = mutableMapOf<Int, USBMonitor.UsbControlBlock>()
+
     override fun startMonitoring() {
         KLog.i(TAG, "Starting USB monitor")
         multiCameraClient = MultiCameraClient(ReceiverFlagFixContext(context), object : IDeviceConnectCallBack {
@@ -105,6 +111,7 @@ class UsbDeviceRepositoryImpl @Inject constructor(
                 device ?: return
                 KLog.i(TAG, "USB detached: ${device.deviceName}")
                 openCameras.remove(device.deviceId)?.closeCamera()
+                ctrlBlocks.remove(device.deviceId)
                 emit(UsbEvent.DeviceDetached(device.deviceId))
             }
 
@@ -133,6 +140,7 @@ class UsbDeviceRepositoryImpl @Inject constructor(
         KLog.i(TAG, "Stopping USB monitor")
         openCameras.values.forEach { it.closeCamera() }
         openCameras.clear()
+        ctrlBlocks.clear()
         multiCameraClient?.unRegister()
         multiCameraClient?.destroy()
         multiCameraClient = null
@@ -230,11 +238,72 @@ class UsbDeviceRepositoryImpl @Inject constructor(
         })
 
         openCameras[device.deviceId] = camera
+        // ЭПИК «настройки камер» (`plans/24`): держим блок управления У СЕБЯ. Через него идёт прямой
+        // разговор с камерой по UVC — канал (`getConnection`) и её декларация (`getRawDescriptors`).
+        // Библиотека этот блок тоже получает (строкой выше), но наружу ничего из него не отдаёт.
+        if (ctrlBlock != null) ctrlBlocks[device.deviceId] = ctrlBlock
         emit(UsbEvent.PermissionGranted(device, camera))
     }
 
     override fun getCameraForDevice(deviceId: Int): MultiCameraClient.Camera? =
         openCameras[deviceId]
+
+    /**
+     * ЭПИК «настройки камер», фаза 0 (`plans/25` Ф0.2–Ф0.4) — спросить камеру напрямую.
+     *
+     * Блок управления приходит к НАМ первыми (`onConnectDev`), и мы его сохраняем: из него берутся
+     * и канал (`getConnection`), и декларация камеры (`getRawDescriptors`). Никакой рефлексии — всё
+     * это публичный API (`researches/29` §3.7).
+     */
+    override fun dumpUvcControls(deviceId: Int): String {
+        val id = if (deviceId >= 0) deviceId else ctrlBlocks.keys.firstOrNull()
+        if (id == null) return "нет открытых USB-камер — нечего спрашивать"
+        val block = ctrlBlocks[id] ?: return "нет UsbControlBlock для устройства id=$id"
+
+        val libConn = runCatching { block.connection }.getOrNull()
+            ?: return "UsbDeviceConnection недоступен (устройство закрыто?) id=$id"
+        val raw = runCatching { block.rawDescriptors }.getOrNull()
+            ?: return "дескрипторы недоступны id=$id"
+
+        // ── КОНТРОЛЬНЫЙ ОПЫТ (plans/25 Ф0.2, риск «конфликт за нулевой endpoint») ──────────────
+        // Первый прогон дал rc=-1 по ВСЕМ контролам, то есть отказал транспорт, а не камера.
+        // Прежде чем менять UVC-запросы, проверяем САМ КАНАЛ запросом, на который обязано ответить
+        // любое USB-устройство: GET_DESCRIPTOR(device) — 18 байт, стандартный, не UVC-специфичный.
+        // Если молчит и он — дело не в наших селекторах, а в соединении.
+        fun canaryOk(c: android.hardware.usb.UsbDeviceConnection): Int =
+            c.controlTransfer(0x80, 0x06, 0x0100, 0x0000, ByteArray(18), 18, 300)
+
+        val libCanary = canaryOk(libConn)
+        KLog.i(TAG, "cam-controls: канал библиотеки fd=${libConn.fileDescriptor} проба GET_DESCRIPTOR rc=$libCanary")
+
+        // Если канал библиотеки не отвечает — пробуем СВОЁ соединение к тому же устройству.
+        // Разрешение у нас уже есть (иначе камера не открылась бы), а Android допускает второе
+        // соединение; нулевой endpoint не требует захвата интерфейса.
+        var ownConn: android.hardware.usb.UsbDeviceConnection? = null
+        val conn = if (libCanary >= 0) libConn else {
+            val dev = block.device
+            ownConn = runCatching { usbManager.openDevice(dev) }.getOrNull()
+            val ownCanary = ownConn?.let { canaryOk(it) } ?: -999
+            KLog.i(TAG, "cam-controls: своё соединение fd=${ownConn?.fileDescriptor} проба GET_DESCRIPTOR rc=$ownCanary")
+            if (ownConn != null && ownCanary >= 0) ownConn else libConn
+        }
+
+        val label = "VID=${block.venderId} PID=${block.productId}"
+        val topo = UvcControlProbe.parseTopology(raw)
+        if (topo == null) {
+            UvcControlProbe.dumpToLog(label, null, emptyList())
+            return "$label: VideoControl-интерфейс не найден (дескрипторов ${raw.size} байт)"
+        }
+        val readings = UvcControlProbe.probe(conn, topo)
+        UvcControlProbe.dumpToLog(label, topo, readings)
+        // Своё соединение держим ровно на время пробы: оставить его открытым значит оспаривать
+        // устройство у библиотеки, которая на нём же гонит видео.
+        ownConn?.close()
+
+        val declared = readings.count { it.declared }
+        val answered = readings.count { it.declared && it.cur != null }
+        return "$label: объявлено $declared, ответили $answered (подробности — в логе по тегу UvcControlProbe)"
+    }
 
     // bug 47 (харнес/Idea 22) — синтетический отвал: эмит DeviceDetached в общий SharedFlow, так что
     // ОБА подписчика (activity- и route-scoped UsbViewModel) обработают его как реальное событие.

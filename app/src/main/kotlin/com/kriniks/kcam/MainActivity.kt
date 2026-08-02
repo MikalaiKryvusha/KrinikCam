@@ -207,6 +207,7 @@ class MainActivity : ComponentActivity() {
      *   simulate-congestion arg=on|off — idea 37: симулировать затык канала (приёмка адаптера битрейта)
      *   simulate-slate arg=on|off — plans/21 работа C: принудительный сетевой слейт (замороженный кадр)
      *   simulate-detach — bug 47: эмулировать отвал активной UVC нагорячую (приёмка заглушки без физ. отключения)
+     *   cam-controls    — plans/25 фаза 0: спросить камеру по UVC, какие у неё ручки и границы (инвентарь в лог)
      *   rotation-mode   arg=on|off     — режим «вращение по ADB» (для SET_ORIENTATION)
      * (Phase 3: команда `compositor` УДАЛЕНА — композитор всегда включён, второго пайплайна нет.)
      */
@@ -304,6 +305,10 @@ class MainActivity : ComponentActivity() {
                     // bug 47 (Idea 22) — эмулировать отвал активной UVC нагорячую (без физ. отключения):
                     // зануляет activeCamera → должна появиться заглушка StandbyPlaceholder.
                     "simulate-detach" -> usbViewModel.simulateActiveDetach()
+                    // ЭПИК «настройки камер», фаза 0 (plans/25 Ф0.5) — спросить камеру НАПРЯМУЮ по UVC,
+                    // какие у неё ручки и с какими границами. Печатает инвентарь в лог (тег
+                    // UvcControlProbe). Это разведка железа, а не управление: ничего не пишет в камеру.
+                    "cam-controls" -> usbViewModel.dumpUvcControls()
                     "rotation-mode" -> setAdbRotationEnabled(arg == "on")
                     // Phase 3: команда `compositor` удалена — композитор ВСЕГДА единственный пайплайн.
                     "compositor" -> KLog.w("MainActivity", "CMD compositor: DEPRECATED — композитор всегда включён (Phase 3), команда игнорируется")
