@@ -80,6 +80,7 @@ KAIF_ADAPTATION_TASK.md
 KAIF_UPDATE_TASK.md
 KAIF_UPDATE_TASK.superseded.md
 .kaif/heartbeat.log
+.kaif/watchdog.lock
 
 # Нейроголос контура /owner-reviews (interview_017 В3=б): окружение и модель — ЧУЖИЕ байты,
 # ставятся командой, а не хранятся в репозитории. Сам скрипт speak.py версионируется.
