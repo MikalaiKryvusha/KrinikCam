@@ -68,7 +68,7 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 - **Android 13+** (API 33) — 64-bit device
 - **OTG cable** (USB-A or USB-C to USB-A/C adapter)
 - **UVC-compatible USB webcam** (most webcams work: Logitech, Emeet, Razer, etc.)
-- Tested on: Headwolf Titan1 (Dimensity 8300), Samsung Galaxy S21 FE
+- Tested on: Headwolf Titan1 (Dimensity 8300), Samsung Galaxy S21 FE, Samsung Galaxy A51 (Exynos 9611, Android 13 — minimum supported SDK)
 - Test camera: Emeet Piko+ 4K
 
 ---
@@ -224,7 +224,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 - **Android 13+** (API 33) — 64-битное устройство
 - **OTG-кабель** (переходник USB-A или USB-C)
 - **UVC-совместимая USB-камера** (работает большинство: Logitech, Emeet, Razer и др.)
-- Тест-устройства: Headwolf Titan1 (Dimensity 8300), Samsung Galaxy S21 FE
+- Тест-устройства: Headwolf Titan1 (Dimensity 8300), Samsung Galaxy S21 FE, Samsung Galaxy A51 (Exynos 9611, Android 13 — минимальный поддерживаемый SDK)
 - Тест-камера: Emeet Piko+ 4K
 
 ---

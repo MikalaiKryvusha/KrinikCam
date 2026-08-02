@@ -498,7 +498,7 @@ MainActivity
 | 4 | Протоколы стриминга                                     | ✅ Решено | **RTMP/RTMPS + RTSP**. SRT — v2+ опция                  |
 | 5 | Иконка/логотип                                          | ✅ Решено | Временная: кислый розовый, камера + KCam. OpenSource.    |
 | 6 | Целевые платформы (приоритет)                           | ✅ Решено | YouTube → Instagram → Twitch → TikTok                    |
-| 7 | Основное тест-устройство                                | ✅ Решено | Headwolf Titan1 (Dimensity 8300) + Samsung S21 FE        |
+| 7 | Основное тест-устройство                                | ✅ Решено | Headwolf Titan1 (Dimensity 8300) + Samsung S21 FE + Samsung A51 (решение Криника 2026-08-02: **добавляется**, не заменяет) |
 | 8 | USB камера для тестов                                   | ✅ Решено | Emeet Piko+ 4K с автофокусом                             |
 
 ---
