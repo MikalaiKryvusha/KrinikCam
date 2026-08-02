@@ -90,3 +90,6 @@ tools/owner-voice/model/
 # слово владельца. Упавший прогон не должен уметь занести их в репозиторий.
 interviews/decisions/interview_99*_verify*
 interviews/decisions/archive/interview_99*_verify*
+
+# Реестр живых контуров /owner-reviews — состояние ПРОЦЕССОВ, а не решение владельца
+interviews/decisions/_serving.json

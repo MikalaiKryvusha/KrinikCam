@@ -33,6 +33,7 @@ import {
 } from './owner.mjs';
 
 const appLauncher = findAppBrowser();
+const SERVING = path.join(ROOT, 'interviews', 'decisions', '_serving.json');
 
 const HEADFUL = process.argv.includes('--headful');
 const KEEP = process.argv.includes('--keep');
@@ -448,6 +449,47 @@ async function run() {
   }
   try { child2.kill('SIGKILL'); } catch {}
   fs.rmSync(fixtureB, { force: true });
+
+  // ── БЛОК 5в. 🔴 КОНТУР НЕ ДОЛЖЕН ПЕРЕЖИВАТЬ СВОЮ НАДОБНОСТЬ ─────────────────────────────────
+  // Дефект, пойманный владельцем 2026-08-02 ПОСЛЕ закрытия чата: осиротевшая страница по тому же
+  // документу висела три часа и своим таймаутом разбудила агента ночью. Здесь проверяются оба
+  // лекарства: «один документ — один сервер» и «закрыл страницу → контур ушёл сам».
+  const spawnAsk = (port, extra = []) => {
+    const ch = spawn(process.execPath, [path.join(ROOT, 'tools', 'owner.mjs'), 'ask', relFixture,
+      '--no-open', '--no-signal', '--port', String(port), '--timeout', '120', ...extra],
+      { stdio: ['ignore', 'pipe', 'pipe'] });
+    const st = { out: '', exit: null };
+    ch.stdout.on('data', (c) => { st.out += c; });
+    ch.stderr.on('data', (c) => { st.out += c; });
+    ch.on('exit', (c) => { st.exit = c; });
+    return { ch, st };
+  };
+
+  const A = spawnAsk(8902);
+  await until(() => /http:\/\/127\.0\.0\.1:\d+\//.test(A.st.out), 10000);
+  const B = spawnAsk(8903);
+  await until(() => /http:\/\/127\.0\.0\.1:\d+\//.test(B.st.out), 10000);
+  const evicted = await until(() => A.st.exit !== null, 8000);
+  ok('🔴 один документ — один сервер: второй запуск ВЫГНАЛ первый', evicted, `код выхода ${A.st.exit}`);
+  ok('выгнанный контур сказал об этом вслух', /контур остановлен/.test(A.st.out) || A.st.exit === 10,
+    (A.st.out.trim().split('\n').pop() || '').slice(0, 60));
+  ok('новый контур объявил, что выгоняет прежний', /выгоняю прежний контур/.test(B.st.out));
+  try { B.ch.kill('SIGTERM'); } catch {}
+  await until(() => B.st.exit !== null, 5000);
+
+  // Пульс: браузер забрал страницу, потом её ЗАКРЫЛИ — контур обязан уйти сам, кодом 9
+  const C = spawnAsk(8904, ['--alive-timeout', '3']);
+  await until(() => /http:\/\/127\.0\.0\.1:\d+\//.test(C.st.out), 10000);
+  const urlC = C.st.out.match(/http:\/\/127\.0\.0\.1:\d+\//)[0];
+  const tC = await (await fetch(`http://127.0.0.1:${dp}/json/new?${urlC}`, { method: 'PUT' })).json();
+  await sleep(1200);                                   // дать странице забраться и пульснуть
+  await fetch(`http://127.0.0.1:${dp}/json/close/${tC.id}`);   // владелец закрыл окно
+  const gone = await until(() => C.st.exit !== null, 20000);
+  ok('🔴 закрытую страницу контур переживать не должен: ушёл сам', gone, `код выхода ${C.st.exit}`);
+  ok('контур вышел кодом 9 «страницу закрыли», а не по таймауту', C.st.exit === 9, String(C.st.exit));
+  ok('реестр живых контуров пуст после ухода',
+    !fs.existsSync(SERVING) || (JSON.parse(fs.readFileSync(SERVING, 'utf8')).items || []).length === 0);
+  try { C.ch.kill('SIGKILL'); } catch {}
 
   // ── БЛОК 6. Гейт ПОСЛЕ ответа и дрейф текста ────────────────────────────────────────────────
   ok('гейт: после ответа ОТКРЫТ по В1', gate(relFixture, { question: 'В1', quiet: true }) === GATE_EXIT.OK);

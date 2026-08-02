@@ -520,9 +520,25 @@ Self-test it on both sides of midnight and on a normal window: 23:30 quiet · 08
   every synchronous caller — your own QA run first of all — hangs forever, and you get orphaned
   processes. Give every child call inside the guard a hard deadline for the same reason.
 
+🔴 **The contour must not outlive its need.** Keep a registry of live contours
+(`decisions/_serving.json`: pid · port · documents) and enforce three things:
+
+1. **One document, one server.** A new `ask` for the same document TERMINATES the previous instance
+   before serving. Two live pages for one document mean the owner can answer on the stale one.
+2. **A page heartbeat.** The page pings `/alive` every 20 s; no ping for ~90 s after the browser
+   first fetched it means the window is closed — exit with a distinct code instead of waiting out the
+   timeout. (Judge the heartbeat only AFTER the first fetch, or a `--no-open` run fails falsely.)
+3. **The session-closing ritual stops all of them** (`stop` command, wired into the project's
+   end-of-session ritual). A page must not survive the chat that opened it.
+
+Field cost of missing this: an orphaned contour sat three hours on its port and then woke the agent
+with its timeout AFTER the chat had been closed — the owner found the agent "working all night" on a
+ghost event. Handle `SIGTERM`/`SIGINT`/`SIGHUP`, deregister on every exit path, and never leave a
+stale entry behind.
+
 Exit-code contract for `ask`/`inbox`: `0` something was recorded (the agent may continue) · `7`
-timeout, nothing recorded · `8` the owner closed the page without recording. **Nothing self-approves
-by timeout, ever.**
+timeout, nothing recorded · `8` the owner closed the page without recording · `9` the page is gone
+(no heartbeat) · `10` evicted or stopped. **Nothing self-approves by timeout, ever.**
 
 ---
 

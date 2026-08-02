@@ -71,6 +71,7 @@ const PAGES_DIR = path.join(ROOT, 'tools', 'owner-pages');           // прои
 const DECISIONS_DIR = path.join(ROOT, 'interviews', 'decisions');    // решения — версионируем
 const ARCHIVE_DIR = path.join(DECISIONS_DIR, 'archive');
 const QUEUE_FILE = path.join(DECISIONS_DIR, '_queue.json');
+const SERVING_FILE = path.join(DECISIONS_DIR, '_serving.json');   // кто СЕЙЧАС держит страницу
 const EXCEPTIONS_FILE = path.join(ROOT, 'tools', 'owner-guard-exceptions.json');
 const BASELINE_FILE = path.join(ROOT, 'tools', 'owner-guard-baseline.json');
 const CONFIG_FILE = path.join(ROOT, 'tools', 'owner.config.json');
@@ -781,6 +782,14 @@ function toast(msg,ok){
   setTimeout(function(){t.style.opacity='0';},2600);
   setTimeout(function(){t.remove();},3200);
 }
+
+/* ПУЛЬС СТРАНИЦЫ. Владелец закрыл окно, не нажав ничего — сервер обязан это заметить и умереть
+   сам, а не ждать свой таймаут (в поле осиротевший контур прождал три часа и разбудил агента уже
+   после закрытия чата). Пульс дешёвый: один запрос раз в 20 с. */
+(function(){
+  var beat=function(){ fetch('/alive',{method:'POST'}).catch(function(){}); };
+  beat(); setInterval(beat, 20000);
+})();
 
 /* Финальный экран + автозакрытие. Браузер разрешает window.close() ТОЛЬКО окну, которое открыл сам
    скрипт (у нас — режим окна-приложения). В обычной вкладке автозакрытие невозможно, и обещать его
@@ -1542,6 +1551,64 @@ function queueAdd(docArg) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
+//  РЕЕСТР ЖИВЫХ КОНТУРОВ — «один документ, один сервер», и никаких переживших сессию призраков.
+//
+//  🔴 ДЕФЕКТ, ПОЙМАННЫЙ ВЛАДЕЛЬЦЕМ 2026-08-02 (после закрытия чата!): страница по документу была
+//  открыта ДВАЖДЫ (первый экземпляр — до фикса, второй — после). Владелец ответил на втором, тот
+//  записал и закрылся; ПЕРВЫЙ остался висеть на своём порту и три часа спустя вышел по таймауту —
+//  и этим выходом РАЗБУДИЛ агента посреди ночи, когда чат был уже закрыт. Дословно: «мы
+//  распрощались с чатом, но что-то тебя разбудило, и ты всю ночь работал».
+//  Три причины разом: (а) второй запуск не выгонял первый; (б) запись в одном контуре не
+//  останавливала соседний по тому же документу; (в) закрытая владельцем страница никого не
+//  останавливала — сервер ждал полный таймаут. Лечится всё тремя механизмами ниже.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+const readServing = () => {
+  if (!fs.existsSync(SERVING_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(SERVING_FILE, 'utf8')).items || []; } catch { return []; }
+};
+const writeServing = (items) => {
+  fs.mkdirSync(DECISIONS_DIR, { recursive: true });
+  fs.writeFileSync(SERVING_FILE, JSON.stringify({ items }, null, 2) + '\n', 'utf8');
+};
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Забрать документы себе: живые контуры по ТЕМ ЖЕ документам выгоняются, мёртвые записи чистятся. */
+async function claimServing(docs, port) {
+  const items = readServing().filter((i) => pidAlive(i.pid) && i.pid !== process.pid);
+  const conflicts = items.filter((i) => i.docs.some((d) => docs.includes(d)));
+  for (const c of conflicts) {
+    console.log(`♻️  выгоняю прежний контур по тому же документу (pid ${c.pid}, порт ${c.port}) — один документ, один сервер`);
+    try { process.kill(c.pid, 'SIGTERM'); } catch {}
+  }
+  for (let i = 0; i < 20 && conflicts.some((c) => pidAlive(c.pid)); i++) await sleepMs(100);
+  for (const c of conflicts) if (pidAlive(c.pid)) { try { process.kill(c.pid, 'SIGKILL'); } catch {} }
+  const rest = items.filter((i) => !conflicts.includes(i));
+  writeServing([...rest, { pid: process.pid, port, docs, at: isoNow() }]);
+}
+
+/** Снять себя с реестра. Зовётся на любом пути выхода — иначе реестр копит враньё. */
+function releaseServing() {
+  try { writeServing(readServing().filter((i) => i.pid !== process.pid && pidAlive(i.pid))); } catch {}
+}
+
+/** Остановить ВСЕ живые контуры (ритуал закрытия сессии: страница не должна переживать чат). */
+async function stopAll() {
+  const items = readServing().filter((i) => pidAlive(i.pid));
+  if (!items.length) { console.log('✅ живых контуров нет — останавливать нечего.'); writeServing([]); return 0; }
+  for (const i of items) {
+    console.log(`🛑 останавливаю контур pid ${i.pid} (порт ${i.port}): ${i.docs.join(', ')}`);
+    try { process.kill(i.pid, 'SIGTERM'); } catch {}
+  }
+  for (let k = 0; k < 20 && items.some((i) => pidAlive(i.pid)); k++) await sleepMs(100);
+  for (const i of items) if (pidAlive(i.pid)) { try { process.kill(i.pid, 'SIGKILL'); } catch {} }
+  writeServing([]);
+  console.log(`✅ остановлено контуров: ${items.length}. Ответ НИЧЕЙ не потерян — записанное уже на диске.`);
+  return 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
 //  СЕРВЕР И ПОБУДКА (I8): поднялся → показал → ЗАПИСАЛ → умер, разбудив агента.
 //  Долгоживущий сервер и побудка взаимоисключающи; выигрывает побудка. Осталось неотвеченное —
 //  страницу поднимает заново АГЕНТ.
@@ -1572,7 +1639,7 @@ function openDefaultBrowser(url) {
   try { spawnSync(cmd, [url], { stdio: 'ignore', shell: process.platform === 'win32' }); } catch {}
 }
 
-async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSec, noOpen = false, noSignal = false, port = cfg.port } = {}) {
+async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSec, noOpen = false, noSignal = false, port = cfg.port, aliveTimeoutSec = cfg.aliveTimeoutSec ?? 90 } = {}) {
   const docs = docArgs.map((d) => {
     const abs = path.resolve(ROOT, d);
     if (!fs.existsSync(abs)) { console.error(`нет такого документа: ${d}`); process.exit(1); }
@@ -1591,19 +1658,35 @@ async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSe
 
   // «Страница ОТКРЫТА» = браузер её ЗАБРАЛ, а не «мы попросили систему её открыть» (I5).
   let pageFetched; const pageOnScreen = new Promise((r) => { pageFetched = r; });
+  let lastBeat = 0;                     // 0 = страницу ещё ни разу не забирали; пульс не судим
   let autoClose = false;          // правду о режиме окна знает сервер, страница узнаёт её в ответе
   let exitCode = 7;               // 7 — таймаут: решения НЕТ, гейт остаётся закрытым
 
   const finishSoon = (code, ms) => {
     exitCode = code;
-    setTimeout(() => { try { server.close(); } catch {} process.exit(code); }, ms);
+    setTimeout(() => { releaseServing(); try { server.close(); } catch {} process.exit(code); }, ms);
   };
+
+  // Сторож тишины: страница пропала (закрыли окно/вкладку) → контур закрывается сам, код 9.
+  // Судим ТОЛЬКО после того, как браузер её однажды забрал: в режиме --no-open пульса нет и быть
+  // не должно, и проверка, которая красит такой прогон, была бы ложной тревогой.
+  const beatWatch = setInterval(() => {
+    if (!lastBeat) return;
+    if (Date.now() - lastBeat < aliveTimeoutSec * 1000) return;
+    clearInterval(beatWatch);
+    console.log(`\n🚪 страница закрыта владельцем (пульса нет ${aliveTimeoutSec} с) — контур закрывается сам, не дожидаясь таймаута.`);
+    const left = docs.reduce((n, d) => n + parseDoc(path.resolve(ROOT, d.relPath)).slotsEmpty, 0);
+    if (left) console.log(`   Без ответа осталось: ${left} — гард их не забудет, поднимать страницу заново обязан АГЕНТ (I8).`);
+    finishSoon(9, 200);
+  }, 5000);
+  beatWatch.unref?.();
 
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url.startsWith('/?'))) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       console.log('📥 браузер забрал страницу — она перед владельцем');
+      lastBeat = Date.now();
       return pageFetched();
     }
     if (req.method === 'POST' && req.url === '/submit') {
@@ -1651,6 +1734,11 @@ async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSe
       });
       return;
     }
+    if (req.method === 'POST' && req.url === '/alive') {
+      lastBeat = Date.now();                       // страница жива и открыта перед владельцем
+      res.writeHead(204); res.end();
+      return;
+    }
     if (req.method === 'POST' && req.url === '/done') {
       // Владелец закрыл страницу сам: что записано — записано, остальное остаётся висящим,
       // и гард честно покажет это в следующем прогоне. Ничто не самоодобряется (I4).
@@ -1665,6 +1753,8 @@ async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSe
   });
 
   const boundPort = await listenFree(server, port);
+  // Один документ — один сервер: прежний контур по тем же документам выгоняется ЗДЕСЬ.
+  await claimServing(docs.map((d) => d.relPath), boundPort);
   const url = `http://127.0.0.1:${boundPort}/`;
   console.log(`📄 страница: ${url}`);
   console.log(`   (копия на диске: ${rel(pagePath)})`);
@@ -1706,10 +1796,15 @@ async function ask(docArgs, cfg, { fromQueue = false, timeoutSec = cfg.timeoutSe
   return new Promise((resolve) => {
     const t = setTimeout(() => {
       console.log('⏱️  ответа не дождались. Решения НЕТ — гейт остаётся закрытым.');
+      releaseServing();
       try { server.close(); } catch {}
       resolve(7);
     }, timeoutSec * 1000);
-    server.on('close', () => { clearTimeout(t); resolve(exitCode); });
+    server.on('close', () => { clearTimeout(t); clearInterval(beatWatch); releaseServing(); resolve(exitCode); });
+    // Нас выгоняет другой контур или ритуал закрытия сессии — уходим тихо и чисто.
+    for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+      process.on(sig, () => { console.log(`\n🛑 контур остановлен (${sig}).`); releaseServing(); try { server.close(); } catch {} process.exit(10); });
+    }
   });
 }
 
@@ -2028,10 +2123,12 @@ tools/owner.mjs — контур согласований «агент ↔ вл�
                                              fail-closed проверка перед зависимой работой
   node tools/owner.mjs queue <док.md>        припарковать для автономного цикла (не блокируя)
   node tools/owner.mjs inbox [--no-serve]    одна страница на всю пачку (--no-serve = собрать и выйти)
+  node tools/owner.mjs stop                  остановить ВСЕ живые контуры (ритуал закрытия сессии)
   node tools/owner.mjs selftest              ядро: каждому гарду скармливается его дефект
   node tools/owner.mjs verify [--headful]    QA ЖИВЫМ браузером: клики, теги, цвета, побудка
 
-  Флаги ask/inbox: --timeout <сек> (деф. 3600) · --no-open · --no-signal · --port <N>
+  Флаги ask/inbox: --timeout <сек> (деф. 3600) · --alive-timeout <сек> (деф. 90 — через сколько
+  закрыть контур после того, как владелец закрыл страницу) · --no-open · --no-signal · --port <N>
   Настройки: tools/owner.config.json (владелец, голос, тихие часы, порт, цвет акцента)
   Спецификация: .claude/skills/owner-reviews/references/build-spec.md
 `;
@@ -2041,7 +2138,7 @@ async function main() {
   const cfg = loadConfig();
   const flag = (name) => rest.includes(name);
   const val = (name, def) => { const i = rest.indexOf(name); return i >= 0 && rest[i + 1] ? rest[i + 1] : def; };
-  const positional = rest.filter((a, i) => !a.startsWith('--') && !(i > 0 && ['--timeout', '--q', '--artifact', '--port'].includes(rest[i - 1])));
+  const positional = rest.filter((a, i) => !a.startsWith('--') && !(i > 0 && ['--timeout', '--q', '--artifact', '--port', '--alive-timeout'].includes(rest[i - 1])));
 
   switch (cmd) {
     case 'guard':
@@ -2069,6 +2166,7 @@ async function main() {
         timeoutSec: Number(val('--timeout', cfg.timeoutSec)),
         noOpen: flag('--no-open'), noSignal: flag('--no-signal'),
         port: Number(val('--port', cfg.port)),
+        aliveTimeoutSec: Number(val('--alive-timeout', cfg.aliveTimeoutSec ?? 90)),
       });
       process.exit(code);
       break;
@@ -2090,6 +2188,7 @@ async function main() {
         fromQueue: true, timeoutSec: Number(val('--timeout', cfg.timeoutSec)),
         noOpen: flag('--no-open'), noSignal: flag('--no-signal'),
         port: Number(val('--port', cfg.port)),
+        aliveTimeoutSec: Number(val('--alive-timeout', cfg.aliveTimeoutSec ?? 90)),
       });
       process.exit(code);
       break;
@@ -2101,6 +2200,9 @@ async function main() {
     case 'queue':
       if (!positional[0]) { console.error('нужен путь к документу'); process.exit(1); }
       process.exit(queueAdd(positional[0]));
+      break;
+    case 'stop':
+      process.exit(await stopAll());
       break;
     case 'selftest':
       process.exit(selftest());
@@ -2126,7 +2228,7 @@ if (invokedDirectly) main().catch((e) => { console.error('💥', e); process.exi
 
 export {
   normalizeBody, sha256, parseDoc, parseLines, renderPage, writeAnswersIntoDoc, appendDocumentComment,
-  recordDecision, appendArtifactDecisions, gate, guard, collectOrphans, inQuietHours, beepWav, loadConfig, decisionPathFor,
+  recordDecision, appendArtifactDecisions, gate, guard, readServing, stopAll, collectOrphans, inQuietHours, beepWav, loadConfig, decisionPathFor,
   findAppBrowser,
   isoNow, GATE_EXIT, ROOT, PAGES_DIR, DECISIONS_DIR, ARCHIVE_DIR, BEEP_HZ,
 };

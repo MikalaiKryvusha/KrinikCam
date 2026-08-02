@@ -96,6 +96,13 @@ Not "the page opened" — "the owner answered, the agent was woken, and never ha
   exits zero). If anything remains unanswered, re-opening the page is the AGENT's duty, never the
   human's. Corollary for I7: the batch page opens, the owner answers, the contour closes and wakes
   the agent; the agent re-opens the rest itself.
+  **And the contour must never outlive its need** — three mechanisms, all paid for in the field:
+  **(a) one document, one server** (a new `ask` evicts the previous instance through a registry of
+  live contours) · **(b) a page heartbeat** (the owner closed the window ⇒ the contour exits in ~90 s
+  instead of waiting out its timeout) · **(c) the session-closing ritual stops every live contour.**
+  Without them an orphaned page sat for three hours and woke the agent with its timeout in the middle
+  of the night, AFTER the chat was closed — a wake-up caused by a ghost is worse than none, because
+  the agent acts on it.
 
 ## The fixed part of the tool (do not re-decide these)
 
