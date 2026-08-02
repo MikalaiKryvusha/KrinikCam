@@ -45,7 +45,7 @@ Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose 
 | **Scene transitions** — per-scene effect played when the scene is switched on: instant / fade / slide, duration 0.2–1.5 s (chosen in the scene editing dialog) | ✅ v0.8 |
 | The outgoing scene stays **live** during a transition — its cameras keep streaming until the effect finishes (a built-in camera freezes instead, since the SoC cannot run two at once) | ✅ v0.8 |
 | No black frame on scene switch — the last frame of the previous scene is held until the new scene actually produces an image | ✅ v0.8 |
-| Honest recording indicator — “PREPARING” until the first frame is really written; the REC badge and timer start at the real start | ✅ v0.8 |
+| Honest recording indicator — “PREPARING” until the first frame is really written; the badge and timer start at the real start. The badge says **FILE** while recording to the device and **LIVE** while broadcasting, so one glance tells the two apart | ✅ v0.8 |
 | **Encoder profiles** — separate manager (H.264 / HEVC / AV1, bitrate in Mbps, stereo / mono / joined audio) | ✅ v0.7 |
 | **Adaptive bitrate** + live stream telemetry (health badge, −20% on congestion / +20% recovery from the current rate, paused for 10 s after every drop) | ✅ v0.7, reworked in 0.8-dev |
 | **Record composite to gallery** (DCIM/KrinikCam .mp4) + photo capture | ✅ v0.7 |
@@ -200,7 +200,7 @@ node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --nam
 | **Переходы сцен** — у каждой сцены свой эффект при включении: мгновенно / плавно / выезд, длительность 0.2–1.5 с (выбирается в модалке редактирования сцены) | ✅ v0.8 |
 | Уходящая сцена остаётся **живой** во время перехода — её камеры продолжают стримить до конца эффекта (встроенная камера вместо этого замирает: SoC не тянет две одновременно) | ✅ v0.8 |
 | Нет чёрного кадра при переключении сцен — последний кадр прошлой сцены держится, пока новая реально не даст картинку | ✅ v0.8 |
-| Честная индикация записи — «ПОДГОТОВКА» до первого реально записанного кадра; бейдж и таймер стартуют по факту | ✅ v0.8 |
+| Честная индикация записи — «ПОДГОТОВКА» до первого реально записанного кадра; бейдж и таймер стартуют по факту. При записи на устройство бейдж пишет **«ФАЙЛ»**, в эфире — **«ЭФИР»**, поэтому одно состояние не спутать с другим | ✅ v0.8 |
 | Модалка выбора источника при добавлении слоя + выбор источника пер-слой | ✅ v0.8 |
 | **Профили кодера** — отдельный менеджер (H.264 / HEVC / AV1, битрейт в Мбит/с, стерео / моно / объединённый звук) | ✅ v0.7 |
 | **Адаптивный битрейт** + живая телеметрия эфира (health-бейдж, −20% при затыке / +20% восстановление ОТ ТЕКУЩЕГО, с паузой 10 с после каждого обрыва) | ✅ v0.7, переработан в 0.8-dev |
