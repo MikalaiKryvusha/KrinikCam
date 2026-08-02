@@ -162,4 +162,8 @@
         <item quantity="one">%d platform · tap to manage</item>
         <item quantity="other">%d platforms · tap to manage</item>
     </plurals>
+    <!-- bug 65 Ш4 — длительность перехода на чипе менеджера сцен; суффикс единицы был хардкодом «с». -->
+    <string name="duration_seconds_fmt">%.1f s</string>
+    <!-- bug 65 Ш4 — имя встроенной камеры, собираемое CMD-приёмником харнеса (MainActivity). -->
+    <string name="camera_numbered_fmt">Camera %1$s</string>
 </resources>

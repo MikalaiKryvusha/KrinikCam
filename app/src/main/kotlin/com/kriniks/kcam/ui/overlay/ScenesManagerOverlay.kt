@@ -165,7 +165,14 @@ fun ScenesManagerOverlay(
                                 selected = durationMs == ms,
                                 onClick = { durationMs = ms },
                                 enabled = transition != SceneTransition.NONE,
-                                label = { Text("%.1f с".format(ms / 1000f), fontSize = 12.sp) },
+                                // bug 65 Ш4 — суффикс единицы был вшит по-русски прямо здесь, поэтому
+                                // на английском интерфейсе чип всё равно писал «с». Теперь ресурс.
+                                // [NOT-TESTED] — сборка зелёная и ресурс есть в values/ и values-ru/,
+                                //   но САМ чип глазами не проверен: он доступен только при выбранном
+                                //   переходе (enabled ниже), а до этой ветки UI дойти не успели.
+                                //   Проверять: Сцены → выбрать переход → чипы длительности; на ru_RU
+                                //   ожидается «0,5 с», при английском языке приложения — «0.5 s».
+                                label = { Text(stringResource(R.string.duration_seconds_fmt, ms / 1000f), fontSize = 12.sp) },
                                 colors = scenesChipColors(),
                                 border = scenesChipBorder(durationMs == ms),
                             )

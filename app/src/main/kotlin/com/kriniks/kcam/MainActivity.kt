@@ -357,7 +357,7 @@ class MainActivity : ComponentActivity() {
                                 "rear" -> phones.firstOrNull { !it.isFront }?.let { CaptureSource.Builtin(it.cameraId, it.displayName) } ?: CaptureSource.None
                                 "uvc" -> uvcs.firstOrNull()?.let { CaptureSource.Uvc(it.id, it.displayName) } ?: CaptureSource.None
                                 "virtual" -> CaptureSource.Virtual
-                                "builtin" -> parts.getOrNull(2)?.let { CaptureSource.Builtin(it, "Камера $it") } ?: CaptureSource.None
+                                "builtin" -> parts.getOrNull(2)?.let { CaptureSource.Builtin(it, getString(R.string.camera_numbered_fmt, it)) } ?: CaptureSource.None
                                 else -> CaptureSource.None
                             }
                             streamingRepository.setCameraLayerSource(layerId, src)
@@ -425,7 +425,7 @@ class MainActivity : ComponentActivity() {
                             "uvc" -> uvcs.firstOrNull()?.let { CaptureSource.Uvc(it.id, it.displayName) } ?: CaptureSource.None
                             "virtual" -> CaptureSource.Virtual
                             "none" -> CaptureSource.None
-                            "builtin" -> parts.getOrNull(1)?.let { CaptureSource.Builtin(it, "Камера $it") } ?: CaptureSource.None
+                            "builtin" -> parts.getOrNull(1)?.let { CaptureSource.Builtin(it, getString(R.string.camera_numbered_fmt, it)) } ?: CaptureSource.None
                             else -> null
                         }
                         if (src != null) streamingRepository.setCameraLayerSource("camera", src)

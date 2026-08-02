@@ -157,4 +157,6 @@
         <item quantity="many">%d платформ · управление по нажатию</item>
         <item quantity="other">%d платформы · управление по нажатию</item>
     </plurals>
+    <string name="duration_seconds_fmt">%.1f с</string>
+    <string name="camera_numbered_fmt">Камера %1$s</string>
 </resources>
