@@ -429,13 +429,24 @@ switch (cmd) {
     // Direction = finger travel direction: `up` drags the content up (reveals rows below),
     // `down` reveals rows above; `left`/`right` for horizontal. Coordinates are derived from
     // the CURRENT screen rect (via a dump) so they stay correct in either orientation.
-    const dir = (rest[0] || 'up').toLowerCase();
-    const frac = rest[1] ? parseFloat(rest[1]) : 0.6;  // fraction of screen the finger travels
-    const ms = rest[2] ? parseInt(rest[2], 10) : 300;  // gesture duration (ms)
+    // `--at=x,y` вынимаем ДО позиционных аргументов, иначе он занимает место длительности и
+    // уезжает в `input swipe` как NaN (поймано сразу же при первом прогоне).
+    const atArg0 = rest.find(a => String(a).startsWith('--at='));
+    const pos = rest.filter(a => !String(a).startsWith('--'));
+    const dir = (pos[0] || 'up').toLowerCase();
+    const frac = pos[1] ? parseFloat(pos[1]) : 0.6;  // fraction of screen the finger travels
+    // Длительность жеста. 700 мс, а НЕ 300: короткий свайп Android часто трактует как ТАП, и в
+    // оверлеях с закрывающим скримом это молча закрывает меню вместо прокрутки — агент видит
+    // «прокрутки нет» и заводит ложный баг (случилось дважды: EXP-0051, затем bugs/81).
+    const ms = pos[2] ? parseInt(pos[2], 10) : 700;  // gesture duration (ms)
     const nodes = parseNodes(dumpUi());
     const w = Math.max(0, ...nodes.map(n => n.bounds.x2));
     const h = Math.max(0, ...nodes.map(n => n.bounds.y2));
-    const cx = Math.round(w / 2), cy = Math.round(h / 2);
+    // Точка жеста. По умолчанию центр экрана — но в ОВЕРЛЕЯХ (меню у края, скрим на весь экран)
+    // центр попадает в скрим и закрывает панель. Поэтому `--at x,y` позволяет свайпнуть ВНУТРИ
+    // списка; без него прокрутка боковой панели недостижима в принципе.
+    const at = atArg0 ? String(atArg0).slice(5).split(',').map(Number) : null;
+    const cx = at ? at[0] : Math.round(w / 2), cy = at ? at[1] : Math.round(h / 2);
     const dx = Math.round((w * frac) / 2), dy = Math.round((h * frac) / 2);
     let x1, y1, x2, y2;
     switch (dir) {
@@ -444,7 +455,7 @@ switch (cmd) {
       case 'left':  x1 = cx + dx; y1 = cy; x2 = cx - dx; y2 = cy; break;
       case 'right': x1 = cx - dx; y1 = cy; x2 = cx + dx; y2 = cy; break;
       default:
-        console.error('Usage: ui.mjs swipe <up|down|left|right> [fraction] [ms]');
+        console.error('Usage: ui.mjs swipe <up|down|left|right> [fraction] [ms] [--at=x,y]');
         process.exit(1);
     }
     console.log(`🖐  swipe ${dir} on ${w}x${h}: (${x1},${y1})→(${x2},${y2}) over ${ms}ms`);
