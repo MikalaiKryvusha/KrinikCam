@@ -14,6 +14,8 @@
 package com.kriniks.kcam.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -67,7 +69,18 @@ fun DevMenuScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                // bugs/81 (класс bugs/78) — экран со СПИСКОМ обязан прокручиваться. Сегодня три
+                // тумблера помещаются даже в ландшафте телефона, но это удача, а не свойство:
+                // четвёртый уже уедет за край, а в ландшафте высоты вчетверо меньше, чем в портрете.
+                // Прокрутка тут — не фикс сегодняшнего дефекта, а защита формы.
+                // [NOT-TESTED] — ЧЕСТНО: доказать наблюдением НЕ УДАЛОСЬ. По EXP-0049 превентивный
+                // фикс обязан быть гардом, который умеет покраснеть, и я пытался создать тесноту
+                // (`font_scale 1.8` + ландшафт на A51) — три тумблера всё равно помещаются, двигать
+                // нечего. То есть строка ниже сейчас НЕ проявляется ни при каких доступных условиях.
+                // Проверять её будет тот, кто добавит на этот экран четвёртый тумблер: прокрутка
+                // обязана дать новые пункты. Оставлено как форма, а не как проверенный фикс.
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Spacer(Modifier.height(8.dp))
