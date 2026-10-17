@@ -1,0 +1,95 @@
+<!doctype html>
+<!-- KAIF EXPLANATION PAGE (2.8, origin issue #104; the field owner, verbatim in the issue: a page with frames, a time line and an outcome
+     tree was «100 times clearer» than paragraphs). When what you explain to the owner is a COMPARISON (design vs build, before vs after),
+     a SEQUENCE IN TIME (a race, a retry, a lifecycle) or a FORK OF OUTCOMES, build THIS page first and write ONE line to it in the chat.
+     1. Copy it where the project keeps owner pages:  cp .kaif/_explain-page-template.html <dir>/<what-is-explained>.html
+     2. Keep the blocks the explanation needs, delete the rest; one <section> per question.
+     3. Open it for the owner — showing is an action (AGENT_GUIDE.md), never a path in the chat.
+     The page is SELF-CONTAINED: no request leaves the machine (it may carry private screenshots) — images are files next to the page
+     or data: URIs, pictures are inline SVG. The four-line scenario stays as the caption under the picture; it is never the whole
+     explanation. The look is the owner's taste: he judges it, the agent does not. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROJECT · what is explained</title>
+<style>
+  :root { --bg:#16171b; --card:#202127; --ink:#ececf0; --muted:#a0a0a8; --line:#3a3a42;
+    --none:#22c55e; --improve:#f59e0b; --bug:#f87171; --accent:#60a5fa; --user:#c084fc; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f7f5; --card:#ffffff; --ink:#1d1d1f; --muted:#6b6b70; --line:#d9d9de;
+      --none:#16a34a; --improve:#d97706; --bug:#dc2626; --accent:#2563eb; --user:#9333ea; } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui, "Segoe UI", sans-serif }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); background:var(--card) }
+  header strong { color:var(--accent) } header .sum { color:var(--muted); margin-left:8px }
+  main { max-width:980px; margin:0 auto; padding:16px 20px 48px }
+  section.q { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 18px; margin:18px 0 }
+  h2 { font-size:18px; margin:4px 0 12px }
+  .tag { font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; vertical-align:middle; color:#0b1020 }
+  .tag.decided { background:var(--none) } .tag.checking { background:var(--improve) } .tag.bug { background:var(--bug) }
+  h3 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:16px 0 8px }
+  /* COMPARISON — two frames side by side in ONE picture, each labelled */
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:12px }
+  .pair figure { margin:0; border:1px solid var(--line); border-radius:10px; padding:8px; text-align:center }
+  .pair img { max-width:100%; height:auto; border-radius:6px }
+  .pair figcaption { font-size:13px; color:var(--muted); margin-top:6px }
+  .ph { min-height:140px; display:flex; align-items:center; justify-content:center; border:2px dashed var(--line); border-radius:6px; color:var(--muted); font-size:13px; padding:10px }
+  /* SEQUENCE IN TIME — events are dots, durations are bars, the user's action is marked */
+  svg.timeline { width:100%; height:auto; display:block }
+  svg.timeline text { fill:var(--ink); font:12px system-ui, sans-serif } svg.timeline .muted { fill:var(--muted) }
+  /* FORK OF OUTCOMES — each leaf: what the client shows · what the server did · the verdict by colour */
+  .tree .root { border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin:0 auto 10px; max-width:520px; text-align:center }
+  .tree .leaves { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px }
+  .leaf { border:1px solid var(--line); border-left:6px solid var(--muted); border-radius:10px; padding:8px 12px; font-size:14px }
+  .leaf.none { border-left-color:var(--none) } .leaf.improve { border-left-color:var(--improve) } .leaf.bug { border-left-color:var(--bug) }
+  .leaf b { display:block; margin-bottom:4px } .leaf .side { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em }
+  /* the four-line scenario — the CAPTION under the picture */
+  dl.scenario { display:grid; grid-template-columns:max-content 1fr; gap:4px 12px; margin:14px 0 0; padding-top:10px; border-top:1px solid var(--line); font-size:14px }
+  dl.scenario dt { color:var(--muted) } dl.scenario dd { margin:0 }
+  @media (max-width:640px) { .pair { grid-template-columns:1fr } }
+</style>
+</head>
+<body>
+<header><strong>PROJECT</strong> · what is explained <span class="sum">— one line: what the owner decides here</span></header>
+<main>
+
+<section class="q">
+  <h2>Q1. The question in the owner's words <span class="tag checking">checking</span></h2>
+
+  <h3>Comparison</h3>
+  <div class="pair">
+    <figure><div class="ph">the design frame — replace with &lt;img src="design.png" alt="design"&gt;</div><figcaption>Design: what it promises</figcaption></figure>
+    <figure><div class="ph">the build's frame — replace with &lt;img src="build.png" alt="build"&gt;</div><figcaption>Build: what the user sees</figcaption></figure>
+  </div>
+
+  <h3>Sequence in time</h3>
+  <svg class="timeline" viewBox="0 0 900 150" role="img" aria-label="time line">
+    <line x1="30" y1="80" x2="870" y2="80" stroke="currentColor" stroke-opacity=".35" stroke-width="2"/>
+    <circle cx="80" cy="80" r="7" style="fill:var(--accent)"/><text x="80" y="60" text-anchor="middle">event 1</text><text class="muted" x="80" y="110" text-anchor="middle">0 s</text>
+    <rect x="160" y="72" width="360" height="16" rx="8" style="fill:var(--accent)" fill-opacity=".35"/><text x="340" y="60" text-anchor="middle">a duration (2–8 s)</text>
+    <circle cx="420" cy="80" r="9" style="fill:var(--user)"/><text x="420" y="130" text-anchor="middle" style="fill:var(--user)">the user's action</text>
+    <circle cx="640" cy="80" r="7" style="fill:var(--bug)"/><text x="640" y="60" text-anchor="middle">the system's answer</text><text class="muted" x="640" y="110" text-anchor="middle">+0.3 s</text>
+  </svg>
+
+  <h3>Fork of outcomes</h3>
+  <div class="tree">
+    <div class="root">the fork: what happened at the moment of the user's action</div>
+    <div class="leaves">
+      <div class="leaf none"><b>a) outcome</b><span class="side">client</span> what the user sees<br><span class="side">server</span> what it did<br><span class="side">verdict</span> no finding</div>
+      <div class="leaf improve"><b>b) outcome</b><span class="side">client</span> …<br><span class="side">server</span> …<br><span class="side">verdict</span> improvement</div>
+      <div class="leaf bug"><b>c) outcome</b><span class="side">client</span> …<br><span class="side">server</span> …<br><span class="side">verdict</span> bug</div>
+    </div>
+  </div>
+
+  <dl class="scenario">
+    <dt>Situation</dt><dd>the state of the world with concrete values</dd>
+    <dt>Action</dt><dd>exactly one action</dd>
+    <dt>Result</dt><dd>what is seen from outside</dd>
+    <dt>Check</dt><dd>the command or query and its expected output</dd>
+  </dl>
+</section>
+
+</main>
+</body>
+</html>

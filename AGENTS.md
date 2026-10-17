@@ -1,6 +1,6 @@
 # KrinikCam — context for AI agents (universal fallback)
 
-This project is wrapped by the **KAIF 2.1 — Strong KAIF** framework (see `KAIF_FRAMEWORK.md`). The
+This project is wrapped by the **KAIF 2.9** framework (see `KAIF_FRAMEWORK.md`). The
 canon is NOT duplicated here — read the sources:
 
 1. **`AGENT_GUIDE.md`** — THE canon: rules, names, commands, conventions (+context router: which doc
@@ -28,8 +28,9 @@ the owner lives ONLY in `interviews/`** (hard rule, 2.1; one pointed task-level 
 Skills (34; Claude Code format in `.claude/skills/` is the CANON — other systems hold generated copies in
 `.agents/skills/`, `.grok/skills/`, `.cline/skills/`, `.roo/commands/`, re-synced by
 `node .kaif/kaif-core.mjs sync`; never edit a copy, edit the canon and re-sync):
-session `/resume` `/pause` (soft park — the chat continues here) `/end-chat` (full closure, commits and
-pushes, hands the baton over) · autonomy `/autoloop` `/dayloop` `/nightloop` `/guarded-loop` (loop under
+session `/resume` `/kaif-go` (the kick: carry on without a round trip) `/pause` (soft park — the chat
+continues here) `/end-chat-soft` (full closure at a natural cut: status, handover, judge, commit, push) `/end-chat-force`
+(urgent closure, skipped ceremonies become a debt line) · team `/team-deployment` · autonomy `/autoloop` `/dayloop` `/nightloop` `/guarded-loop` (loop under
 an external watchdog) · hygiene `/refresh-context` `/check-backlog` `/code-revision` · knowledge
 `/report-bug` `/bug-research` `/propose-idea` `/experience` · owner `/interview` `/owner-voice`
 `/owner-reviews` `/derive-styleguide` · planning `/plan-task` `/plan-epic` `/revision` `/what-next` ·

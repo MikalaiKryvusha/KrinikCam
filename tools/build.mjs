@@ -17,6 +17,7 @@ import { existsSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { readVersion, formatVersion } from './version.mjs'
+import { chosenJava } from './env.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -34,11 +35,13 @@ if (!existsSync(gradlewPath)) {
   process.exit(1)
 }
 
-// Auto-detect JAVA_HOME: prefer system JDK, fall back to Android Studio bundled JBR
-if (!process.env.JAVA_HOME) {
-  const asJdk = '/Applications/Android Studio.app/Contents/jbr/Contents/Home'
-  if (existsSync(asJdk)) process.env.JAVA_HOME = asJdk
+// JAVA_HOME / ANDROID_HOME / adb on PATH: one shared resolver for every tool (env.mjs, 2026-10-17 —
+// the old "only if JAVA_HOME is unset" check kept a set-but-DELETED JDK on the Windows machine).
+if (!chosenJava) {
+  console.error('\n❌ No usable JDK found (need JDK 17 — see `node tools/env.mjs`)\n')
+  process.exit(1)
 }
+console.log(`☕ JAVA_HOME = ${process.env.JAVA_HOME}`)
 
 const v    = readVersion()
 const vStr = formatVersion(v)
@@ -48,7 +51,9 @@ console.log(`\n🎬 KrinikCam — Building ${flavor} ${vStr}`)
 
 if (noUi) {
   try {
-    execSync(`${gradlew} assemble${flavor} --no-daemon`, { cwd: ROOT, stdio: 'inherit' })
+    // ABSOLUTE quoted path: Windows with NoDefaultCurrentDirectoryInExePath=1 (set on the dev machine)
+    // refuses to run a bare `gradlew.bat` from cwd — "is not recognized as a command" (2026-10-17).
+    execSync(`"${gradlewPath}" assemble${flavor} --no-daemon`, { cwd: ROOT, stdio: 'inherit' })
     console.log(`\n✅ Build complete → app/build/outputs/apk/${flavor.toLowerCase()}/\n`)
   } catch {
     console.error('\n❌ Build failed. Check the Gradle output above.\n')
@@ -67,7 +72,7 @@ try {
   await runWithUi({
     flavor,
     vStr,
-    gradlew: gradlew,
+    gradlew: gradlewPath,
     root:    ROOT,
     env:     { ...process.env },
   })

@@ -366,8 +366,11 @@ export function runWithUi({ flavor, vStr, gradlew, root, env }) {
 
     // ─── Gradle process ───────────────────────────────────────────────
     const startMs = Date.now()
-    const gradle  = spawn(gradlew, [`assemble${flavor}`, '--no-daemon'], {
-      cwd: root, env,
+    // Windows: a .bat cannot be spawned without a shell (Node ≥18.20 refuses with EINVAL), and the
+    // path is absolute + quoted (NoDefaultCurrentDirectoryInExePath) — see build.mjs (2026-10-17).
+    const isWin   = process.platform === 'win32'
+    const gradle  = spawn(isWin ? `"${gradlew}"` : gradlew, [`assemble${flavor}`, '--no-daemon'], {
+      cwd: root, env, shell: isWin,
     })
 
     let leftover = ''

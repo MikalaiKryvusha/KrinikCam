@@ -1,6 +1,6 @@
 ---
 name: report-bug
-description: Завести баг-документ в `bugs/` по правилам проекта, когда ИИ-агент в ходе разработки/теста столкнулся с дефектом (баг приложения, краш, неверное поведение, регресс). Агент САМ формирует свой беклог багов — на каждый замеченный баг отдельный md по канону уже существующих в `bugs/`. Вызывается самим агентом при обнаружении бага (в т.ч. в автолупах nightloop/dayloop) И Криником («заведи баг», «зарепорти баг», «оформи баг», «report-bug», «запиши этот баг»).
+description: Завести баг-документ в `bugs/` по правилам проекта, когда ИИ-агент в ходе разработки/теста столкнулся с дефектом (баг приложения, краш, неверное поведение, регресс). Агент САМ формирует свой беклог багов — на каждый замеченный баг отдельный md по канону уже существующих в `bugs/`. Отдельная ветка — дефект САМОГО фреймворка KAIF (грабли в доке/навыке/машинерии) — `bugs/KAIF/` по шаблонам A/B, дедуп против уже заведённых тикетов, доставка в origin по режиму tracking. Вызывается самим агентом при обнаружении бага (в т.ч. в автолупах nightloop/dayloop) И Криником («заведи баг», «зарепорти баг», «оформи баг», «report-bug», «запиши этот баг»).
 ---
 
 # /report-bug — завести баг-документ в `bugs/` (агент сам ведёт беклог багов)
@@ -23,6 +23,154 @@ description: Завести баг-документ в `bugs/` по правил
   заведи его с указанием источника («подкинул Криник, <дата>»), подтверди одной строкой в чате и
   вернись к текущей задаче.
 - НЕ для «затыка от непонимания задачи» (это про `PHILOSOPHY.md`) и не вместо фикса тривиальной опечатки.
+- **Определи размер реакции до первой строки** — лестница серьёзности (`BUG_FIXING_FRAMEWORK.md`;
+  KAIF 2.5): S1 / S2 получают баг-документ со строкой `Severity:` в шапке; **S3 (заусенец, косметика,
+  разовая опечатка) получает одну строку в `EXPERIENCE.md` (`/experience`) и НИКАКОГО баг-документа.**
+
+## Сначала развилка — дефект САМОГО ФРЕЙМВОРКА, а не проекта (KAIF 2.2; доставка — 2.5/2.7)
+
+Если грабли существуют из-за того, как сформулирован или как ведёт себя **сам KAIF** — шаг
+руководящего дока/навыка/машинерии ввёл в заблуждение, гейт соврал зелёным, нет ограждения, которое
+предотвратило бы ошибку, — сигнал адресован разработчику KAIF, а не беклогу этого проекта (контур
+«дефект в самом KAIF» в `AGENT_GUIDE.md` управляет локальным фиксом; эта ветка управляет ОТЧЁТОМ):
+
+1. **Классифицируй:** дефект → шаблон A (баг-репорт); пробел или пожелание — включая предложение
+   проверенного боем принципа (или отказа от неработающего) → шаблон B (запрос на улучшение).
+2. **Дедуп ДО заведения** (строка аттестации в теле обязательна — заявление о поиске без команды за
+   ним пусто): грепни локальный реестр —
+   `grep -ri "<surface>" bugs/KAIF/ | grep -i "<symptom-class>"`; у нас `tracking: origin` в
+   `.kaif/kaif.json`, поэтому ищи и в открытых issues origin:
+   `gh issue list --repo MikalaiKryvusha/KAIF --state open --search "<surface> <symptom-class>"`.
+   Совпадение по surface + symptom-class (версия в ключ НЕ входит) = ТОТ ЖЕ сигнал → допиши туда
+   комментарий «+1 observation» (условия, окружение, версия, шаги, ожидалось/получено; новая версия
+   того же класса → «reproduced on vX.Y») — новый тикет НЕ открывай.
+3. **Завести И доставить — один шаг, одно движение** (KAIF 2.7, эпик SD): напиши
+   `bugs/KAIF/NN_*.md` по шаблону A/B ниже (каталог создай при первом использовании) и в ТОМ ЖЕ
+   движении, раньше работы, которая нашла дефект, запусти доставку — отдельного шага «отправить»,
+   который можно отложить, нет, потому что завести И ЕСТЬ доставить (origin issue #65: тикет ждал
+   сорок минут и прямого вопроса владельца о втором «отправь» — широкий рефлекс «подтверждай внешние
+   действия» победил исключение, жившее прозой):
+   `node .kaif/kaif-core.mjs report bugs/KAIF/NN_*.md`
+   Команда заводит issue в origin за подписью агента под ПОСТОЯННЫМ РАЗРЕШЕНИЕМ владельца KAIF (origin
+   issue #15 — слово владельца: «this is CANON»; гейт авторизации в `AGENT_GUIDE.md` называет это
+   исключение прямо, origin issue #37), дописывает трейлер авторства (транспорт — `gh`-аккаунт машины,
+   АВТОР — агент проекта) и пишет URL issue в строку тикета `Delivered upstream:`. Её отказы названы —
+   `tracking: anonymous` (сигнал остаётся ЛОКАЛЬНЫМ; там `NOT YET` легален), нет `gh`, не тикет, `gh`
+   отказал — а таймаут докладывается как ИСХОД НЕИЗВЕСТЕН, никогда не как отказ (проверь, прежде чем
+   повторять). Если слой разрешений агентской системы просит человека подтвердить вызов — пусть
+   спросит, и жди: запрос и постоянное разрешение складываются. `--dry-run` показывает, что уйдёт.
+   Гейт отправки `/owner-reviews` остаётся для ЧУЖИХ репозиториев и заявлений от имени владельца. На
+   `origin` `NOT YET` — долг с хозяином, а не состояние покоя: `node .kaif/kaif-core.mjs check`
+   называет каждый тикет, чья строка `Delivered upstream:` не доказывает доставку (`NOT YET`, обещание,
+   отсутствующая или переведённая строка), пока он не отправлен — доказательство это URL issue или
+   `#NN` без `NOT YET` рядом, а строку с обоими `report` тоже отвергает.
+4. **Гейт качества отправителя:** сигнал уходит наверх только с детерминированным репро ИЛИ дословной
+   цитатой-уликой; формулировки без обвинения (провал слабой модели описывается как недостающее
+   ограждение, никогда как «модель тупая»).
+
+Оба шаблона открываются машинно-грепаемым отпечатком
+`kaif-fp: <surface> :: <symptom-class> :: v<major.minor>` — surface это канонический путь поставки
+(док, навык, инструмент, якорь модуля); symptom-class — короткий slug из открытого словаря. Строку
+`**Delivered upstream:**` под ним читает машина — `report` доставляет по ней, `check` читает из неё
+состояние доставки — поэтому имя поля остаётся дословным (английским, жирным, на своей строке) при
+любом языке проекта; значение может быть на языке проекта и несёт ЛИБО URL issue или `#NN` как
+значение, ЛИБО слова `NOT YET` — никогда оба (связанный issue назови в теле) — ЛИБО, когда ORIGIN
+решил вопрос без issue (отзыв, выпущенный фикс; 2.8), `resolved in origin <version>` (KAIF 2.7, эпик
+SD: имя поля, переведённое на язык проекта, спрятало ждущий тикет от обеих команд).
+
+### Шаблон A — баг-репорт KAIF
+
+```markdown
+# KAIF bug: <one-line defect statement>
+
+kaif-fp: <surface> :: <symptom-class> :: v<major.minor>
+**Delivered upstream:** <origin issue URL · or `NOT YET` — legal only on `tracking: anonymous`>
+**Autocapture** (from `.kaif/kaif.json` + update receipt): KAIF <version> · project <name | anonymized> ·
+sphere <…> · language <…> · i18n <…> · tracking <origin | none> · agent system <…> · OS <…> · Node <…>
+**Dedup attestation:** searched `bugs/KAIF/` (<command → result>) and open origin issues
+(`gh issue list --search "…"` → <result>). No match found. <!-- match found → comment there, no new ticket -->
+
+## Expected per canon
+<verbatim quote of the KAIF doc/skill/tool output that promises the behavior> — <file / section>
+
+## Got in the field
+<verbatim evidence: log lines, diff, command output — never a paraphrase>
+
+## Repro (deterministic)
+1. <smallest step sequence; sandbox recipe if the live project cannot be shared>
+
+## Cost and violated invariant
+<what it broke or nearly broke (near-miss counts); which framework invariant it violates:
+owner-work-safety / honest-green / owner-decisions / cold-start / memory / autonomy / universality-anonymity / self-sufficiency / simplicity>
+
+## What in KAIF led to this
+<the mechanism or assumption that produced the defect — point at the module, not the symptom>
+
+## Local remediation (per the "defect in KAIF itself" contour, if applied)
+<local fix + whether it is mutation-proved; "none" if not applicable>
+```
+
+### Шаблон B — запрос на улучшение KAIF
+
+```markdown
+# KAIF improvement request: <one-line proposal>
+
+kaif-fp: <surface> :: <symptom-class> :: v<major.minor>
+**Delivered upstream:** <origin issue URL · or `NOT YET` — legal only on `tracking: anonymous`>
+**Autocapture:** <same line as template A>
+**Dedup attestation:** <same as template A>
+
+## Gap
+<what KAIF lacks or does clumsily — with a verbatim quote of the current canon/tool output that shows the gap>
+
+## Field evidence
+<the episode(s) that paid for this proposal: project, date, what happened; ≥1 verbatim artifact.
+For principle proposals (battle-tested methodology — or dropping a non-working one): where it is
+proven in production — projects, hours, sources. The owner of KAIF decides the proposal's fate.>
+
+## Proposed change (smallest that closes the gap)
+<doc/skill/tool + sketch of wording or behavior>
+
+## Expected effect and its check
+<observable verification that the change worked; which framework invariant it serves>
+```
+
+### Шаблон C — баг-репорт тестировщика (дефект ПРОДУКТА, для его разработчика; KAIF 2.8)
+
+Отчёт, который тестировщик отдаёт разработчику продукта (origin issue #105 — владелец-QA: так тестировщик
+описывает баг). У нас это прежде всего тикет в ЧУЖУЮ библиотеку (AndroidUSBCamera, RootEncoder — через
+`gh`, см. шаг 3 ниже) и любой отчёт о дефекте, который уходит не в наш `bugs/`. Заводи его туда, где
+трекер продукта его принимает; ДО отправки проверь:
+`node .kaif/tools/kaif-testrun-lint.mjs bug <отчёт.md>` (четыре секции, три строки, шаги — путь, охота).
+Если дефект не воспроизвёлся с первой попытки — сначала охоться (`TESTING_FRAMEWORK.md` → «Hunt the
+reproduction»). Русские заголовки и подписи, которые принимает проверка, печатает
+`node .kaif/tools/kaif-testrun-lint.mjs bug --keywords`; тикет в англоязычный upstream пишется
+английскими (`## Description` · `## Steps to reproduce` · `## Expected result` · `## Actual result`;
+`**Build:**` · `**Environment:**` · `**Evidence:**`).
+
+```markdown
+# <одна строка: что сломано и где>
+
+**Сборка:** <версия · коммит · номер билда> · **Окружение:** <ОС · устройство · stage | production · аккаунт: свежий | накопленный> · **Улики:** <запись · скриншот · выдержка лога — пути>
+
+## Описание
+<во что упирается пользователь, одно-два предложения>
+
+## Шаги воспроизведения
+1. <путь пользователя в продукте, одно действие на пункт — никогда не состояние, собранное через чёрный ход>
+2. <…>
+
+## Ожидаемый результат
+<что должно происходить — сошлись на требование, спецификацию или слово Криника>
+
+## Фактический результат
+<что происходит — точный текст, экран или строка лога>
+```
+
+Если НЕ воспроизвелось, отчёт говорит это отдельной строкой — `**Статус:** не воспроизводится после
+вариантов ниже` — и несёт `## Охота за шагами`: таблица `| # | вариант (ось: значение) | исход |`, не
+меньше трёх строк (данные и состояние · положение · тайминги и гонки · точка входа · свежий vs
+накопленный аккаунт · stage vs production · сеть).
 
 ## Что сделать
 
@@ -43,6 +191,11 @@ description: Завести баг-документ в `bugs/` по правил
 
    **Статус:** 🔴 ОТКРЫТ   (или 🟡 частично / 🔬 только исследование / 🔧 фикс есть, ждёт проверки)
    **Версия:** <build>   ·   **Когда/контекст:** <дата, в ходе какой задачи нашли>
+   **Severity:** S1 | S2 | S3   <сверяется в момент ЗАВЕДЕНИЯ — лестница серьёзности, BUG_FIXING_FRAMEWORK.md;
+   S3 получает ОДНУ строку в EXPERIENCE.md вместо этого документа; KAIF 2.5>
+   **Фикс принят, когда (наблюдаемо):** <что будет ВИДНО работающим после фикса — по
+   REQUIREMENTS_FRAMEWORK.md; уточняй по мере расследования — или четырёхстрочным сценарием:
+   Ситуация · Действие · Результат · Проверка («The scenario form»); KAIF 2.2>
 
    ## Симптом
    <что наблюдается>
@@ -75,7 +228,12 @@ description: Завести баг-документ в `bugs/` по правил
 
 5. **Жизненный цикл:** пока баг открыт — файл БЕЗ `DONE`. Когда баг ПОДТВЕРЖДЁННО закрыт (исправлен и
    проверен) — по правилу Idea 15 переименуй `git mv bugs/NN_x.md bugs/NN_DONE_x.md` и допиши внутрь
-   секцию `## ✅ СТАТУС: DONE (дата)` (что сделано / как проверено). Ревизия беклога — навык `/check-backlog`.
+   секцию `## ✅ СТАТУС: DONE (дата + время)` (что сделано / как проверено), которая несёт ДВЕ отдельные
+   строки, никогда не сложенные в одну (KAIF 2.7) — `Hygiene: <юнит · селфтест · мутация>` и
+   `Functional run: <что пройдено на настоящем продукте — у нас это планшет: `node tools/ui.mjs cmd …`,
+   запись + `ffprobe`/кадр · на каком контуре · что ПРОЧИТАНО — или NONE>` (`TESTING_FRAMEWORK.md` →
+   «What the word "test" means»; `NONE` значит «исправлено, но не протестировано» — и чат говорит это
+   прямо). Ревизия беклога — навык `/check-backlog`.
 
 ## Заметки
 - Лучше завести баг и оставить открытым, чем потерять. Точность фактов важнее красоты текста.

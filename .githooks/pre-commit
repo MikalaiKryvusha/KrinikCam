@@ -1,0 +1,3 @@
+#!/bin/sh
+# KrinikCam pre-commit — registered by `git config core.hooksPath .githooks` (tools/hooks/pre-commit.mjs).
+exec node tools/hooks/pre-commit.mjs

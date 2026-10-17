@@ -1,0 +1,8 @@
+{
+  "_note": "The budget ratchet of the closing gate (KAIF 2.8): own lines of each re-read-core document that stood ABOVE its budget at the last closing. Rewritten by `node .kaif/kaif-core.mjs check --gate-budgets` — commit it with the closing, never edit it by hand.",
+  "version": "2.9",
+  "docs": {
+    "MASTER_PLAN.md": 534,
+    "STATUS.md": 356
+  }
+}

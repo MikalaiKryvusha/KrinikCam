@@ -1,15 +1,75 @@
 {
-  "from": "1.6",
-  "to": "2.1",
-  "route": "legacy-bootstrap",
+  "from": "2.1",
+  "to": "2.9",
+  "route": "core-update",
+  "source": "https://github.com/MikalaiKryvusha/KAIF/releases/latest/download",
   "counters": {
-    "replaced": 7,
-    "mergedModules": 12,
-    "added": 13,
-    "kept": 43,
-    "adopted": 30
+    "replaced": 13,
+    "mergedModules": 16,
+    "added": 38,
+    "kept": 49
   },
-  "classified": true,
-  "date": "2026-07-31",
-  "verifiedAt": "2026-07-31"
+  "diverged": [
+    "AGENT_GUIDE.md",
+    "PHILOSOPHY.md",
+    "BUG_FIXING_FRAMEWORK.md",
+    ".claude/skills/autoloop/SKILL.md",
+    ".claude/skills/bug-research/SKILL.md",
+    ".claude/skills/check-backlog/SKILL.md",
+    ".claude/skills/dayloop/SKILL.md",
+    ".claude/skills/experience/SKILL.md",
+    ".claude/skills/fix-vision/SKILL.md",
+    ".claude/skills/help-kaif/SKILL.md",
+    ".claude/skills/interview/SKILL.md",
+    ".claude/skills/kaif-fork/SKILL.md",
+    ".claude/skills/kaif-remove/SKILL.md",
+    ".claude/skills/kaif-switch-origin/SKILL.md",
+    ".claude/skills/kaif-update/SKILL.md",
+    ".claude/skills/kaif-version/SKILL.md",
+    ".claude/skills/nightloop/SKILL.md",
+    ".claude/skills/pause/SKILL.md",
+    ".claude/skills/propose-idea/SKILL.md",
+    ".claude/skills/refresh-context/SKILL.md",
+    ".claude/skills/release/SKILL.md",
+    ".claude/skills/report-bug/SKILL.md",
+    ".claude/skills/resume/SKILL.md",
+    ".claude/skills/revision/SKILL.md",
+    ".claude/skills/what-next/SKILL.md"
+  ],
+  "divergedModules": {
+    "plans/README.md": [
+      "# `plans/` — детальные пошаговые планы"
+    ],
+    "ideas/README.md": [
+      "# `ideas/` — идеи, фичи, предложения по улучшению"
+    ],
+    "bugs/README.md": [
+      "# `bugs/` — дефекты, трудности, поломки"
+    ],
+    "researches/README.md": [
+      "# `researches/` — база знаний по масштабным трудным вопросам"
+    ],
+    "homeworks/README.md": [
+      "# `homeworks/` — задания от агента человеку"
+    ],
+    ".claude/skills/owner-reviews/SKILL.md": [
+      "<preamble>",
+      "# /owner-reviews — the owner-review contour",
+      "## The invariants (normative — a contour without them falls apart)",
+      "## Parameters and compatibility"
+    ],
+    ".kaif/_owner-voice-template.md": [
+      "# The Owner's Voice Portrait — <OWNER> (\"the stylistic LoRA\" of krinikcam)"
+    ]
+  },
+  "ownerConvention": [
+    "STATUS.md",
+    "PROJECT_HISTORY.md",
+    "EXPERIENCE.md",
+    "MASTER_PLAN.md",
+    "KAIF_FRAMEWORK.md"
+  ],
+  "date": "2026-10-17",
+  "judgeVerdict": "VERIFIED WITH CAVEATS: clean-context judge — 8/10 claims verified (marker 2.9 + pointer pair, secrets ignored and absent from diff, owner quotes kept, no open-with-owner-words rule, env.mjs, .env signing + DEBUG gate, TESTED markers name an existing linted report, guard+queue clean); refuted 8 (AGENTS.md:31 /end-chat) fixed; refuted 10 (15 shipped SKILL.md descriptions not strict YAML) reported upstream as R6, shipped bytes untouched",
+  "verifiedAt": "2026-10-17T21:18:36+03:00"
 }

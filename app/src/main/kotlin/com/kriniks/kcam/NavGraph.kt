@@ -56,8 +56,15 @@ fun KrinikCamNavGraph(
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 fileLogger = fileLogger,
-                // Long-press on the "KrinikCam" About row opens the hidden Developer menu.
-                onOpenDeveloper = { navController.navigate(Routes.DEVELOPER) },
+                // Long-press on the "KrinikCam" About row opens the hidden Developer menu — ТОЛЬКО в
+                // debug. Слово Криника 2026-10-17: «KCAM — это будет релизная сборка без дебаг меню и
+                // отладочных инструментов». В release жеста нет вовсе (null) → строка ведёт себя как
+                // обычная кнопка. [TESTED: 2026-10-17 · Titan: release — долгое нажатие по «KrinikCam» открыло
+                // обычный диалог «О проекте» (как тап), «Для разработчиков» НЕ открылось; debug — открылось;
+                // testcases/reports/2026-10-17_kcam_release_r8_signing.md]
+                onOpenDeveloper = if (BuildConfig.DEBUG) {
+                    { navController.navigate(Routes.DEVELOPER) }
+                } else null,
                 // plans/06 — встроенное руководство пользователя.
                 onOpenManual = { navController.navigate(Routes.USER_MANUAL) },
             )
@@ -67,7 +74,11 @@ fun KrinikCamNavGraph(
             UserManualScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(Routes.DEVELOPER) {
+        // Экран «Для разработчиков» регистрируется ТОЛЬКО в debug: в release (KCAM) маршрута нет —
+        // слово Криника 2026-10-17 «релизная сборка без дебаг меню». BuildConfig.DEBUG — константа,
+        // R8 вырезает DevMenuScreen из релиза целиком. [TESTED: 2026-10-17 · mapping.txt release: 0 упоминаний
+        // DevMenuScreen (класс вырезан, usage.txt его перечисляет); testcases/reports/2026-10-17_kcam_release_r8_signing.md]
+        if (BuildConfig.DEBUG) composable(Routes.DEVELOPER) {
             DevMenuScreen(
                 onBack = { navController.popBackStack() },
                 onAdbRotationChanged = onAdbRotationChanged,

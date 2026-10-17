@@ -74,11 +74,11 @@ auto.crt
 auto.key
 keystore.properties
 .kaif/install/
-KAIF.md
-KAIF-LOADER.mjs
-KAIF_ADAPTATION_TASK.md
-KAIF_UPDATE_TASK.md
-KAIF_UPDATE_TASK.superseded.md
+/KAIF.md
+/KAIF-LOADER.mjs
+/KAIF_ADAPTATION_TASK.md
+/KAIF_UPDATE_TASK.md
+/KAIF_UPDATE_TASK.superseded.md
 .kaif/heartbeat.log
 .kaif/watchdog.lock
 
@@ -94,3 +94,33 @@ interviews/decisions/archive/interview_99*_verify*
 
 # Реестр живых контуров /owner-reviews — состояние ПРОЦЕССОВ, а не решение владельца
 interviews/decisions/_serving.json
+
+# KAIF 2.9 session state (ignore-first): refresh witness, voice witness, contour window profile,
+# contour renders/locks, budget/attribution baselines are NOT here on purpose (they are committed)
+.kaif/refresh-marker.json
+.kaif/voice-marker.json
+.kaif/contour-window/
+.kaif/.contour-tmp/
+.kaif/contour.log
+interviews/decisions/*.lock
+
+# Signing secrets (owner 2026-10-17: ".env ВНЕ ГИТА!!!") — keys for "Debug KCAM" and "KCAM" (release, R8).
+# The owner moves the keys to a safe place later; until then they live here, NEVER in git.
+.env
+.env.*
+keystores/
+/KAIF_ADAPTATION_TASK.superseded.md
+.kaif/backup-*/
+.kaif/update-journal.json
+.kaif/guarded-loop.json
+.kaif/update-rehearsal.json
+
+# ПРАВИЛО ПРОЕКТА (Криник 2026-10-17): «все скриншоты темстовые ВСЕГДА ПОД ГИТИГНОРОМ», «это правило проекта!»
+# Тестовые кадры показывают реальную обстановку владельца — в публичный репозиторий не идут НИКОГДА.
+testcases/**/*.png
+testcases/**/*.jpg
+testcases/**/*.jpeg
+testcases/**/*.webp
+testcases/**/*.gif
+testcases/**/*.mp4
+testcases/**/assets/

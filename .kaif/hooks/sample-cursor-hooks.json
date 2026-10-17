@@ -1,0 +1,16 @@
+{
+  "_readme": "SAMPLE Cursor hooks config for the optional KAIF refresh-hooks module. Destination: <project-root>/.cursor/hooks.json (a ~/.cursor/hooks.json user-level file works the same way). Not wired by the machinery: this system starts the script by a relative path, verified only from the project root. Since 2.9 the AGENT wires it by hand, without asking the project owner (what KAIF delivers is wired, issue #115): merge the `hooks` object below into the destination additively, then run the smoke of .kaif/hooks/README.md step 3; `\"hooks\": \"off\"` in .kaif/kaif.json opts out. Contract live-fetched 2026-08-07.",
+  "_one_hook_of_three": "Only the session-start hook is shippable on Cursor, and that is a property of Cursor's contract, not a gap in the module: `beforeSubmitPrompt` returns only {continue, user_message} — it can block a prompt or message the HUMAN, but cannot inject context for the AGENT, so the hourly timer has nowhere to land. `preCompact` is documented as observational (it 'cannot block or modify compaction') and likewise carries no agent context. `stop` returns `followup_message`, which Cursor AUTO-SUBMITS as the next prompt — that is a different behaviour from our soft STATUS block, so shipping it there would be a guess about intent, not a port.",
+  "_emit_shape": "Cursor's sessionStart output is FLAT snake_case: {\"additional_context\": \"...\"} — hence --emit cursor. The predicate and the order text are identical to every other system.",
+  "_paths": "Cursor exposes CLAUDE_PROJECT_DIR as an explicit compatibility alias alongside CURSOR_PROJECT_DIR, so an absolute ${CLAUDE_PROJECT_DIR}/.kaif/hooks/... path also works if a relative one does not suit your setup.",
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "command": "node .kaif/hooks/session-start-refresh.mjs --emit cursor",
+        "timeout": 15
+      }
+    ]
+  }
+}

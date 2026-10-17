@@ -46,6 +46,20 @@ memory. Then one sentence: the sphere's classic conflict and which side wins.>`
 - `<3–5 bullets: what "observed" (not inferred) means for this sphere's claims — the checks that must
   actually be run, opened, recomputed, or looked at; exactness requirements.>`
 
+## Outward write channels → retraction command
+
+`<One row per channel this sphere WRITES INTO and other people READ — a tracker, a wiki, a chat-ops room,
+a mailing list, a published page, a dashboard, a printed report. Name the command or the exact move that
+corrects or withdraws an entry ALREADY published there: this is what makes step 3 of "a falsehood is
+corrected where it stands" (`AGENT_GUIDE.md`) executable instead of imagined. A channel whose retraction
+command is unknown is written down as "not known" — the agent then says so aloud in the reply rather than
+passing over it in silence.>`
+
+| Outward write channel | Retraction / correction command |
+|---|---|
+| `<the channel, as its readers call it>` | `<the command, or the exact move: edit in place · append "correction: …" in the SAME thread · delete>` |
+| … (one row per channel) | |
+
 ## Fraud table (for `fable-judge`)
 
 | Fraud | Symptom |

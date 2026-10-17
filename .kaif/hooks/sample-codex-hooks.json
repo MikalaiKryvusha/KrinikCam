@@ -1,0 +1,45 @@
+{
+  "_readme": "SAMPLE OpenAI Codex hooks config for the optional KAIF refresh-hooks module. Destination: <repo>/.codex/hooks.json (per-project) or ~/.codex/hooks.json (per-profile). Not wired by the machinery: this system starts the script by a relative path, verified only from the project root. Since 2.9 the AGENT wires it by hand, without asking the project owner (what KAIF delivers is wired, issue #115): merge the `hooks` object below into the destination additively, then run the smoke of .kaif/hooks/README.md step 3; `\"hooks\": \"off\"` in .kaif/kaif.json opts out. Contract live-fetched 2026-08-07.",
+  "_why_no_emit_flag": "Codex reads the SAME output fields as Claude Code ({\"hookSpecificOutput\": {\"additionalContext\": ...}}) and the SAME snake_case stdin fields, so the scripts run in their default shape — no --emit needed. Its config nesting (event -> matcher group -> \"hooks\" handlers) is identical too; only the file and the entry fields differ (`command` is one string; no `args` array).",
+  "_two_matcher_groups_on_purpose": "Codex matches SessionStart on `source` with values startup|resume|clear|compact. Whether its matcher accepts regex alternation (\"compact|clear\") is NOT verified in the docs, so this sample uses two single-value groups — certainly valid, and it costs three lines.",
+  "_not_covered": "The Stop guard is absent on purpose: Codex documents blocking via exit code 2 + stderr, and the output shape our stop-status-guard.mjs prints (decision/reason) is NOT verified for Codex. Shipping it would be a guess. The two hooks below are the verified ones.",
+  "_context_limit": "Codex truncates injected context at `additionalContextLimit` tokens (default 2500). The refresh order is a few hundred characters, so the default is ample.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .kaif/hooks/session-start-refresh.mjs",
+            "statusMessage": "KAIF: canon re-read order",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .kaif/hooks/session-start-refresh.mjs",
+            "statusMessage": "KAIF: canon re-read order",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .kaif/hooks/prompt-refresh-timer.mjs",
+            "statusMessage": "KAIF: refresh timer",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

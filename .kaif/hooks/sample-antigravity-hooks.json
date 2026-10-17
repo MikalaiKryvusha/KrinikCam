@@ -1,0 +1,16 @@
+{
+  "_readme": "SAMPLE Google Antigravity CLI hooks config for the optional KAIF refresh-hooks module. Destination: .agents/hooks.json in the workspace (or ~/.gemini/config/hooks.json for a personal one). Not wired by the machinery: this system starts the script by a relative path, verified only from the project root. Since 2.9 the AGENT wires it by hand, without asking the project owner (what KAIF delivers is wired, issue #115): merge the `hooks` object below into the destination additively, then run the smoke of .kaif/hooks/README.md step 3; `\"hooks\": \"off\"` in .kaif/kaif.json opts out. Contract live-fetched 2026-08-07.",
+  "_note_on_the_platform": "Antigravity CLI is Google's successor to Gemini CLI, which stopped serving requests on 2026-06-18. A project still wired to Gemini CLI has no hook contour at all — this file is where it moves to.",
+  "_one_hook_of_three": "Antigravity has NO session-start and NO context-compaction event (its docs say per-session events are expected later), so the 'canon after compaction' hook cannot exist here at all. What Antigravity does have is PreInvocation — fired before every model call — which is an even tighter fit for the hourly timer than a per-prompt event: it also covers turns the human never typed.",
+  "_stop_guard_deliberately_absent": "Antigravity's Stop event returns {\"decision\", \"reason\"} — the same FIELD NAMES our stop-status-guard.mjs prints. But the documented value vocabulary is 'continue' or other, and whether it accepts our blocking value is NOT verified. Same field names are not the same contract, so the guard is left out rather than shipped on a resemblance.",
+  "_emit_shape": "PreInvocation injects via {\"injectSteps\": [{\"ephemeralMessage\": \"...\"}]} — an array of objects, not strings; `ephemeralMessage` is the right member for an order that must steer this turn without settling into the transcript. Hence --emit antigravity.",
+  "kaif-refresh-timer": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node .kaif/hooks/prompt-refresh-timer.mjs --emit antigravity",
+        "timeout": 15
+      }
+    ]
+  }
+}

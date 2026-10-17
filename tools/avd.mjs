@@ -25,10 +25,15 @@ import { existsSync, mkdirSync, openSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
-const SDK = join(homedir(), 'Library/Android/sdk');
+// SDK и Java выбирает общий разрешатель tools/env.mjs (2026-10-17: на Windows-машине SDK лежит в
+// C:\Android\Sdk, а macOS-путь к JBR не существует). Импорт ради побочного эффекта — он ставит
+// ANDROID_HOME/JAVA_HOME в process.env.
+import './env.mjs';
+const EXE = process.platform === 'win32' ? '.exe' : '';
+const SDK = process.env.ANDROID_HOME || join(homedir(), 'Library/Android/sdk');
 const AVDMANAGER = join(SDK, 'tools/bin/avdmanager'); // легаси-путь (cmdline-tools не установлены)
-const EMULATOR = join(SDK, 'emulator/emulator');
-const ADB = join(SDK, 'platform-tools/adb');
+const EMULATOR = join(SDK, `emulator/emulator${EXE}`);
+const ADB = join(SDK, `platform-tools/adb${EXE}`);
 // Дефолт — ГОТОВЫЙ AVD Android Studio (API 35 ≥ minSdk 33 приложения); переопределяется env KCAM_AVD.
 // Своё создание через легаси tools/bin/avdmanager НЕВОЗМОЖНО на JBR 17 (javax.xml.bind удалён в
 // Java 11+; поймано живьём 2026-07-18) — новые AVD создаёт Android Studio, скрипт их использует.
@@ -41,9 +46,8 @@ const sh = (cmd, opts = {}) => execSync(cmd, { encoding: 'utf8', stdio: ['ignore
 const log = (m) => console.log(m);
 const die = (m) => { console.error(`✖ avd: ${m}`); process.exit(1); };
 
-// JBR — тот же Java, что для сборки; легаси-avdmanager работает на нём (проверено живьём).
-const JAVA_HOME = '/Applications/Android Studio.app/Contents/jbr/Contents/Home';
-const envWithJava = { ...process.env, JAVA_HOME, ANDROID_SDK_ROOT: SDK, ANDROID_HOME: SDK };
+// Тот же Java, что для сборки (выбран tools/env.mjs); легаси-avdmanager работал на JBR (проверено живьём на macOS).
+const envWithJava = { ...process.env, ANDROID_SDK_ROOT: SDK, ANDROID_HOME: SDK };
 
 function exists() {
   // Без avdmanager (Java-грабля выше): смотрим прямо в ~/.android/avd.

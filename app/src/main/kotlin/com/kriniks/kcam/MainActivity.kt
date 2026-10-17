@@ -58,7 +58,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var usbViewModel: UsbViewModel
 
     // Receiver that lets the AI automation tool force the app's orientation over ADB. Registered
-    // only while the "ADB rotation" dev toggle is ON (Idea 07) — available in ANY build, not just debug.
+    // only while the "ADB rotation" dev toggle is ON (Idea 07) — DEBUG only (bug 38; release KCAM has
+    // no Developer menu at all — слово Криника 2026-10-17).
     private var adbOrientationReceiver: BroadcastReceiver? = null
 
     // Receiver that lets the AI harness simulate the virtual camera connecting/disconnecting over ADB:
@@ -563,7 +564,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Enable/disable "ADB rotation" mode (Idea 07 Developer menu). Works in ANY build (no debug gate).
+     * Enable/disable "ADB rotation" mode (Idea 07 Developer menu). DEBUG only (gate below, bug 38).
      *
      * ON  → register a broadcast receiver that obeys `ui.mjs orient` ADB commands and LOCK the app
      *       orientation (requestedOrientation=LOCKED) so it stops following the physical sensor.
@@ -576,9 +577,9 @@ class MainActivity : ComponentActivity() {
      */
     fun setAdbRotationEnabled(enabled: Boolean) {
         // bug 38 — SET_ORIENTATION-ресивер только в debug: exported-ресивер в release = дыра
-        // (кто угодно крутит ориентацию во время эфира). Дев-тумблер в release остаётся видимым
-        // (Idea 07: паритет меню), но включение — честный no-op с предупреждением: смысл режима
-        // ТОЛЬКО в ADB-харнесе, который работает с debug-сборкой.
+        // (кто угодно крутит ориентацию во время эфира). С 2026-10-17 в release нет и самого
+        // дев-меню (слово Криника: «релизная сборка без дебаг меню»), а DevSettings там отдаёт
+        // false — гейт ниже остаётся второй линией обороны.
         if (enabled && !BuildConfig.DEBUG) {
             KLog.w("MainActivity", "ADB rotation: недоступно в release-сборке (bug 38) — игнорируем")
             return

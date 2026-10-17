@@ -23,6 +23,9 @@
  */
 
 import { execSync } from 'child_process';
+// Side effect: the SDK's platform-tools first on PATH, so every bare `adb` below and in ui.mjs /
+// smoke.mjs / adb.mjs is the SDK's adb — not a stale one that happens to be first on PATH (env.mjs).
+import './env.mjs';
 
 /**
  * Parse `adb devices -l` into structured rows. [TESTED: 2026-08-02 · `node tools/device.mjs list`

@@ -24,6 +24,7 @@ import { existsSync, renameSync, unlinkSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { bumpMinor, bumpMajor, readVersion, formatVersion, formatTag } from './version.mjs'
+import './env.mjs' // JAVA_HOME / ANDROID_HOME / adb for gradlew — the shared resolver (2026-10-17)
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -65,7 +66,8 @@ if (!existsSync(gradlewPath)) {
 
 try {
   console.log('📦 Building release APK...')
-  execSync(`${gradlew} assembleRelease`, { cwd: ROOT, stdio: 'inherit' })
+  // absolute quoted path — Windows NoDefaultCurrentDirectoryInExePath (see build.mjs, 2026-10-17)
+  execSync(`"${gradlewPath}" assembleRelease`, { cwd: ROOT, stdio: 'inherit' })
 } catch {
   console.error('\n❌ Gradle build failed.\n')
   process.exit(1)

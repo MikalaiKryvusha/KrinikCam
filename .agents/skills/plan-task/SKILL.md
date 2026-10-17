@@ -1,6 +1,6 @@
 ---
 name: plan-task
-description: Plan an ORDINARY task, bug or idea into one operational plan — goal, done-criteria, steps with checkboxes, verification-by-observation, risks — sized so the ceremony never outweighs the work. Runs the heaviness test first and hands a HEAVY task over to /plan-epic (the full research → meta-plan → phased ladder). Use when the human says "plan this task", "make a plan for this bug/idea", "how would you approach this", or when the agent picks up an unplanned backlog item; for epic-scale work use /plan-epic instead. Trigger aliases (ru): «спланируй задачу», «составь план по задаче», «план по багу», «план по идее»
+description: Plan an ORDINARY task, bug or idea into one operational plan — goal vector, acceptance criteria, steps with checkboxes, verification-by-observation, risks — sized so the ceremony never outweighs the work. Runs the heaviness test first and hands a HEAVY task over to /plan-epic (the full research → meta-plan → phased ladder). Use when the human says "plan this task", "make a plan for this bug/idea", "how would you approach this", or when the agent picks up an unplanned backlog item; for epic-scale work use /plan-epic instead. Trigger aliases (ru): «спланируй задачу», «составь план по задаче», «план по багу», «план по идее»
 ---
 
 # /plan-task — one operational plan for an ordinary task
@@ -37,16 +37,34 @@ Structure (keep it to one screen where possible):
 
 ```
 ## Plan: <one-line goal>
-**Done when:** <observable criteria — what will be SEEN working, not "code written">
+**Goal vector:** <what pain we solve and where we want to be — name Achieve / Maintain / Avoid where it clarifies>
+**Acceptance criteria (done when):** <observable criteria — what will be SEEN working, not "code written"; a numeric criterion carries its fit criterion: Scale · Meter · Target — or one four-line scenario per criterion (REQUIREMENTS_FRAMEWORK.md → The scenario form):>
+- Situation. <the state of the world with concrete values — not an action>
+- Action. <exactly one action of the user, the system or the agent>
+- Result. <what is SEEN from outside: a number, an output line, a file — never "works correctly">
+- Check. <a repository command or query + its expected output; Scale · Meter · Target live here>
 **Steps:**
 - [ ] <step — small enough to verify on its own>
 - [ ] ...
-**Verification:** <how each claim will be observed: run, render, measurement, guard>
+**Verification:** <BY WHICH TEST ARTIFACTS each claim is observed AND WHERE THEY LIVE — the suite/
+case/fixture/guard and its path in the repo; artifacts are produced BY THIS PLAN, in the same steps,
+never "later" (TESTING_FRAMEWORK.md → "The work produces its own means of checking")>
 **Risks:** <top 1-3, each with the reaction if it fires — Murphy ranking from PHILOSOPHY.md>
 ```
 
+The goal vector + acceptance criteria block OPENS the plan and is written by
+`REQUIREMENTS_FRAMEWORK.md` (verifiable wording, no stop-words, fit criteria). The vector and
+criteria are not final truths — they may be modified, added, or removed as the work teaches;
+changing them is an edit, not a failure.
+
 Placement: a small task's plan lives as a **section inside its idea/bug document**; a larger one
 gets its own `plans/NN_<name>.md`. Either way the plan is committed before the work starts.
+
+**Planning a PHASE of an epic?** Then this plan is that epic's child, and it declares its parent
+twice over: in its **filename** — `NN_epicMM_<phase>_<name>.md`, `MM` being the parent epic's
+number (`plans/README.md` → Naming) — and in its **steps**, each quoting the meta-plan's anchor
+line it executes. The name links the family; the quote proves the step is in scope. A step you
+cannot anchor in the parent is scope drift, caught before the diff.
 
 ## Step 3 — clearance, then go
 
@@ -59,6 +77,6 @@ gets its own `plans/NN_<name>.md`. Either way the plan is committed before the w
 
 - Plan an epic as a flat step list (the heaviness test exists so scope drift is caught at
   planning, not mid-execution).
-- Produce a plan without done-criteria or verification — "steps done" is not "task done"
+- Produce a plan without acceptance criteria or verification — "steps done" is not "task done"
   (`TESTING_FRAMEWORK.md`: raw output is untrusted).
 - Skip the plan because "the task is clear" — clear to THIS session; the plan is for the next one.

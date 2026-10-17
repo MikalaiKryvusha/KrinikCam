@@ -45,7 +45,7 @@ KrinikCam/
 ├── .kaif/last-update.json                — квитанция последнего обновления (что во что, каким маршрутом)
 ├── .kaif/spheres/                        — библиотека сфер (у нас активна programming)
 ├── .kaif/tools/                          — опциональные модули: гейт провенанса [AI], линтер канона
-├── .claude/skills/                       — навыки-ритуалы, 34 шт. (/resume, /pause, /end-chat, лупы, /plan-*, /kaif-*)
+├── .claude/skills/                       — навыки-ритуалы, 37 шт. (/resume, /pause, /end-chat-soft, /end-chat-force, лупы, /plan-*, /kaif-*)
 ├── tools/                                — Node.js-инструменты автоматизации:
 │   ├── build.mjs / build-ui.mjs          —   сборка APK (+браузерный прогресс-бар)
 │   ├── commit.mjs                        —   bump build → git commit → push

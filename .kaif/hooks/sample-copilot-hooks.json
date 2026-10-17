@@ -1,0 +1,18 @@
+{
+  "_readme": "SAMPLE GitHub Copilot hooks config for the optional KAIF refresh-hooks module. Destination: .github/hooks/kaif-refresh.json (repository level) or ~/.copilot/hooks/kaif-refresh.json (user level). Not wired by the machinery: this system starts the script by a relative path, verified only from the project root. Since 2.9 the AGENT wires it by hand, without asking the project owner (what KAIF delivers is wired, issue #115): merge the `hooks` object below into the destination additively, then run the smoke of .kaif/hooks/README.md step 3; `\"hooks\": \"off\"` in .kaif/kaif.json opts out. Contract live-fetched 2026-08-07.",
+  "_one_hook_of_three": "Copilot HAS all three matching events (sessionStart, userPromptSubmitted, preCompact, agentStop) — but `additionalContext` injection is permitted only on postToolUse, postToolUseFailure, notification, sessionStart and subagentStart. It is NOT permitted on userPromptSubmitted or agentStop, so the timer and the STATUS guard cannot be carried here. Ship what the contract allows; say so where it does not.",
+  "_emit_shape": "Copilot's output field is top-level camelCase: {\"additionalContext\": \"...\"} — hence --emit copilot.",
+  "_naming_conventions": "Copilot accepts BOTH camelCase event names with camelCase payload fields AND PascalCase event names with snake_case fields (the Claude Code convention). This sample uses the camelCase form, which is Copilot's own.",
+  "_precompact_note": "preCompact fires when compaction is about to BEGIN — i.e. before the context is lost, not after it is restored. Our order is written for the post-compaction session, so it is deliberately wired to sessionStart (which fires for new AND resumed sessions) rather than to preCompact.",
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "node .kaif/hooks/session-start-refresh.mjs --emit copilot",
+        "cwd": ".",
+        "timeoutSec": 15
+      }
+    ]
+  }
+}

@@ -51,6 +51,26 @@ spec — surface the contradiction; the task framing does not promote the tests 
   pattern, N other sites).
 - Rendered surfaces are actually rendered and looked at.
 
+## Outward write channels → retraction command
+
+The channels a software project writes into that OTHER people read, and the command that corrects an
+entry already published there — step 3 of "a falsehood is corrected where it stands" (`AGENT_GUIDE.md`)
+runs from this table. A channel not listed here is named aloud in the reply ("no retraction command for
+<channel>"), never skipped in silence. Text goes to these commands through `--body-file` / `--notes-file`,
+never as a command-line string.
+
+| Outward write channel | Retraction / correction command |
+|---|---|
+| this repository's own files (docs, plans, status, reports) | enumerate with `git grep -n "<the phrase>"`, edit in place, commit with the reason: `git commit -m "correction: <what was false> — <what is true>"` |
+| a commit message already pushed | immutable — the correction is the NEXT commit naming the old hash: `git commit --allow-empty -m "correction: <sha> said <false>; <true>"` (pushed history is never rewritten) |
+| an issue / PR comment of yours | `gh issue comment <N> --edit-last --body-file <file>` · `gh pr comment <N> --edit-last --body-file <file>` (`--delete-last --yes` where the record is worth nothing) |
+| someone else's comment, or an older one of yours | you cannot edit it — append one in the SAME thread: `gh issue comment <N> --body-file <file>` whose first line is `correction: …` (a correction in another thread never reaches this one's reader) |
+| an issue / PR body | `gh issue edit <N> --body-file <file>` · `gh pr edit <N> --body-file <file>` |
+| a published release note | `gh release edit <tag> --notes-file <file>` — that page is the artifact strangers open |
+| a wiki page | edit and commit through the wiki's own git remote (`<repo>.wiki.git`); a wiki with no remote — the same edit in the UI, with the correction dated in the text |
+| a chat-ops message posted by your bot | the platform's update call for that message id; not yours to update — a reply in the SAME thread starting `correction: …` |
+| a page shown to the owner (the interactive contour) | regenerate the document and show it again; the recorded answers stay — a correction is a NEW showing, never a rewritten record |
+
 ## Fraud table (for `fable-judge`)
 
 | Fraud | Symptom |

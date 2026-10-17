@@ -1,6 +1,6 @@
 # KrinikCam — контекст для Claude Code
 
-Проект обвязан фреймворком **KAIF 2.1 — Strong KAIF** (см. `KAIF_FRAMEWORK.md`). Канон здесь НЕ
+Проект обвязан фреймворком **KAIF 2.9** (см. `KAIF_FRAMEWORK.md`). Канон здесь НЕ
 дублируется — читай первоисточники:
 
 1. **`AGENT_GUIDE.md`** — КАНОН: правила, имена, команды, соглашения (+контекст-роутер: какой срез
@@ -18,13 +18,18 @@
 8. **`PROJECT_HISTORY.md`** (2.1) — append-only летопись закрытого (сессии, фазы, релизы). В
    обязательный минимум чтения НЕ входит: открывай только под археологию. STATUS сбрасывает сюда своё
    прошлое, оставаясь сводкой настоящего.
+9. **`REQUIREMENTS_FRAMEWORK.md`** (2.2) — канон требований: вектор цели + критерии приёмки первыми.
+10. **`HOUSE_RULES.md`** — правила дома и ДОСЬЕ ОКРУЖЕНИЯ машины (с 2026-10-17 разработка ведётся на
+    Windows-машине: сборка `node tools/build.mjs --no-ui`, Java/SDK/adb выбирает `tools/env.mjs`;
+    подписи «Debug KCAM» / «KCAM» — ключи в `.env` ВНЕ git).
 
 Директории знаний: `plans/` `ideas/` `bugs/` `researches/` `interviews/` `homeworks/` — в каждой
 README с правилами. Закрытое помечается тегом `DONE` в имени файла. **Место вопросов к Кринику —
 только `interviews/`** (жёсткое правило 2.1; исключение — один точечный вопрос уровня задачи в чате).
 
-Навыки (`.claude/skills/`, 34): `/resume` `/pause` (мягкая парковка) `/end-chat` (полное закрытие с
-эстафетой) `/autoloop` `/dayloop` `/nightloop` `/guarded-loop` (цикл под вахтёром) `/refresh-context`
+Навыки (`.claude/skills/`, 37): `/resume` `/kaif-go` (пинок «дальше» без переспроса) `/pause` (мягкая
+парковка) `/end-chat-soft` (полное закрытие с передачей дел) `/end-chat-force` (срочное закрытие с
+явным долгом церемоний) `/team-deployment` (команда агентов) `/autoloop` `/dayloop` `/nightloop` `/guarded-loop` (цикл под вахтёром) `/refresh-context`
 `/check-backlog` `/code-revision` `/report-bug` `/bug-research` `/propose-idea` `/experience`
 `/interview` `/owner-voice` `/owner-reviews` `/derive-styleguide` `/plan-task` `/plan-epic` `/revision`
 `/fix-vision` `/what-next` `/help-kaif` `/release` `/fable-method` `/fable-loop` `/fable-judge`
@@ -32,5 +37,7 @@ README с правилами. Закрытое помечается тегом `
 и `/release`; 1.6: и перед КАЖДЫМ push/деплоем, +6 guardrail-охот судьи, разведартефакты до кода,
 правило одного шага, git-гигиена, провенанс-марки `[AI]…[/AI]`, секция «Решения, принятые без
 владельца» при закрытии задач; 2.1: лестница планирования перед тяжёлой работой, класс ВКУСА —
-мокап и ДЗ вместо вердикта агента, нейминг не решается агентом, текст ходит файлами)
+мокап и ДЗ вместо вердикта агента, нейминг не решается агентом, текст ходит файлами; 2.9: вопросы
+владельцу — поставляемым контуром `node .kaif/tools/contour/review.mjs`, зов голосом `--call`, хуки
+освежения контекста подключены в `.claude/settings.json`)
 `/kaif-version` `/kaif-update` `/kaif-fork` `/kaif-switch-origin` `/kaif-remove`.

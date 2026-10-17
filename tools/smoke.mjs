@@ -43,7 +43,6 @@ const ROTATION = has('--portrait') ? 90 : parseInt(val('--rotation', '0'), 10);
 
 const PKG = 'com.kriniks.kcam.debug';
 const REC_DIR = `/sdcard/Android/data/${PKG}/files/rec`;
-const JBR = '/Applications/Android Studio.app/Contents/jbr/Contents/Home';
 
 // ── ADB ───────────────────────────────────────────────────────────────────────
 // Разрешение устройства вынесено в device.mjs и ОБЩЕЕ с ui.mjs: раньше здесь и там лежали две
@@ -83,9 +82,10 @@ function main() {
   log(`▶ smoke: device=${ADB_DEVICE} rotation=${ROTATION}° duration=${DURATION}s pip=${PIP} build=${!SKIP_BUILD}`);
 
   if (!SKIP_BUILD) {
-    log('▶ build (JBR)…');
+    log('▶ build…');
     try {
-      execFileSync('node', ['tools/build.mjs', '--no-ui'], { stdio: 'inherit', env: { ...process.env, JAVA_HOME: JBR } });
+      // Java/SDK are chosen by build.mjs itself through the shared tools/env.mjs (no per-tool path).
+      execFileSync('node', ['tools/build.mjs', '--no-ui'], { stdio: 'inherit' });
     } catch { fail('сборка упала (см. вывод выше)'); }
     log('▶ install…');
     try { adb('install', '-r', 'app/build/outputs/apk/debug/app-debug.apk'); }

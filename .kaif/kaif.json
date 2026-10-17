@@ -1,7 +1,7 @@
 {
   "framework": "KAIF",
-  "version": "2.1",
-  "released": "2026-07-31",
+  "version": "2.9",
+  "released": "2026-10-16",
   "origin": "https://github.com/MikalaiKryvusha/KAIF",
   "tracking": "origin",
   "sphere": "programming",
@@ -19,6 +19,21 @@
       "to": "2.1",
       "route": "legacy-bootstrap",
       "date": "2026-07-31"
+    },
+    {
+      "from": "2.1",
+      "to": "2.9",
+      "route": "core-update",
+      "date": "2026-10-17"
     }
-  ]
+  ],
+  "contour": {
+    "projectName": "KrinikCam",
+    "ownerName": "Криник",
+    "callName": "Криник",
+    "spokenProjectName": "Криник Кам",
+    "decisionsDir": "interviews/decisions",
+    "quietFrom": "23:00",
+    "quietTo": "09:00"
+  }
 }

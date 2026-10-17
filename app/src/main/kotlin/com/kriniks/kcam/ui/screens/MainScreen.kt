@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import com.kriniks.kcam.R
+import com.kriniks.kcam.BuildConfig
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import android.view.HapticFeedbackConstants
@@ -139,7 +140,13 @@ fun MainScreen(
     val cameraAspect by streamViewModel.cameraAspect.collectAsStateWithLifecycle()
     val cameraAspects by streamViewModel.cameraAspects.collectAsStateWithLifecycle()  // мульти-источники: аспект per-слой
     // plans/05 S4 — доступные источники для пикера в панели «Слои» (все встроенные + UVC + виртуалка).
-    val availableSources by deviceManager.availableSources.collectAsStateWithLifecycle()
+    val allSources by deviceManager.availableSources.collectAsStateWithLifecycle()
+    // Виртуальная камера «(отладка)» (Idea 09) — отладочный инструмент: в release (KCAM) её в пикере
+    // источников нет. Слово Криника 2026-10-17: «релизная сборка без дебаг меню и отладочных
+    // инструментов». [TESTED: 2026-10-17 · Titan release: «Источник видео» = Основная, Селфи, Нет источника —
+    // виртуалки нет; testcases/reports/2026-10-17_kcam_release_r8_signing.md]
+    val availableSources =
+        if (BuildConfig.DEBUG) allSources else allSources.filterNot { it is VideoSource.Virtual }
 
     // Idea 24 — для DeviceCameraOpener (Camera2) нужен Context.
     val appContext = LocalContext.current

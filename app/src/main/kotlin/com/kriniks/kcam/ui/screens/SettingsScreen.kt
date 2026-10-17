@@ -66,7 +66,9 @@ private val DarkBg = Color(0xFF0D0D0D)
 fun SettingsScreen(
     onBack: () -> Unit,
     fileLogger: FileLogger,
-    onOpenDeveloper: () -> Unit = {},   // long-press on "KrinikCam" → hidden Developer menu (Idea 07)
+    // long-press on "KrinikCam" → hidden Developer menu (Idea 07). null = жеста нет (release KCAM,
+    // слово Криника 2026-10-17 «без дебаг меню») — см. NavGraph. [TESTED: 2026-10-17 · см. NavGraph; testcases/reports/2026-10-17_kcam_release_r8_signing.md]
+    onOpenDeveloper: (() -> Unit)? = null,
     onOpenManual: () -> Unit = {},      // plans/06 — встроенное руководство пользователя
     streamViewModel: StreamViewModel = hiltViewModel(),
 ) {
@@ -194,6 +196,7 @@ fun SettingsScreen(
                     onClick = { showProjectInfo = true },
                     // Hidden entry (Idea 07): long-press opens the Developer menu. Discoverable only
                     // to those who know — normal users just tap for the project info dialog.
+                    // В release onOpenDeveloper == null → долгого нажатия нет (обычная строка).
                     onLongClick = onOpenDeveloper,
                 )
                 SettingsRow(
