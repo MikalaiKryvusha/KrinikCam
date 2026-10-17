@@ -22,6 +22,9 @@ val DarkSurface = Color(0xFF1A1A1A)
 val DarkSurfaceVariant = Color(0xFF2A2A2A)
 val DarkOnSurface = Color(0xFFF0F0F0)
 val DarkOnBackground = Color(0xFFF0F0F0)
+// [AI] [NOT-TESTED] Серый второстепенный текст: подписи строк, хинты полей, иконки-действия, «Отмена».
+// Значение дословно то, что экраны хардкодили как Color(0xFF888888) (~30 мест) — пиксели не меняются. [/AI]
+val TextSecondary = Color(0xFF888888)
 
 // --- Light theme (secondary, for settings screens) ---
 val LightBackground = Color(0xFFFAFAFA)

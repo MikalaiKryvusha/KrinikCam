@@ -32,6 +32,13 @@ const ROOT = resolve(__dirname, '..')
 const args = process.argv.slice(2)
 const isMajor = args.includes('--major')
 const isDryRun = args.includes('--dry-run')
+// --notes-file <path>: hand-written bilingual release notes (EN+RU, the owner's format since 2026-10-17)
+// instead of GitHub's auto-generated list. [NOT-TESTED] until the first release that uses it.
+const notesIdx = args.indexOf('--notes-file')
+const notesFile = notesIdx >= 0 ? resolve(process.cwd(), args[notesIdx + 1] || '') : null
+if (notesFile && !existsSync(notesFile)) { console.error(`
+❌ --notes-file not found: ${notesFile}
+`); process.exit(1) }
 const gradlew = process.platform === 'win32' ? 'gradlew.bat' : './gradlew'
 
 // --- Version (compute WITHOUT mutating, so --dry-run has NO side effect) ---
@@ -94,7 +101,7 @@ try {
   // --- GitHub Release ---
   console.log('\n📡 Creating GitHub Release...')
   execSync(
-    `gh release create ${tag} "${apkDest}" --title "KrinikCam ${vStr}" --generate-notes`,
+    `gh release create ${tag} "${apkDest}" --title "KrinikCam ${tag}" ${notesFile ? `--notes-file "${notesFile}"` : '--generate-notes'}`,
     { cwd: ROOT, stdio: 'inherit' }
   )
 

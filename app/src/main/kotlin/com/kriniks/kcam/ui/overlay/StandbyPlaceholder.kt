@@ -27,9 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-private val AcidPink = Color(0xFFFF1A8C)
-private val DarkBg = Color(0xFF0D0D0D)
+import com.kriniks.kcam.core.ui.theme.AcidPink
+import com.kriniks.kcam.core.ui.theme.DarkBackground
+import com.kriniks.kcam.core.ui.theme.TextSecondary
 
 // "Please stand by" in 5 major languages (Q6 answer)
 private val standbyLines = listOf(
@@ -58,7 +58,7 @@ fun StandbyPlaceholder(
     )
 
     Box(
-        modifier = modifier.background(DarkBg),
+        modifier = modifier.background(DarkBackground),
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -103,7 +103,7 @@ fun StandbyPlaceholder(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = message,
-                    color = Color(0xFF888888),
+                    color = TextSecondary,
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 32.dp),

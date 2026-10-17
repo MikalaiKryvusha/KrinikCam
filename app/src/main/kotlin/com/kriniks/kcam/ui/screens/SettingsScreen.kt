@@ -56,10 +56,10 @@ import com.kriniks.kcam.feature.streaming.ui.EncoderProfilesOverlay
 import com.kriniks.kcam.feature.streaming.ui.ImportReportDialog
 import com.kriniks.kcam.feature.streaming.ui.StreamPlatformsOverlay
 import com.kriniks.kcam.feature.streaming.ui.StreamViewModel
-
-private val AcidPink = Color(0xFFFF1A8C)
-private val DarkSurface = Color(0xFF1A1A1A)
-private val DarkBg = Color(0xFF0D0D0D)
+import com.kriniks.kcam.core.ui.theme.AcidPink
+import com.kriniks.kcam.core.ui.theme.DarkSurface
+import com.kriniks.kcam.core.ui.theme.DarkBackground
+import com.kriniks.kcam.core.ui.theme.TextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,10 +109,10 @@ fun SettingsScreen(
                         Icon(Icons.Default.ArrowBack, stringResource(R.string.action_back), tint = Color.White)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground),
             )
         },
-        containerColor = DarkBg,
+        containerColor = DarkBackground,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -281,7 +281,7 @@ private fun LanguageDialog(current: String?, onSelect: (String?) -> Unit, onDism
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1A1A1A),
+        containerColor = DarkSurface,
         title = { Text(stringResource(R.string.settings_language), color = Color.White) },
         text = {
             Column {
@@ -293,7 +293,7 @@ private fun LanguageDialog(current: String?, onSelect: (String?) -> Unit, onDism
                         RadioButton(
                             selected = current == tag,
                             onClick = { onSelect(tag) },
-                            colors = RadioButtonDefaults.colors(selectedColor = Color(0xFFFF1A8C)),
+                            colors = RadioButtonDefaults.colors(selectedColor = AcidPink),
                         )
                         Text(stringResource(res), color = Color.White)
                     }
@@ -444,7 +444,7 @@ private fun SettingsRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 if (subtitle != null) {
-                    Text(subtitle, color = Color(0xFF888888), fontSize = 12.sp)
+                    Text(subtitle, color = TextSecondary, fontSize = 12.sp)
                 }
                 // Optional second gray aux line (e.g. build identity under "KrinikCam").
                 if (subtitle2 != null) {
@@ -506,7 +506,7 @@ private fun ProjectInfoDialog(buildInfo: String, onDismiss: () -> Unit) {
                     stringResource(R.string.about_description),
                     color = Color(0xFFBBBBBB), fontSize = 13.sp,
                 )
-                Text(stringResource(R.string.dialog_license), color = Color(0xFF888888), fontSize = 12.sp)
+                Text(stringResource(R.string.dialog_license), color = TextSecondary, fontSize = 12.sp)
                 Text(buildInfo, color = Color(0xFF666666), fontSize = 11.sp)
                 LinkRow(Icons.Default.Code, "github.com/MikalaiKryvusha/KrinikCam") {
                     openUrl(context, "https://github.com/MikalaiKryvusha/KrinikCam")
@@ -536,7 +536,7 @@ private fun AuthorInfoDialog(onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 // Russian aux line only.
-                Text(stringResource(R.string.author_ru), color = Color(0xFF888888), fontSize = 12.sp)
+                Text(stringResource(R.string.author_ru), color = TextSecondary, fontSize = 12.sp)
                 Spacer(Modifier.height(4.dp))
                 LinkRow(Icons.Default.Code, "GitHub — Mikalai Kryvusha") {
                     openUrl(context, "https://github.com/MikalaiKryvusha")

@@ -176,6 +176,17 @@ private const val RECORD_START_WARN_MS = 5000L
 private const val KEYFRAME_NUDGE_ATTEMPTS = 12
 private const val KEYFRAME_NUDGE_INTERVAL_MS = 150L
 
+// [AI] [NOT-TESTED] Ожидание готовности GL-конвейера (бывшие литералы 50/3000/5000/1200 в
+// scheduleVideoSourceRetryIfNeeded / schedulePreviewRestoreAfterStream — значения те же). [/AI]
+// Шаг опроса gl.isRunning / живого кадра камеры.
+private const val GL_POLL_INTERVAL_MS = 50L
+// Сколько ждём GL после startPreview, чтобы перецепить композитор (иначе — сдаёмся с warn в лог).
+private const val GL_READY_RETRY_TIMEOUT_MS = 3_000L
+// Сколько ждём GL после старта эфира/записи, чтобы вернуть живое превью.
+private const val GL_READY_PREVIEW_RESTORE_TIMEOUT_MS = 5_000L
+// Кап ожидания первого живого кадра камеры перед re-attach превью (#3 Криника — не цепляться на чёрный).
+private const val LIVE_FRAME_WAIT_CAP_MS = 1_200L
+
 // plans/20 — страховка: сироты-продюсеры уходящей сцены не живут дольше, чем кап удержания
 // (3с в композиторе) + длительность эффекта + запас. Если переход почему-то не доиграл — гасим сами.
 private const val TRANSITION_WATCHDOG_BASE_MS = 3500L
@@ -1387,10 +1398,10 @@ class RtmpStreamer @Inject constructor(
         if (stream.getGlInterface().isRunning) return  // already up, no retry needed
         scope.launch {
             val gl = stream.getGlInterface()
-            var waited = 0
-            while (!gl.isRunning && waited < 3000) {
-                delay(50)
-                waited += 50
+            var waited = 0L
+            while (!gl.isRunning && waited < GL_READY_RETRY_TIMEOUT_MS) {
+                delay(GL_POLL_INTERVAL_MS)
+                waited += GL_POLL_INTERVAL_MS
             }
             if (gl.isRunning) {
                 KLog.d(TAG, "GL ready after ${waited}ms — re-triggering compositor source")
@@ -1401,7 +1412,7 @@ class RtmpStreamer @Inject constructor(
                     KLog.e(TAG, "Failed to re-trigger compositor after GL ready", e)
                 }
             } else {
-                KLog.w(TAG, "GL still not running after 3000ms — giving up")
+                KLog.w(TAG, "GL still not running after ${GL_READY_RETRY_TIMEOUT_MS}ms — giving up")
             }
         }
     }
@@ -1415,18 +1426,20 @@ class RtmpStreamer @Inject constructor(
     private fun schedulePreviewRestoreAfterStream(stream: MultiStream) {
         scope.launch {
             val gl = stream.getGlInterface()
-            var waited = 0
-            while (!gl.isRunning && waited < 5000) {
-                delay(50)
-                waited += 50
+            var waited = 0L
+            while (!gl.isRunning && waited < GL_READY_PREVIEW_RESTORE_TIMEOUT_MS) {
+                delay(GL_POLL_INTERVAL_MS)
+                waited += GL_POLL_INTERVAL_MS
             }
             // #3 (Криник) — ждём ПЕРВЫЙ живой кадр камеры перед re-attach превью, чтобы оно не цеплялось
             // на ЧЁРНЫЙ кадр (после go-live композитор реинитит GL → снапшот чёрный, пока камера-продюсер
             // не переоткрылся). Интермиттентное мигание в чёрный на старте эфира. Кап 1200мс — не зависаем,
             // если источник не отдаёт кадры (тогда цепляемся как раньше). TextureView держит последний кадр
             // пока превью отцеплено, поэтому ожидание не показывает чёрного — только оттягивает live-картинку.
-            var wf = 0
-            while (!compositorSource.hasLiveCameraContent() && wf < 1200) { delay(50); wf += 50 }
+            var wf = 0L
+            while (!compositorSource.hasLiveCameraContent() && wf < LIVE_FRAME_WAIT_CAP_MS) {
+                delay(GL_POLL_INTERVAL_MS); wf += GL_POLL_INTERVAL_MS
+            }
             KLog.d(TAG, "schedulePreviewRestoreAfterStream: GL ${if (gl.isRunning) "ready" else "NOT ready"} after ${waited}ms, live-frame wait ${wf}ms")
             val tv = lastPreviewTextureView?.get()
             if (tv != null && gl.isRunning && !stream.isOnPreview) {

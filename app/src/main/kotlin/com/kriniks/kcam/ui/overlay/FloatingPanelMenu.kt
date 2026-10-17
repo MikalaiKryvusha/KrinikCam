@@ -34,9 +34,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kriniks.kcam.core.ui.theme.AcidPink
 
 // Акцент приложения + полупрозрачная подложка ряда (как ItemBg в StreamLayersOverlay).
-private val PanelAccent = Color(0xFFFF1A8C)
+private val PanelAccent = AcidPink
 private val ItemBg = Color(0x66151515)
 private val InfoSubtitle = Color(0xFFB0B0B0)
 

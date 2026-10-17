@@ -44,9 +44,8 @@ import com.kriniks.kcam.ui.sessionBadgeRes   // bug 79 — один источн
 import com.kriniks.kcam.feature.streaming.model.StreamState
 import com.kriniks.kcam.feature.streaming.model.isActive   // bug 45 — «Стоп» и в фазе подготовки
 import com.kriniks.kcam.feature.streaming.model.isLive
-
-private val AcidPink = Color(0xFFFF1A8C)
-private val LiveRed = Color(0xFFFF1A1A)
+import com.kriniks.kcam.core.ui.theme.AcidPink
+import com.kriniks.kcam.core.ui.theme.StreamLive
 
 @Composable
 fun FloatingActionMenu(
@@ -76,7 +75,7 @@ fun FloatingActionMenu(
                 if (streamState.isActive) {
                     PanelActionRow(
                         Icons.Default.StopCircle, stringResource(R.string.fab_stop),
-                        onClick = { onStopStream(); expanded = false }, accent = LiveRed, primary = true,
+                        onClick = { onStopStream(); expanded = false }, accent = StreamLive, primary = true,
                     )
                 } else {
                     PanelActionRow(
@@ -86,7 +85,7 @@ fun FloatingActionMenu(
                     // idea 17 — запись доступна вне эфира.
                     PanelActionRow(
                         Icons.Default.FiberManualRecord, stringResource(R.string.fab_record),
-                        onClick = { onRecord(); expanded = false }, tint = LiveRed,
+                        onClick = { onRecord(); expanded = false }, tint = StreamLive,
                     )
                 }
                 // idea 17 — фото композита (и в эфире).
@@ -102,7 +101,7 @@ fun FloatingActionMenu(
         }
 
         // Главный FAB — всегда виден, внизу-справа, ПОВЕРХ скрима (тап по нему = свернуть/развернуть).
-        val fabColor = if (streamState.isLive) LiveRed else AcidPink
+        val fabColor = if (streamState.isLive) StreamLive else AcidPink
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)

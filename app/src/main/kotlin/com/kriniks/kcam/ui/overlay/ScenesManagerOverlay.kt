@@ -40,6 +40,7 @@ import com.kriniks.kcam.R
 import com.kriniks.kcam.feature.streaming.scene.SceneProfileMeta
 // plans/18 Ф2 — тип перехода сцены (модалка редактирования).
 import com.kriniks.kcam.feature.streaming.scene.SceneTransition
+import com.kriniks.kcam.core.ui.theme.AcidPink
 
 // Пресеты длительности перехода: быстрый / средний / плавный. Ручной ввод не нужен — Криник выбирает
 // тапом, а границы всё равно зажимает репозиторий (SCENE_TRANSITION_MIN/MAX_MS).
@@ -65,7 +66,7 @@ private fun transitionLabel(t: SceneTransition): String = stringResource(
 private fun scenesChipColors() = FilterChipDefaults.filterChipColors(
     containerColor = Color(0x66151515),
     labelColor = Color(0xCCFFFFFF),
-    selectedContainerColor = Color(0xFFFF1A8C),
+    selectedContainerColor = AcidPink,
     selectedLabelColor = Color.White,
 )
 
@@ -75,7 +76,7 @@ private fun scenesChipBorder(selected: Boolean) =
     if (selected) null
     else androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FF1A8C))
 
-private val ScenesAccent = Color(0xFFFF1A8C)
+private val ScenesAccent = AcidPink
 private val ScenesItemBg = Color(0x66151515)
 private val ScenesActiveBg = Color(0x33FF1A8C)   // активная сцена — лёгкая акцентная подложка
 

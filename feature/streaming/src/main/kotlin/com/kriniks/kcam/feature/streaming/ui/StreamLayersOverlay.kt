@@ -52,11 +52,12 @@ import com.kriniks.kcam.feature.streaming.scene.Scene
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.kriniks.kcam.core.ui.theme.AcidPink
+import com.kriniks.kcam.core.ui.theme.DarkSurface
+import com.kriniks.kcam.core.ui.theme.TextSecondary
 
-private val AcidPink = Color(0xFFFF1A8C)
 // Мягкий розовый для подписи-источника 2-й строкой (правка Криника) — приглушённый, не кислотный.
 private val SoftPink = Color(0xFFE68FB4)
-private val DarkSurface = Color(0xFF1A1A1A)
 // Полупрозрачные подложки пунктов — сквозь них видно превью (interview_008 Q2). Прозрачности дано
 // больше (указание Криника): свёрнутый ~40% непрозрачности, раскрытый плотнее для читаемости кнопок.
 private val ItemBg = Color(0x66151515)
@@ -349,7 +350,7 @@ private fun LayerItem(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         layer.name,
-                        color = if (layer.visible) Color.White else Color(0xFF888888),
+                        color = if (layer.visible) Color.White else TextSecondary,
                         fontSize = 14.sp,
                         lineHeight = 15.sp,
                     )
@@ -367,7 +368,7 @@ private fun LayerItem(
                 Icon(
                     if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = null,
-                    tint = Color(0xFF888888),
+                    tint = TextSecondary,
                 )
             }
 
@@ -384,7 +385,7 @@ private fun LayerItem(
                         Icon(
                             if (layer.visible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                             contentDescription = stringResource(R.string.layer_visibility_desc),
-                            tint = if (layer.visible) AcidPink else Color(0xFF888888),
+                            tint = if (layer.visible) AcidPink else TextSecondary,
                         )
                     }
                     // Z-порядок: вверх/вниз (interview_008 Q4=B — две стрелки).

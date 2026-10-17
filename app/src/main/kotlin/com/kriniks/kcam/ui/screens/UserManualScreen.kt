@@ -32,10 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kriniks.kcam.R
 import kotlinx.coroutines.launch
-
-private val AcidPink = Color(0xFFFF1A8C)
-private val DarkSurface = Color(0xFF1A1A1A)
-private val DarkBg = Color(0xFF0D0D0D)
+import com.kriniks.kcam.core.ui.theme.AcidPink
+import com.kriniks.kcam.core.ui.theme.DarkSurface
+import com.kriniks.kcam.core.ui.theme.DarkBackground
 
 /** Один раздел руководства: заголовок + абзацы/тезисы (строки, показываются списком). */
 private data class ManualSection(val title: String, val body: List<String>)
@@ -79,10 +78,10 @@ fun UserManualScreen(onBack: () -> Unit) {
                         Icon(Icons.Default.ArrowBack, stringResource(R.string.action_back), tint = Color.White)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground),
             )
         },
-        containerColor = DarkBg,
+        containerColor = DarkBackground,
     ) { padding ->
         // Элемент 0 = шапка+оглавление; далее по одному элементу на раздел (индекс раздела i → item i+1).
         LazyColumn(

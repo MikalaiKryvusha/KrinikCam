@@ -83,8 +83,9 @@ import com.kriniks.kcam.ui.sessionBadgeRes   // bug 79 — один источн
 import com.kriniks.kcam.ui.overlay.FloatingActionMenu
 import com.kriniks.kcam.ui.overlay.RotationMenu
 import com.kriniks.kcam.ui.overlay.ScenesManagerOverlay
-
-private val LiveRed = Color(0xFFFF1A1A)
+import com.kriniks.kcam.core.ui.theme.TextSecondary
+import com.kriniks.kcam.core.ui.theme.StreamLive
+import com.kriniks.kcam.core.ui.theme.AcidPink
 
 /**
  * plans/03 S5/S7 — хиттест слоя под экранной точкой ([px],[py] в пикселях вью [w]×[h]). Переводит
@@ -418,7 +419,7 @@ fun MainScreen(
                     // Рамкой обводим повёрнутый прямоугольник (полигон), а не axis-aligned габарит.
                     for (i in pts.indices) {
                         drawLine(
-                            color = Color(0xFFFF1A8C),
+                            color = AcidPink,
                             start = pts[i], end = pts[(i + 1) % pts.size],
                             strokeWidth = 4f,
                         )
@@ -574,7 +575,7 @@ fun MainScreen(
         SmallFloatingActionButton(
             onClick = { showLayersOverlay = true },
             containerColor = Color(0xFF232323),
-            contentColor = Color(0xFFFF1A8C),
+            contentColor = AcidPink,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(16.dp),
@@ -587,7 +588,7 @@ fun MainScreen(
         SmallFloatingActionButton(
             onClick = { showScenesOverlay = true },
             containerColor = Color(0xFF232323),
-            contentColor = Color(0xFFFF1A8C),
+            contentColor = AcidPink,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = 76.dp, bottom = 16.dp),
@@ -766,7 +767,7 @@ private fun StreamStatusWidget(state: StreamState, encoderSummary: String?) {
     ) {
         // ── Шапка — скруглённая пилюля (кислый красный), во всю ширину виджета, ПОВЕРХ выпадайки (zIndex) ──
         Surface(
-            color = LiveRed, shape = RoundedCornerShape(8.dp),
+            color = StreamLive, shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth().zIndex(1f),
         ) {
             Row(
@@ -951,7 +952,7 @@ private fun outputColor(phase: OutputPhase, congested: Boolean): Color = when (p
     OutputPhase.Live -> if (congested) Color(0xFFFFD600) else Color(0xFF00E676)
     OutputPhase.Connecting -> Color(0xFFFFD600)
     OutputPhase.Reconnecting, OutputPhase.Failed -> Color(0xFFFF1744)
-    OutputPhase.Stopped -> Color(0xFF888888)
+    OutputPhase.Stopped -> TextSecondary
 }
 
 @Composable

@@ -41,9 +41,11 @@ import com.kriniks.kcam.data.profiles.model.AudioChannelMode
 import com.kriniks.kcam.data.profiles.model.EncoderProfile
 import com.kriniks.kcam.data.profiles.model.VideoCodec
 import com.kriniks.kcam.feature.streaming.R
+import com.kriniks.kcam.core.ui.theme.AcidPink
+import com.kriniks.kcam.core.ui.theme.DarkSurface
+import com.kriniks.kcam.core.ui.theme.TextSecondary
+import com.kriniks.kcam.core.ui.theme.DarkSurfaceVariant
 
-private val AcidPink = Color(0xFFFF1A8C)
-private val DarkSurface = Color(0xFF1A1A1A)
 private val DropdownSurface = Color(0xFF3A3A3A)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -131,7 +133,7 @@ fun EncoderProfilesOverlay(
 
             if (profiles.isEmpty()) {
                 Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.encoder_profiles_empty), color = Color(0xFF888888), fontSize = 14.sp)
+                    Text(stringResource(R.string.encoder_profiles_empty), color = TextSecondary, fontSize = 14.sp)
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -189,11 +191,11 @@ private fun EncoderProfileCard(profile: EncoderProfile, onEdit: () -> Unit, onDe
                     "${profile.videoWidth}x${profile.videoHeight} · ${profile.videoFps}fps · " +
                         "%.1f Mbit · ${profile.videoCodec.displayName} · ${profile.audioChannelMode.displayName}"
                             .format(profile.videoBitrateBps / 1_000_000f),
-                    color = Color(0xFF888888), fontSize = 12.sp,
+                    color = TextSecondary, fontSize = 12.sp,
                 )
             }
             IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.profile_edit_desc), tint = Color(0xFF888888))
+                Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.profile_edit_desc), tint = TextSecondary)
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.profile_delete_desc), tint = Color(0xFF555555))
@@ -263,7 +265,7 @@ private fun EncoderProfileEditDialog(
                     Checkbox(adaptive, { adaptive = it }, colors = CheckboxDefaults.colors(checkedColor = AcidPink))
                     Column {
                         Text(stringResource(R.string.field_adaptive_bitrate), color = Color.White, fontSize = 14.sp)
-                        Text(stringResource(R.string.field_adaptive_bitrate_hint), color = Color(0xFF888888), fontSize = 11.sp)
+                        Text(stringResource(R.string.field_adaptive_bitrate_hint), color = TextSecondary, fontSize = 11.sp)
                     }
                 }
                 // Р7 — пол адаптива. Показываем ТОЛЬКО при включённом адаптиве: без него величина не
@@ -281,7 +283,7 @@ private fun EncoderProfileEditDialog(
                     SampleRateDropdown(sampleRate, Modifier.weight(1f)) { sampleRate = it }
                 }
                 // Режим каналов: Стерео / Моно / Объединённое стерео (bug 44).
-                Text(stringResource(R.string.field_channel_mode), color = Color(0xFF888888), fontSize = 12.sp)
+                Text(stringResource(R.string.field_channel_mode), color = TextSecondary, fontSize = 12.sp)
                 ChannelModeSelector(channelMode) { channelMode = it }
             }
         },
@@ -308,7 +310,7 @@ private fun EncoderProfileEditDialog(
             ) { Text(stringResource(R.string.common_save)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color(0xFF888888)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = TextSecondary) }
         },
     )
 }
@@ -340,7 +342,7 @@ private fun ResolutionDropdown(width: Int, height: Int, modifier: Modifier = Mod
     ExposedDropdownMenuBox(expanded, { expanded = it }, modifier) {
         OutlinedTextField(
             value = "${width}×${height}", onValueChange = {}, readOnly = true,
-            label = { Text(stringResource(R.string.field_resolution), color = Color(0xFF888888)) },
+            label = { Text(stringResource(R.string.field_resolution), color = TextSecondary) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
@@ -366,7 +368,7 @@ private fun BitratePicker(
     onPreset: (Int) -> Unit, onCustomToggle: () -> Unit, onCustomMbps: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(stringResource(R.string.field_video_bitrate), color = Color(0xFF888888), fontSize = 12.sp)
+        Text(stringResource(R.string.field_video_bitrate), color = TextSecondary, fontSize = 12.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             BITRATE_PRESETS.forEach { p ->
                 FilterChip(selected = !custom && bitrateBps == p.bps, onClick = { onPreset(p.bps) },
@@ -389,7 +391,7 @@ private fun CodecDropdown(selected: VideoCodec, options: List<VideoCodec>, onSel
     ExposedDropdownMenuBox(expanded, { expanded = it }) {
         OutlinedTextField(
             value = selected.displayName, onValueChange = {}, readOnly = true,
-            label = { Text(stringResource(R.string.field_codec), color = Color(0xFF888888)) },
+            label = { Text(stringResource(R.string.field_codec), color = TextSecondary) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
@@ -411,7 +413,7 @@ private fun AudioBitrateDropdown(selected: Int, modifier: Modifier = Modifier, o
     ExposedDropdownMenuBox(expanded, { expanded = it }, modifier) {
         OutlinedTextField(
             value = "${selected / 1000} kbps", onValueChange = {}, readOnly = true,
-            label = { Text(stringResource(R.string.field_audio_bitrate), color = Color(0xFF888888)) },
+            label = { Text(stringResource(R.string.field_audio_bitrate), color = TextSecondary) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
@@ -436,7 +438,7 @@ private fun MinBitrateDropdown(selected: Int, modifier: Modifier = Modifier, onS
     ExposedDropdownMenuBox(expanded, { expanded = it }, modifier) {
         OutlinedTextField(
             value = "${selected / 1000} kbps", onValueChange = {}, readOnly = true,
-            label = { Text(stringResource(R.string.field_min_video_bitrate), color = Color(0xFF888888)) },
+            label = { Text(stringResource(R.string.field_min_video_bitrate), color = TextSecondary) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
@@ -458,7 +460,7 @@ private fun SampleRateDropdown(selected: Int, modifier: Modifier = Modifier, onS
     ExposedDropdownMenuBox(expanded, { expanded = it }, modifier) {
         OutlinedTextField(
             value = "$selected Hz", onValueChange = {}, readOnly = true,
-            label = { Text(stringResource(R.string.field_sample_rate), color = Color(0xFF888888)) },
+            label = { Text(stringResource(R.string.field_sample_rate), color = TextSecondary) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
@@ -495,7 +497,7 @@ private fun KcamTextField(
 ) {
     OutlinedTextField(
         value = value, onValueChange = onValueChange,
-        label = { Text(label, color = Color(0xFF888888)) }, singleLine = true,
+        label = { Text(label, color = TextSecondary) }, singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         colors = kcamTextFieldColors(), modifier = modifier,
     )
@@ -509,7 +511,7 @@ private fun kcamTextFieldColors() = OutlinedTextFieldDefaults.colors(
 
 @Composable
 private fun kcamChipColors() = FilterChipDefaults.filterChipColors(
-    containerColor = Color(0xFF2A2A2A), labelColor = Color(0xFFBBBBBB),
+    containerColor = DarkSurfaceVariant, labelColor = Color(0xFFBBBBBB),
     selectedContainerColor = AcidPink, selectedLabelColor = Color.White,
 )
 

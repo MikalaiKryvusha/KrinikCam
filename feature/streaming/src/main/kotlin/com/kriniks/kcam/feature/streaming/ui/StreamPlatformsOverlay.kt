@@ -45,9 +45,11 @@ import com.kriniks.kcam.data.profiles.model.StreamProfile
 import com.kriniks.kcam.feature.streaming.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.kriniks.kcam.core.ui.theme.AcidPink
+import com.kriniks.kcam.core.ui.theme.DarkSurface
+import com.kriniks.kcam.core.ui.theme.TextSecondary
+import com.kriniks.kcam.core.ui.theme.DarkSurfaceVariant
 
-private val AcidPink = Color(0xFFFF1A8C)
-private val DarkSurface = Color(0xFF1A1A1A)
 // Dropdown popup needs a LIGHTER surface than the sheet/cards behind it, otherwise the open menu
 // blends into the background and reads as low-contrast.
 private val DropdownSurface = Color(0xFF3A3A3A)
@@ -160,7 +162,7 @@ fun StreamPlatformsOverlay(
             // ── Profile list ──────────────────────────────────────────
             if (profiles.isEmpty()) {
                 Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.platforms_empty), color = Color(0xFF888888), fontSize = 14.sp)
+                    Text(stringResource(R.string.platforms_empty), color = TextSecondary, fontSize = 14.sp)
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -233,7 +235,7 @@ private fun PlatformCard(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val borderColor = if (isActive) AcidPink else Color(0xFF2A2A2A)
+    val borderColor = if (isActive) AcidPink else DarkSurfaceVariant
     Card(
         onClick = onSelect,
         colors = CardDefaults.cardColors(containerColor = Color(0xFF232323)),
@@ -249,14 +251,14 @@ private fun PlatformCard(
                 Text(profile.name, color = Color.White, fontWeight = FontWeight.SemiBold)
                 // Платформа · привязанный профиль кодера (plans/14).
                 Text("${profile.platform.displayName}  ·  $encoderName",
-                    color = Color(0xFF888888), fontSize = 12.sp)
+                    color = TextSecondary, fontSize = 12.sp)
             }
             Switch(
                 checked = profile.isEnabled, onCheckedChange = { onToggle() },
                 colors = SwitchDefaults.colors(checkedThumbColor = AcidPink, checkedTrackColor = AcidPink.copy(alpha = 0.4f)),
             )
             IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.profile_edit_desc), tint = Color(0xFF888888))
+                Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.profile_edit_desc), tint = TextSecondary)
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.profile_delete_desc), tint = Color(0xFF555555))
@@ -311,7 +313,7 @@ private fun ProfileEditDialog(
 
                 OutlinedTextField(
                     value = streamKey, onValueChange = { streamKey = it },
-                    label = { Text(stringResource(R.string.field_stream_key), color = Color(0xFF888888)) },
+                    label = { Text(stringResource(R.string.field_stream_key), color = TextSecondary) },
                     singleLine = true,
                     visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -346,7 +348,7 @@ private fun ProfileEditDialog(
             ) { Text(stringResource(R.string.common_save)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color(0xFF888888)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = TextSecondary) }
         },
     )
 }
@@ -360,7 +362,7 @@ private fun EncoderProfilePicker(profiles: List<EncoderProfile>, selectedId: Lon
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = selectedName, onValueChange = {}, readOnly = true,
-            label = { Text(stringResource(R.string.field_codec_profile), color = Color(0xFF888888)) },
+            label = { Text(stringResource(R.string.field_codec_profile), color = TextSecondary) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
@@ -380,7 +382,7 @@ private fun PlatformDropdown(selected: StreamPlatform, onSelect: (StreamPlatform
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = selected.displayName, onValueChange = {}, readOnly = true,
-            label = { Text(stringResource(R.string.field_platform), color = Color(0xFF888888)) },
+            label = { Text(stringResource(R.string.field_platform), color = TextSecondary) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             colors = kcamTextFieldColors(), modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
@@ -397,7 +399,7 @@ private fun PlatformDropdown(selected: StreamPlatform, onSelect: (StreamPlatform
 private fun KcamTextField(label: String, value: String, modifier: Modifier = Modifier.fillMaxWidth(), onValueChange: (String) -> Unit) {
     OutlinedTextField(
         value = value, onValueChange = onValueChange,
-        label = { Text(label, color = Color(0xFF888888)) }, singleLine = true,
+        label = { Text(label, color = TextSecondary) }, singleLine = true,
         colors = kcamTextFieldColors(), modifier = modifier,
     )
 }

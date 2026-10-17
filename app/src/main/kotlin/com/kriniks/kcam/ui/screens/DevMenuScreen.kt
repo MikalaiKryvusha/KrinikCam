@@ -34,10 +34,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kriniks.kcam.R
 import com.kriniks.kcam.dev.DevSettings
-
-private val AcidPink = Color(0xFFFF1A8C)
-private val DarkSurface = Color(0xFF1A1A1A)
-private val DarkBg = Color(0xFF0D0D0D)
+import com.kriniks.kcam.core.ui.theme.AcidPink
+import com.kriniks.kcam.core.ui.theme.DarkSurface
+import com.kriniks.kcam.core.ui.theme.DarkBackground
+import com.kriniks.kcam.core.ui.theme.TextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,10 +62,10 @@ fun DevMenuScreen(
                         Icon(Icons.Default.ArrowBack, stringResource(R.string.action_back), tint = Color.White)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground),
             )
         },
-        containerColor = DarkBg,
+        containerColor = DarkBackground,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -171,7 +171,7 @@ private fun DevToggleRow(
     ) {
         Text(title, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
         IconButton(onClick = { showInfo = true }, modifier = Modifier.size(28.dp)) {
-            Icon(Icons.Default.Info, contentDescription = stringResource(R.string.action_info), tint = Color(0xFF888888))
+            Icon(Icons.Default.Info, contentDescription = stringResource(R.string.action_info), tint = TextSecondary)
         }
         Switch(
             checked = checked,

@@ -36,8 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kriniks.kcam.R
-
-private val AcidPink = Color(0xFFFF1A8C)
+import com.kriniks.kcam.core.ui.theme.AcidPink
 
 // The four supported angles, shown top→bottom under the rotation FAB.
 private val ROTATION_ANGLES = listOf(0, 90, 180, 270)
