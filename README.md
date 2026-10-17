@@ -1,264 +1,409 @@
-# KrinikCam
-
-[![Build](https://github.com/MikalaiKryvusha/KrinikCam/actions/workflows/build.yml/badge.svg)](https://github.com/MikalaiKryvusha/KrinikCam/actions/workflows/build.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-FF1A8C.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Android%2013%2B-3DDC84.svg)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF.svg)](https://kotlinlang.org)
-[![Version](https://img.shields.io/badge/Version-0.8-FF1A8C.svg)](https://github.com/MikalaiKryvusha/KrinikCam/releases)
-[![Framework: KAIF 2.9](https://img.shields.io/badge/Framework-KAIF%202.9-6E56CF.svg)](https://github.com/MikalaiKryvusha/KAIF)
-
 <a name="english"></a>
-**English** · [Русский](#русский)
 
-**An open-source Android app for streamers and bloggers — a mobile OBS.**  
-Plug in a USB webcam via OTG (or use the device's built-in cameras) → compose a scene from layers → go live on YouTube, Instagram, Twitch, or TikTok.
+<h1 align="center">KrinikCam</h1>
 
-> **Status:** Active development · Phase 1 ✅ USB preview · Phase 2 ✅ RTMP confirmed on device (portrait + landscape) · **Phase 3 ✅ GL compositor "camera = layer" is the default pipeline** — multi-source scene with **multiple independent camera feeds** and **feed sharing** (one camera on several layers, OBS-style), encoder profiles (H.264/HEVC/AV1), adaptive bitrate + live telemetry, record to gallery
+<p align="center">
+  <a href="#english"><img src="https://img.shields.io/badge/English-2C7BE5?style=for-the-badge" alt="English"></a>
+  &nbsp;
+  <a href="#russian"><img src="https://img.shields.io/badge/Русский-C0392B?style=for-the-badge" alt="Русский"></a>
+</p>
 
----
+<!-- tagline: from GOAL.md («аналог OBS для мобильных устройств на базе Android») -->
+<p align="center"><b>A mobile OBS for Android</b><br>
+Open source · For streamers and bloggers · Short name: KCam</p>
 
-## Features
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-FF1A8C.svg" alt="License: MIT"></a>
+  <a href="#en-4"><img src="https://img.shields.io/badge/platform-Android_13%2B_·_64--bit-3DDC84.svg" alt="platform: Android 13+, 64-bit"></a>
+  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-Compose-7F52FF.svg" alt="Kotlin + Compose"></a>
+  <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases/latest"><img src="https://img.shields.io/badge/release-0.9-FF1A8C.svg" alt="release: 0.9"></a>
+  <a href="https://github.com/MikalaiKryvusha/KAIF"><img src="https://img.shields.io/badge/Framework-KAIF%202.9-6E56CF.svg" alt="Framework: KAIF 2.9"></a>
+</p>
 
-| Feature | Status |
-|---------|--------|
-| USB webcam preview (UVC, any brand) | ✅ Phase 1 |
-| Fullscreen viewfinder (radial FAB menu) | ✅ Phase 1 |
-| Stream profiles (Room DB + DataStore) | ✅ Phase 1 |
-| Hardware codec scanner (H.264 / HEVC / AV1) | ✅ Phase 1 |
-| File-based debug logger (shareable logs) | ✅ Phase 1 |
-| RTMP stream to YouTube / Twitch / custom | ✅ Phase 2 |
-| "Please stand by" frame on camera disconnect | ✅ Phase 2 |
-| Re-grant camera / mic permissions from Settings | ✅ Phase 2 |
-| Import / export stream profiles (JSON) | ✅ Phase 2 |
-| USB permission — remember device (no re-ask) | ✅ Phase 2 |
-| **GL compositor "camera = layer" (mobile OBS)** | ✅ Phase 3 default |
-| Manual canvas rotation (0° / 90° / 180° / 270°) + per-layer content rotation | ✅ Phase 3 |
-| Multi-source scene layers (camera + image overlays, z-order, visibility) | ✅ Phase 3 |
-| Layer gestures — drag / pinch-zoom / two-finger rotate + magnetic snap | ✅ Phase 3 |
-| Built-in device cameras as a source (Camera2, correct orientation & aspect) | ✅ Phase 3 |
-| Vertical layer menu (per-layer settings dialog, source label) | ✅ Phase 3 |
-| Built-in User Manual (Settings) | ✅ Phase 3 |
-| **Multiple independent camera feeds** on separate layers (UVC + selfie at once) | ✅ v0.8 |
-| **Feed sharing** — one camera on several layers (OBS-style "duplicate source", PiP) | ✅ v0.8 |
-| Source picker modal when adding a video layer + per-layer source selection | ✅ v0.8 |
-| **Scene profiles** — named scenes, save/restore across restart, switch, duplicate, rename (manager panel) | ✅ v0.8 |
-| **Scene transitions** — per-scene effect played when the scene is switched on: instant / fade / slide, duration 0.2–1.5 s (chosen in the scene editing dialog) | ✅ v0.8 |
-| The outgoing scene stays **live** during a transition — its cameras keep streaming until the effect finishes (a built-in camera freezes instead, since the SoC cannot run two at once) | ✅ v0.8 |
-| No black frame on scene switch — the last frame of the previous scene is held until the new scene actually produces an image | ✅ v0.8 |
-| Honest recording indicator — “PREPARING” until the first frame is really written; the badge and timer start at the real start. The badge says **FILE** while recording to the device and **LIVE** while broadcasting, so one glance tells the two apart | ✅ v0.8 |
-| **Encoder profiles** — separate manager (H.264 / HEVC / AV1, bitrate in Mbps, stereo / mono / joined audio) | ✅ v0.7 |
-| **Adaptive bitrate** + live stream telemetry (health badge, −20% on congestion / +20% recovery from the current rate, paused for 10 s after every drop) | ✅ v0.7, reworked in 0.8-dev |
-| **Record composite to gallery** (DCIM/KrinikCam .mp4) + photo capture | ✅ v0.7 |
-| Manual UI language + "follow system" (EN / RU) | ✅ v0.7 |
-| Simultaneous multi-platform streaming (YouTube + Instagram…) | ✅ engine stabilized — per-output failure isolation + auto-reconnect (backoff); live multi-key check pending |
-| **A broadcast ends only when you stop it** — unlimited reconnection with jittered backoff, the foreground service survives the outage, loud on-screen and notification status ("off air 00:28 · try 7") | ✅ v0.8 — verified live: a 3-minute outage, the stream came back on its own |
-| **Adaptive bitrate floor is configurable** — the minimum video bitrate lives in the encoder profile (default 250 kbps, presets 150…1000). The previous hard-coded 1 Mbps floor was above the capacity of a poor 3G uplink, so the stream stalled instead of degrading | ✅ **0.8-dev, not yet in the v0.8 release** — verified on the test rig: the outgoing bitrate settles at 373–404 kbps (≈250 video + 128 audio) with zero dropped frames. **Measured on a real narrow uplink too** (450 kbps through a throttle, live camera): the stream stops breaking after two reconnects and holds |
-| **Stalled-sender watchdog** — a frozen socket (the receiver keeps the connection but stops reading) is turned into a reconnect instead of a silent "green LIVE" that used to last for minutes while the whole stream was lost | ✅ **0.8-dev, not yet in the v0.8 release** — verified on a frozen ingest: ~14 s from the receiver freezing to the reconnect (a 6-second stall threshold counted from the moment the sender counters stop moving), self-recovery 3 s after the receiver returned |
-| Screen stays on while live (keep-screen-on) | ✅ v0.7 |
-| **Background streaming** — Foreground Service (stream survives screen-off / app in background) + wake lock | ✅ v0.7 |
-| Auto image regulation (exposure, white balance) | 📅 Phase 4 |
-| Picture-in-Picture, GPU filters | 📅 Phase 4 |
-| Stickers, reactions, video overlays | 📅 Phase 6 |
-| 10-language localization | 📅 Phase 7 |
+[Читать по-русски →](#russian)
 
----
+**KrinikCam turns an Android phone or tablet into a small streaming studio.** Plug a USB webcam in through OTG (or use
+the device's own cameras), build a scene from layers, and go live over RTMP — or record the scene to the gallery.
+It is made by a blogger and streamer for bloggers and streamers, so that you deal with your content and your viewers,
+not with the camera's settings.
 
-## Requirements
+<p align="center">
+  <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases/latest"><img src="https://img.shields.io/badge/Download_APK-v0.9-FF1A8C?style=for-the-badge" alt="Download the APK (v0.9)"></a>
+</p>
 
-- **Android 13+** (API 33) — 64-bit device
-- **OTG cable** (USB-A or USB-C to USB-A/C adapter)
-- **UVC-compatible USB webcam** (most webcams work: Logitech, Emeet, Razer, etc.)
-- Tested on: Headwolf Titan1 (Dimensity 8300), Samsung Galaxy S21 FE, Samsung Galaxy A51 (Exynos 9611, Android 13 — minimum supported SDK)
-- Test camera: Emeet Piko+ 4K
+<p align="center">Android 13 or newer, 64-bit. Every version: <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases">Releases</a>.</p>
 
----
+<p align="center">
+  <img src="assets/readme/02_fab.webp" width="49%" alt="Main screen: the open FAB menu over the «Please stand by» frame (Go live, Record, Photo, Platforms, Encoder, Settings)">
+  <img src="assets/readme/03_layers.webp" width="49%" alt="Layers panel: a video capture layer (source: «No source») and the Add layer button">
+</p>
 
-## Installation
+Sections: [1 What it does](#en-1) · [2 Screens](#en-2) · [3 Two builds](#en-3) · [4 Install](#en-4) · [5 Quick start](#en-5) · [6 Build from source](#en-6) · [7 Under the hood](#en-7) · [8 Status and plans](#en-8) · [9 Author and licence](#en-9).
 
-### Download APK
-Download the latest **[KrinikCam-v0.8.apk](https://github.com/MikalaiKryvusha/KrinikCam/releases/latest)** — or browse all builds on the [Releases](https://github.com/MikalaiKryvusha/KrinikCam/releases) page.
+<a name="en-1"></a>
+### 1. What it does
 
-Enable **Install from unknown sources** in your Android settings, then open the APK.
+**Sources and the scene**
 
-### Build from source
+1. Shows a USB webcam (UVC, any brand) full screen; the device's built-in cameras work as sources too.
+2. Builds the picture from **layers** (the camera is just a layer, as in OBS): cameras and image overlays, with order
+   and visibility. Layers move, scale and rotate with your fingers and snap magnetically.
+3. Runs **several independent cameras at once** on separate layers (a USB webcam and the selfie camera), and can put
+   **one camera on several layers** (like OBS «duplicate source», picture-in-picture).
+4. Rotates the canvas (0° / 90° / 180° / 270°) and the content of each layer.
+5. Keeps **scenes**: named, saved across restarts, switched, duplicated, renamed. Each scene has its own
+   **transition** — instant, fade or slide, 0.2–1.5 s. No black frame on a switch: the last frame is held until the
+   new scene really gives a picture.
+
+**Going live and recording**
+
+6. Streams over **RTMP** to YouTube, Twitch or your own server, in landscape and portrait.
+7. Streams to **several platforms at once**: each output fails on its own and reconnects on its own. *(A live
+   check with several real keys at once is still ahead.)*
+8. **A broadcast ends only when you press Stop**: reconnection without a cap on attempts, the stream keeps going with
+   the screen off and the app in the background, and the status is loud on screen and in the notification
+   («off air 00:28 · try 7»). Checked live: a 3-minute outage, the stream came back on its own.
+9. **Adaptive bitrate** with live telemetry: the bitrate goes down on congestion and back up when the network
+   recovers. Its floor is set in the encoder profile (250 kbps by default), so on a weak 3G uplink the stream degrades
+   instead of stopping. A frozen connection is turned into a reconnect instead of a silent «green LIVE».
+10. **Encoder profiles**: H.264 / HEVC / AV1 (what your device's hardware supports — the app scans the codecs),
+    resolution, FPS, bitrate, stereo / mono audio. Profiles are exported and imported as files.
+11. **Records the composed scene** to the gallery (`DCIM/KrinikCam`, .mp4) and takes photos. The badge says **FILE**
+    while recording and **LIVE** while on air.
+12. Shows a «Please stand by» frame when the camera drops off, instead of a frozen picture.
+
+**Everyday**
+
+13. Remembers the USB camera, so Android does not ask for permission every time.
+14. Interface in English and Russian; the language follows the system or is chosen by hand.
+15. A built-in user guide in Settings.
+
+<a name="en-2"></a>
+### 2. Screens
+
+| Screen | What you do there |
+|---|---|
+| Main | the full-screen preview; the pink button opens the menu: Go live, Record, Photo, Platforms, Encoder, Settings |
+| Layers | the list of layers of the scene, the source of each one, add a layer |
+| Scenes | switch, rename, duplicate, delete scenes, create a new one |
+| Settings | platforms (stream keys), encoder profiles, permissions, sharing the log file |
+| Encoder profiles | codec, resolution, bitrate, FPS; export and import |
+
+<p align="center">
+  <img src="assets/readme/01_main.webp" width="32%" alt="Main screen: the «Please stand by» frame while the layer has no source">
+  <img src="assets/readme/04_scenes.webp" width="32%" alt="Scenes panel: Scene 1 with rename, duplicate and delete, the New scene button">
+  <img src="assets/readme/05_settings.webp" width="32%" alt="Settings: Platforms, Encoder profiles, Permissions, Share the log file">
+</p>
+<p align="center">
+  <img src="assets/readme/06_encoder.webp" width="49%" alt="Encoder profiles: 1080p30 · H.264, with export, import and add">
+</p>
+
+<sub>Screenshots: the release build KCAM (0.8 build 74, before the 0.9 polish) on a Headwolf Titan 1 tablet, Russian interface. The camera layer is switched to «No source», so the
+preview shows the «Please stand by» frame instead of a live camera picture.</sub>
+
+<a name="en-3"></a>
+### 3. Two builds
+
+| Build | Package | What is inside |
+|---|---|---|
+| **KCAM** | `com.kriniks.kcam` | the release: no developer menu and no debug tools, shrunk with R8. This is the one on the Releases page |
+| **Debug KCAM** | `com.kriniks.kcam.debug` | for development: the developer menu and the test harness (a virtual camera, streaming to a file) |
+
+Both can live on one device side by side.
+
+<a name="en-4"></a>
+### 4. Install
+
+**What you need:** Android 13 or newer (API 33), a 64-bit device. For an external camera — a UVC USB webcam
+and an OTG cable or adapter.
+
+**APK from GitHub.** Download the APK from [the latest release](https://github.com/MikalaiKryvusha/KrinikCam/releases/latest),
+open it, and when Android asks, allow your browser or file manager to install apps.
+
+**Obtainium.** In [Obtainium](https://github.com/ImranR98/Obtainium) add the app by the repository address
+`https://github.com/MikalaiKryvusha/KrinikCam` — it will take the APK from GitHub Releases and tell you about updates.
+
+> ⚠️ **Updating from 0.8 or older: uninstall the old KrinikCam first.** Release 0.9 is signed with a new key, so Android
+> will not install it over a previous release. Your scenes and profiles stored in the old app are removed with it;
+> export the encoder profiles to a file beforehand if you need them.
+
+<a name="en-5"></a>
+### 5. Quick start
+
+1. Connect the USB webcam through the OTG adapter (or skip this and use the built-in camera).
+2. Open KrinikCam and allow the camera, the microphone and the USB device.
+3. You see the preview full screen. The left buttons open **Layers** and **Scenes**.
+4. Tap the pink button → **Platforms** → add the stream key of your platform.
+5. Tap **Go live**. To record to the gallery instead, tap **Record**.
+
+> **PRO:** make an encoder profile per platform (**Settings → Encoder profiles**) and keep the minimum bitrate low
+> if you stream over mobile data — the stream will slow down instead of breaking.
+
+<a name="en-6"></a>
+### 6. Build from source
+
 ```bash
 git clone https://github.com/MikalaiKryvusha/KrinikCam.git
 cd KrinikCam
-node tools/setup.mjs          # first-time setup
-node tools/build.mjs          # opens browser with build progress
-```
-Requires: JDK 17+, Android SDK (API 35), Node.js 18+
-
----
-
-## Quick Start
-
-1. Connect USB webcam to phone via OTG adapter
-2. Open KrinikCam → tap **Allow** for USB and microphone access
-3. See full-screen camera preview
-4. Tap the floating button → **Platforms** → add your YouTube stream key
-5. Tap **Go Live** — you're live 🎬
-
----
-
-## Architecture
-
-Multi-module Android project (Kotlin DSL, Jetpack Compose, Hilt DI):
-
-```
-:app                    entry point, navigation, UvcVideoSource bridge
-:core:common            shared models, utils, DI dispatchers
-:core:ui                Design System — Material3, KrinikCam brand theme
-:core:logging           file-based debug logger (shareable logs)
-:feature:usb            UVC camera detection, hot-plug, preview
-:feature:capture        Device Manager — video/audio source registry
-:feature:codec          MediaCodec scanner (HW codec capabilities)
-:feature:streaming      RtmpStream (RootEncoder), VideoSource pipeline, profiles
-:data:profiles          Room DB + DataStore (stream profiles, device config)
+node tools/setup.mjs                      # first-time setup
+node tools/build.mjs --no-ui              # Debug KCAM
+node tools/build.mjs --no-ui --release    # KCAM (R8); signing keys stay outside git
 ```
 
-**Phase 3 pipeline — the GL compositor is the single video path (camera = layer):**
+Requires JDK 17+, the Android SDK and Node.js 18+. `node tools/env.mjs` shows which Java, SDK and adb the tools pick.
+
+<a name="en-7"></a>
+### 7. Under the hood
+
+Kotlin, Jetpack Compose + Material3, Hilt, Room, DataStore; a multi-module Gradle project.
+
 ```
-Sources (opener per type)                 Compose UI → ViewModel → Repository → Streamer → Compositor
-  • UVC webcam    (AndroidUSBCamera)         a fact discovered by an opener (aspect, sensor
-  • built-in cam  (Camera2)                  orientation) travels up this chain to the compositor
-  • virtual cam   (debug test pattern)
-        → producer per physical source → OES texture of a camera slot
-  → CompositorVideoSource (OpenGL ES)     // draws ALL layers bottom-up into one frame
-        each camera layer maps to a producer by sourceKey: different sources = independent feeds,
-        the SAME source shared across layers (mirror slots — one open, drawn into many quads)
-        two-pass FBO render: scene in a fixed 16:9 buffer, canvas rotation as a final blit
-  → MediaCodec encoder (RootEncoder) → RTMP packets  +  mirror to on-screen preview
-```
-
-**Key libraries:**
-- [AndroidUSBCamera 3.2.7](https://github.com/jiangdongguo/AndroidUSBCamera) — UVC driver (AUSBC)
-- [RootEncoder 2.4.7](https://github.com/pedroSG94/RootEncoder) — RTMP/SRT/RTSP, GL pipeline, HW codecs
-- Jetpack Compose + Material3, Hilt, Room, DataStore, Navigation
-
----
-
-## Development
-
-```bash
-node tools/build.mjs               # debug build (opens browser UI with progress bar)
-node tools/build.mjs --release     # release build
-node tools/commit.mjs "feat: ..."  # bump build version, commit, push
-node tools/release.mjs             # bump minor version, create GitHub Release
-
-# Graphics (SVG → PNG)
-node tools/graphics/render.mjs --input assets/graphics/src/foo.svg --output out.png --width 512
-node tools/graphics/batch.mjs  --input assets/graphics/src/ic_launcher.svg --name ic_launcher --android
+Sources: USB webcam (AndroidUSBCamera) · built-in cameras (Camera2) · images
+  → GL compositor (OpenGL ES): draws all layers of the scene into one frame
+  → MediaCodec hardware encoder (RootEncoder) → RTMP to one or several platforms
+                                              → .mp4 into the gallery + the on-screen preview
 ```
 
----
+| Module | Role |
+|---|---|
+| `:app` | entry point, screens, navigation |
+| `:core:common` · `:core:ui` · `:core:logging` | shared models, the design system, the file logger |
+| `:feature:usb` | UVC camera detection, hot-plug, preview |
+| `:feature:capture` | the registry of video and audio sources |
+| `:feature:codec` | the hardware codec scanner |
+| `:feature:streaming` | the compositor, the encoder, RTMP |
+| `:data:profiles` | stream, encoder and scene profiles |
 
-## License
+Where things are: [PROJECT_STRUCTURE_EXTERNAL_MAP.md](PROJECT_STRUCTURE_EXTERNAL_MAP.md); how they work:
+[PROJECT_ARCHITECTURE_INTERNAL_MAP.md](PROJECT_ARCHITECTURE_INTERNAL_MAP.md).
 
-[MIT License](LICENSE) — © 2026 Mikalai Kryvusha
+<a name="en-8"></a>
+### 8. Status and plans
 
----
+Active development. Done: the USB preview, RTMP, the compositor «camera = layer», several sources, scenes and
+transitions. The current phase is multistreaming, codecs and **a stream that survives a bad mobile network**.
 
----
+**Planned** (not in the app yet): camera image controls and smart auto-adjustment of USB cameras (exposure, white
+balance — profiles «balanced», «fast», «low light»…), on-screen monitoring (network, ping, dropped frames, CPU/GPU,
+battery), audio sources and filters, background music and video overlays, reactions and stickers over the stream,
+platform frames (16:9 for YouTube and 9:16 for Instagram from one camera), localization into the main world languages.
+The roadmap is [MASTER_PLAN.md](MASTER_PLAN.md), the current state is [STATUS.md](STATUS.md).
 
-<a name="русский"></a>
-# KrinikCam
+<a name="en-9"></a>
+### 9. Author and licence
 
-[English](#english) · **Русский**
+Author: **Mikalai Kryvusha aka KOT KRINIK** (Николай Кривуша, Кот Криник).
+[GitHub](https://github.com/MikalaiKryvusha) · [Instagram](https://www.instagram.com/kotkrinik/) · [YouTube](https://www.youtube.com/@kotkrinik)
 
-**Открытое Android-приложение для стримеров и блогеров — мобильный OBS.**  
-Подключи USB-вебкамеру через OTG (или используй встроенные камеры устройства) → собери сцену из слоёв → выходи в эфир на YouTube, Instagram, Twitch или TikTok.
+The project is **vibe-coded**: written together with an AI agent and run with [KAIF](https://github.com/MikalaiKryvusha/KAIF),
+a framework for work with an AI agent. It is open source and uses only open-source libraries:
+[AndroidUSBCamera](https://github.com/jiangdongguo/AndroidUSBCamera) (the UVC driver),
+[RootEncoder](https://github.com/pedroSG94/RootEncoder) (RTMP and hardware codecs), Jetpack Compose, Hilt, Room.
 
-> **Статус:** Активная разработка · Phase 1 ✅ USB превью · Phase 2 ✅ RTMP подтверждён на устройстве (портрет + ландшафт) · **Phase 3 ✅ GL-композитор «камера = слой» — основной пайплайн** — мультиисточниковая сцена с **несколькими независимыми камерами** и **шарингом фида** (одна камера на нескольких слоях, как в OBS), профили кодера (H.264/HEVC/AV1), адаптивный битрейт + живая телеметрия, запись в галерею
-
----
-
-## Возможности
-
-| Функция | Статус |
-|---------|--------|
-| Превью USB-вебкамеры (UVC, любой бренд) | ✅ Phase 1 |
-| Fullscreen видеоискатель (радиальное FAB-меню) | ✅ Phase 1 |
-| Профили стримов (Room DB + DataStore) | ✅ Phase 1 |
-| Сканер кодеков (H.264 / HEVC / AV1) | ✅ Phase 1 |
-| Файловый логгер с возможностью отправки | ✅ Phase 1 |
-| RTMP-стрим на YouTube / Twitch / custom | ✅ Phase 2 |
-| Заглушка "Please stand by" при отключении | ✅ Phase 2 |
-| Ре-запрос разрешений камера / микрофон из Settings | ✅ Phase 2 |
-| Импорт / экспорт профилей стримов (JSON) | ✅ Phase 2 |
-| USB permission — запомнить устройство | ✅ Phase 2 |
-| **GL-композитор «камера = слой» (мобильный OBS)** | ✅ Phase 3 (дефолт) |
-| Поворот холста (0° / 90° / 180° / 270°) + поворот содержимого слоя | ✅ Phase 3 |
-| Слои-источники сцены (камера + картинки-оверлеи, z-order, видимость) | ✅ Phase 3 |
-| Жесты слоёв — перетаскивание / щипок / поворот двумя пальцами + магнитный снап | ✅ Phase 3 |
-| Встроенные камеры устройства как источник (Camera2, верные ориентация и аспект) | ✅ Phase 3 |
-| Вертикальное меню слоёв (диалог настроек слоя, подпись источника) | ✅ Phase 3 |
-| Встроенное руководство пользователя (Настройки) | ✅ Phase 3 |
-| **Несколько независимых камер** на разных слоях (UVC + селфи одновременно) | ✅ v0.8 |
-| **Шаринг фида** — одна камера на нескольких слоях (как OBS «дублировать источник», PiP) | ✅ v0.8 |
-| **Профили сцен** — именованные сцены, сохранение/восстановление между запусками, переключение, дублирование, переименование (панель-менеджер) | ✅ v0.8 |
-| **Переходы сцен** — у каждой сцены свой эффект при включении: мгновенно / плавно / выезд, длительность 0.2–1.5 с (выбирается в модалке редактирования сцены) | ✅ v0.8 |
-| Уходящая сцена остаётся **живой** во время перехода — её камеры продолжают стримить до конца эффекта (встроенная камера вместо этого замирает: SoC не тянет две одновременно) | ✅ v0.8 |
-| Нет чёрного кадра при переключении сцен — последний кадр прошлой сцены держится, пока новая реально не даст картинку | ✅ v0.8 |
-| Честная индикация записи — «ПОДГОТОВКА» до первого реально записанного кадра; бейдж и таймер стартуют по факту. При записи на устройство бейдж пишет **«ФАЙЛ»**, в эфире — **«ЭФИР»**, поэтому одно состояние не спутать с другим | ✅ v0.8 |
-| Модалка выбора источника при добавлении слоя + выбор источника пер-слой | ✅ v0.8 |
-| **Профили кодера** — отдельный менеджер (H.264 / HEVC / AV1, битрейт в Мбит/с, стерео / моно / объединённый звук) | ✅ v0.7 |
-| **Адаптивный битрейт** + живая телеметрия эфира (health-бейдж, −20% при затыке / +20% восстановление ОТ ТЕКУЩЕГО, с паузой 10 с после каждого обрыва) | ✅ v0.7, переработан в 0.8-dev |
-| **Запись композита в галерею** (DCIM/KrinikCam .mp4) + фотоснимок | ✅ v0.7 |
-| Ручной выбор языка UI + «следовать системе» (EN / RU) | ✅ v0.7 |
-| Одновременный стрим на несколько платформ (YouTube + Instagram…) | ✅ движок стабилизирован — изоляция сбоя выхода + авто-реконнект (бэкофф); сверка живыми ключами впереди |
-| **Эфир завершает только кнопка Стоп** — реконнект без потолка попыток с джиттером, foreground-сервис переживает обрыв, громкая индикация на экране и в уведомлении («эфир не идёт 00:28 · попытка 7») | ✅ v0.8 — проверено живьём: обрыв 3 минуты, эфир вернулся сам |
-| **Пол адаптивного битрейта настраивается** — минимальный битрейт видео живёт в профиле кодера (по умолчанию 250 кбит/с, пресеты 150…1000). Прежний хардкод 1 Мбит/с был выше полосы плохого 3G, из-за чего эфир вставал вместо того, чтобы деградировать | ✅ **0.8-dev, в релиз v0.8 ещё НЕ вошло** — проверено на полигоне: исходящий битрейт садится на 373–404 кбит/с (≈250 видео + 128 звук), потерянных кадров нет. **Измерено и на реальном узком канале** (450 кбит/с через дроссель, живая камера): эфир перестаёт рваться после двух реконнектов и держится |
-| **Watchdog замершего отправителя** — замерший сокет (приёмник держит соединение, но не читает) превращается в реконнект вместо молчаливого зелёного LIVE, который раньше держался минутами, пока терялся весь поток | ✅ **0.8-dev, в релиз v0.8 ещё НЕ вошло** — проверено на замороженном приёмнике: ~14 с от заморозки до реконнекта (порог 6 с отсчитывается с момента, когда счётчики отправки перестают расти), самовосстановление через 3 с после возврата приёмника |
-| Экран не гаснет во время эфира (keep-screen-on) | ✅ v0.7 |
-| **Фоновый режим стриминга** — Foreground Service (эфир переживает гашение экрана / сворачивание) + wake lock | ✅ v0.7 |
-| Умная авторегулировка (экспозиция, баланс белого) | 📅 Phase 4 |
-| Картинка-в-картинке, GPU-фильтры | 📅 Phase 4 |
-| Стикеры, реакции, видео-оверлеи | 📅 Phase 6 |
-| Локализация на 10 языков | 📅 Phase 7 |
+KrinikCam is licensed under [MIT](LICENSE).
 
 ---
 
-## Требования
+<a name="russian"></a>
 
-- **Android 13+** (API 33) — 64-битное устройство
-- **OTG-кабель** (переходник USB-A или USB-C)
-- **UVC-совместимая USB-камера** (работает большинство: Logitech, Emeet, Razer и др.)
-- Тест-устройства: Headwolf Titan1 (Dimensity 8300), Samsung Galaxy S21 FE, Samsung Galaxy A51 (Exynos 9611, Android 13 — минимальный поддерживаемый SDK)
-- Тест-камера: Emeet Piko+ 4K
+<h1 align="center">KrinikCam</h1>
 
----
+<p align="center">
+  <a href="#english"><img src="https://img.shields.io/badge/English-2C7BE5?style=for-the-badge" alt="English"></a>
+  &nbsp;
+  <a href="#russian"><img src="https://img.shields.io/badge/Русский-C0392B?style=for-the-badge" alt="Русский"></a>
+</p>
 
-## Установка
+<!-- tagline: from GOAL.md («аналог OBS для мобильных устройств на базе Android») -->
+<p align="center"><b>Мобильный OBS для Android</b><br>
+Открытый код · Для стримеров и блогеров · Коротко: KCam</p>
 
-### Скачать APK
-Скачай последний **[KrinikCam-v0.8.apk](https://github.com/MikalaiKryvusha/KrinikCam/releases/latest)** — или посмотри все сборки на странице [Releases](https://github.com/MikalaiKryvusha/KrinikCam/releases).
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/%D0%BB%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-FF1A8C.svg" alt="лицензия: MIT"></a>
+  <a href="#ru-4"><img src="https://img.shields.io/badge/%D0%BF%D0%BB%D0%B0%D1%82%D1%84%D0%BE%D1%80%D0%BC%D0%B0-Android_13%2B_·_64--bit-3DDC84.svg" alt="платформа: Android 13+, 64-бит"></a>
+  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-Compose-7F52FF.svg" alt="Kotlin + Compose"></a>
+  <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases/latest"><img src="https://img.shields.io/badge/%D1%80%D0%B5%D0%BB%D0%B8%D0%B7-0.9-FF1A8C.svg" alt="релиз: 0.9"></a>
+  <a href="https://github.com/MikalaiKryvusha/KAIF"><img src="https://img.shields.io/badge/%D1%84%D1%80%D0%B5%D0%B9%D0%BC%D0%B2%D0%BE%D1%80%D0%BA-KAIF%202.9-6E56CF.svg" alt="фреймворк: KAIF 2.9"></a>
+</p>
 
-Включи **Установку из неизвестных источников** в настройках Android, открой APK.
+[Read in English →](#english)
 
-### Сборка из исходников
+**KrinikCam превращает Android-телефон или планшет в маленькую стрим-студию.** Подключи USB-вебкамеру через OTG (или
+возьми встроенные камеры устройства), собери сцену из слоёв и выходи в эфир по RTMP — или пиши сцену в галерею.
+Сделано блогером и стримером для блогеров и стримеров: чтобы заниматься контентом и зрителями, а не настройками
+камеры.
+
+<p align="center">
+  <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases/latest"><img src="https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C_APK-v0.9-FF1A8C?style=for-the-badge" alt="Скачать APK (v0.9)"></a>
+</p>
+
+<p align="center">Android 13 и новее, 64 бита. Все версии: <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases">Releases</a>.</p>
+
+<p align="center">
+  <img src="assets/readme/02_fab.webp" width="49%" alt="Главный экран: открытое FAB-меню поверх кадра «Please stand by» (В эфир, Запись, Фото, Платформы, Кодер, Настройки)">
+  <img src="assets/readme/03_layers.webp" width="49%" alt="Панель слоёв: слой устройства захвата видео (источник «Нет источника») и кнопка «Добавить слой»">
+</p>
+
+Разделы: [1 Что умеет](#ru-1) · [2 Экраны](#ru-2) · [3 Две сборки](#ru-3) · [4 Установка](#ru-4) · [5 Быстрый старт](#ru-5) · [6 Сборка из исходников](#ru-6) · [7 Как устроено](#ru-7) · [8 Состояние и планы](#ru-8) · [9 Автор и лицензия](#ru-9).
+
+<a name="ru-1"></a>
+### 1. Что умеет
+
+**Источники и сцена**
+
+1. Показывает USB-вебкамеру (UVC, любой бренд) во весь экран; встроенные камеры устройства — тоже источники.
+2. Собирает картинку из **слоёв** (камера — обычный слой, как в OBS): камеры и картинки-оверлеи, с порядком и
+   видимостью. Слои двигаются, масштабируются и поворачиваются пальцами, с магнитным снапом.
+3. Ведёт **несколько независимых камер сразу** на разных слоях (USB-вебкамера и селфи-камера) и умеет поставить
+   **одну камеру на несколько слоёв** (как «дублировать источник» в OBS, картинка-в-картинке).
+4. Поворачивает холст (0° / 90° / 180° / 270°) и содержимое каждого слоя.
+5. Хранит **сцены**: именованные, переживают перезапуск, переключаются, дублируются, переименовываются. У каждой
+   сцены свой **переход** — мгновенно, плавно или выезд, 0.2–1.5 с. Без чёрного кадра при переключении: последний
+   кадр держится, пока новая сцена реально не даст картинку.
+
+**Эфир и запись**
+
+6. Стримит по **RTMP** на YouTube, Twitch или свой сервер, в ландшафте и в портрете.
+7. Стримит на **несколько платформ сразу**: каждый выход падает сам по себе и сам переподключается. *(Живая сверка
+   одновременно несколькими настоящими ключами ещё впереди.)*
+8. **Эфир завершает только кнопка «Стоп»**: переподключение без потолка попыток, эфир идёт при погашенном экране и
+   свёрнутом приложении, статус громко виден на экране и в уведомлении («эфир не идёт 00:28 · попытка 7»).
+   Проверено живьём: обрыв на 3 минуты, эфир вернулся сам.
+9. **Адаптивный битрейт** с живой телеметрией: битрейт снижается при затыке и поднимается, когда сеть отпустило.
+   Его нижний предел задаётся в профиле кодера (по умолчанию 250 кбит/с), поэтому на слабом 3G эфир деградирует, а
+   не встаёт. Замершее соединение превращается в переподключение вместо молчаливого «зелёного LIVE».
+10. **Профили кодера**: H.264 / HEVC / AV1 (что умеет железо устройства — приложение сканирует кодеки), разрешение,
+    FPS, битрейт, стерео / моно звук. Профили экспортируются и импортируются файлом.
+11. **Пишет собранную сцену** в галерею (`DCIM/KrinikCam`, .mp4) и делает фото. При записи бейдж пишет **«ФАЙЛ»**,
+    в эфире — **«ЭФИР»**.
+12. При отвале камеры показывает кадр «Please stand by» вместо замершей картинки.
+
+**Повседневное**
+
+13. Запоминает USB-камеру, чтобы Android не спрашивал разрешение каждый раз.
+14. Интерфейс на русском и английском; язык следует системе или выбирается вручную.
+15. Встроенное руководство пользователя в Настройках.
+
+<a name="ru-2"></a>
+### 2. Экраны
+
+| Экран | Что там делаешь |
+|---|---|
+| Главный | превью во весь экран; розовая кнопка открывает меню: В эфир, Запись, Фото, Платформы, Кодер, Настройки |
+| Слои | список слоёв сцены, источник каждого, добавить слой |
+| Сцены | переключить, переименовать, дублировать, удалить сцену, создать новую |
+| Настройки | платформы (ключи стрима), профили кодера, разрешения, отправка лог-файла |
+| Профили кодера | кодек, разрешение, битрейт, FPS; экспорт и импорт |
+
+<p align="center">
+  <img src="assets/readme/01_main.webp" width="32%" alt="Главный экран: кадр «Please stand by», пока у слоя нет источника">
+  <img src="assets/readme/04_scenes.webp" width="32%" alt="Панель сцен: «Сцена 1» с кнопками переименовать, дублировать, удалить и кнопка «Новая сцена»">
+  <img src="assets/readme/05_settings.webp" width="32%" alt="Настройки: Платформы, Профили кодера, Разрешения, Поделиться лог-файлом">
+</p>
+<p align="center">
+  <img src="assets/readme/06_encoder.webp" width="49%" alt="Профили кодера: 1080p30 · H.264, экспорт, импорт и добавление">
+</p>
+
+<sub>Скриншоты: релизная сборка KCAM (0.8, сборка 74, до шлифовки 0.9) на планшете Headwolf Titan 1, русский интерфейс. У слоя камеры выбран источник «Нет источника», поэтому
+вместо живой картинки с камеры на превью кадр «Please stand by».</sub>
+
+<a name="ru-3"></a>
+### 3. Две сборки
+
+| Сборка | Пакет | Что внутри |
+|---|---|---|
+| **KCAM** | `com.kriniks.kcam` | релизная: без дебаг-меню и отладочных инструментов, ужата R8. Именно она лежит в Releases |
+| **Debug KCAM** | `com.kriniks.kcam.debug` | для разработки: дебаг-меню и тестовый харнесс (виртуальная камера, стрим в файл) |
+
+Обе могут стоять на одном устройстве рядом.
+
+<a name="ru-4"></a>
+### 4. Установка
+
+**Что нужно:** Android 13 и новее (API 33), 64-битное устройство. Для внешней камеры — USB-вебкамера с UVC и
+OTG-кабель или переходник.
+
+**APK с GitHub.** Скачай APK из [последнего релиза](https://github.com/MikalaiKryvusha/KrinikCam/releases/latest),
+открой его, а когда Android спросит — разреши браузеру или файловому менеджеру устанавливать приложения.
+
+**Obtainium.** В [Obtainium](https://github.com/ImranR98/Obtainium) добавь приложение по адресу репозитория
+`https://github.com/MikalaiKryvusha/KrinikCam` — он сам возьмёт APK из GitHub Releases и сообщит об обновлениях.
+
+> ⚠️ **Обновляешься с 0.8 или старее — сначала удали старый KrinikCam.** Релиз 0.9 подписан новым ключом, поверх
+> прежнего релиза Android его не поставит. Сцены и профили старого приложения удалятся вместе с ним; если они нужны,
+> заранее экспортируй профили кодера в файл.
+
+<a name="ru-5"></a>
+### 5. Быстрый старт
+
+1. Подключи USB-вебкамеру через OTG-переходник (или пропусти шаг и бери встроенную камеру).
+2. Открой KrinikCam и разреши камеру, микрофон и USB-устройство.
+3. Видишь превью во весь экран. Кнопки слева открывают **Слои** и **Сцены**.
+4. Тап по розовой кнопке → **Платформы** → добавь ключ стрима своей платформы.
+5. Нажми **В эфир**. Чтобы писать в галерею, нажми **Запись**.
+
+> **PRO:** заведи свой профиль кодера под каждую платформу (**Настройки → Профили кодера**) и держи нижний предел
+> битрейта низким, если стримишь через мобильную сеть, — эфир замедлится, а не порвётся.
+
+<a name="ru-6"></a>
+### 6. Сборка из исходников
+
 ```bash
 git clone https://github.com/MikalaiKryvusha/KrinikCam.git
 cd KrinikCam
-node tools/setup.mjs          # первичная настройка
-node tools/build.mjs          # открывает браузер с прогрессом сборки
+node tools/setup.mjs                      # первичная настройка
+node tools/build.mjs --no-ui              # Debug KCAM
+node tools/build.mjs --no-ui --release    # KCAM (R8); ключи подписи живут вне git
 ```
-Требования: JDK 17+, Android SDK (API 35), Node.js 18+
 
----
+Нужны JDK 17+, Android SDK и Node.js 18+. `node tools/env.mjs` покажет, какие Java, SDK и adb берут инструменты.
 
-## Быстрый старт
+<a name="ru-7"></a>
+### 7. Как устроено
 
-1. Подключи USB-камеру к телефону через OTG-переходник
-2. Открой KrinikCam → нажми **Разрешить** для USB и микрофона
-3. Видишь превью с камеры во весь экран
-4. Тап на плавающую кнопку → **Платформы** → добавь ключ стрима YouTube
-5. Нажми **В эфир** — стрим пошёл 🎬
+Kotlin, Jetpack Compose + Material3, Hilt, Room, DataStore; многомодульный Gradle-проект.
 
----
+```
+Источники: USB-вебкамера (AndroidUSBCamera) · встроенные камеры (Camera2) · картинки
+  → GL-композитор (OpenGL ES): рисует все слои сцены в один кадр
+  → аппаратный кодер MediaCodec (RootEncoder) → RTMP на одну или несколько платформ
+                                              → .mp4 в галерею + превью на экране
+```
 
-## Лицензия
+| Модуль | Роль |
+|---|---|
+| `:app` | точка входа, экраны, навигация |
+| `:core:common` · `:core:ui` · `:core:logging` | общие модели, дизайн-система, файловый логгер |
+| `:feature:usb` | обнаружение UVC-камер, горячее подключение, превью |
+| `:feature:capture` | реестр источников видео и звука |
+| `:feature:codec` | сканер аппаратных кодеков |
+| `:feature:streaming` | композитор, кодер, RTMP |
+| `:data:profiles` | профили стримов, кодера и сцен |
 
-[MIT License](LICENSE) — © 2026 Mikalai Kryvusha
+Где что лежит: [PROJECT_STRUCTURE_EXTERNAL_MAP.md](PROJECT_STRUCTURE_EXTERNAL_MAP.md); как устроено:
+[PROJECT_ARCHITECTURE_INTERNAL_MAP.md](PROJECT_ARCHITECTURE_INTERNAL_MAP.md).
 
-Автор: [Mikalai Kryvusha](https://github.com/MikalaiKryvusha) aka **KOT KRINIK**
+<a name="ru-8"></a>
+### 8. Состояние и планы
+
+Активная разработка. Сделано: USB-превью, RTMP, композитор «камера = слой», несколько источников, сцены и
+переходы. Текущая фаза — мультистрим, кодеки и **эфир, который переживает плохую мобильную сеть**.
+
+**В планах** (в приложении этого пока нет): ручки изображения камеры и умная авторегулировка USB-камер (экспозиция,
+баланс белого — профили «сбалансированный», «быстрый», «в темноту»…), мониторинг поверх эфира (сеть, пинг, пропуски
+кадров, CPU/GPU, заряд), источники и фильтры звука, фоновая музыка и видео-оверлеи, реакции и стикеры поверх стрима,
+рамки платформ (16:9 для YouTube и 9:16 для Instagram с одной камеры), локализация на основные языки мира.
+Дорожная карта — [MASTER_PLAN.md](MASTER_PLAN.md), текущее состояние — [STATUS.md](STATUS.md).
+
+<a name="ru-9"></a>
+### 9. Автор и лицензия
+
+Автор: **Mikalai Kryvusha aka KOT KRINIK** (Николай Кривуша, Кот Криник).
+[GitHub](https://github.com/MikalaiKryvusha) · [Instagram](https://www.instagram.com/kotkrinik/) · [YouTube](https://www.youtube.com/@kotkrinik)
+
+Проект — **вайбкод**: написан вместе с ИИ-агентом и ведётся по [KAIF](https://github.com/MikalaiKryvusha/KAIF),
+фреймворку работы с ИИ-агентом. Код открыт, используются только открытые библиотеки:
+[AndroidUSBCamera](https://github.com/jiangdongguo/AndroidUSBCamera) (UVC-драйвер),
+[RootEncoder](https://github.com/pedroSG94/RootEncoder) (RTMP и аппаратные кодеки), Jetpack Compose, Hilt, Room.
+
+KrinikCam распространяется по лицензии [MIT](LICENSE).
