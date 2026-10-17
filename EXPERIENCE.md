@@ -44,6 +44,20 @@
 
 ## Записи
 
+### EXP-0060 · 2026-10-17 · ❌→✅ · #privacy #git #screenshots #testing #public-repo
+class: private-frames-in-public-repo
+mechanized: tools/hooks/pre-commit.mjs (git core.hooksPath .githooks) + .gitignore testcases/**/*.{png,jpg,webp…}
+**Контекст:** исполнитель положил 16 скриншотов прогона в `testcases/reports/assets/` как «Traces» отчёта, и они ушли
+в ПУБЛИЧНЫЙ репозиторий — на части кадров живое превью камеры, то есть комната владельца.
+**Пробовал / сделал:** Криник: «только кадры моей страшной комнаты не публикуйте», «все скриншоты темстовые ВСЕГДА ПОД
+ГИТИГНОРОМ», «ХУК НАПИСАТЬ НА ЭТО И ЗАРЕГИСТРИРОВАТЬ!». Папка вычищена из коммита и с GitHub (force-push сделал сам
+Криник — защита auto mode агенту его не дала), `.gitignore` закрыл класс, git-хук `pre-commit` — вторая стена.
+**Урок:** кадр с живой камеры — это ЛИЧНОЕ, а не «след теста»: доказательство прогона пишется СЛОВАМИ в отчёте, кадры
+живут только локально. Перед любым коммитом картинок — посмотреть их глазами (контакт-лист `magick montage`).
+**Repro:** `git add -f testcases/x/p.jpg && node tools/hooks/pre-commit.mjs` → exit 1 «коммит ОТКЛОНЁН»
+**Trigger:** отчёт прогона, README, release notes — везде, где хочется приложить скриншот с устройства.
+**Not for:** картинки UI без превью камеры для витрины (README) — их можно, если посмотрены глазами.   → см.: HOUSE_RULES R3
+
 ### EXP-0059 · 2026-10-17 · ❌→✅ · #build #windows #environment #tooling #adb #machine-move
 class: tool-env-copies
 mechanized: tools/env.mjs (единственный разрешатель Java/SDK/adb; `node tools/env.mjs` печатает выбор)
