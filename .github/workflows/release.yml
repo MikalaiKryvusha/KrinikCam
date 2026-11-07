@@ -7,10 +7,12 @@
 
 name: Release
 
+# 2026-11-07 (KAST plans/17): no longer runs on a tag push. The runner has no release key, so the APK it attached to v0.9
+# was signed with its throwaway debug key (CN=Android Debug) - every such build is a different signature and breaks updates
+# through Obtainium. Releases are built and published locally with the project's own key (.env KCAM_RELEASE_*);
+# this workflow stays as a manual run only.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 jobs:
   release:

@@ -69,7 +69,8 @@ android {
         // на сотом коммите (0.7 (100) == 0.8 (0) → «даунгрейд», обновление не встаёт). Новая даёт
         // 10 000 билдов на minor; скачок versionCode вверх (710 → 70010) безопасен для обновлений.
         versionCode = vMajor * 1_000_000 + vMinor * 10_000 + vBuild + 1
-        versionName = "$vMajor.$vMinor ($vBuild)"
+        // x.y.z, equal to the release tag vX.Y.Z - Obtainium reads the version from the tag (KAST plans/17, 2026-11-07).
+        versionName = "$vMajor.$vMinor.$vBuild"
 
         // BUILD_TIME (see top-level `buildTime`) — shown in Settings → About so the user and bug
         // reports can see exactly which build is running.

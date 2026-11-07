@@ -10,7 +10,7 @@
 
 <!-- tagline: from GOAL.md («аналог OBS для мобильных устройств на базе Android») -->
 <p align="center"><b>A mobile OBS for Android</b><br>
-Open source · For streamers and bloggers · Short name: KCam</p>
+Open source · For streamers and bloggers</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-FF1A8C.svg" alt="License: MIT"></a>
@@ -29,6 +29,8 @@ not with the camera's settings.
 
 <p align="center">
   <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases/latest"><img src="https://img.shields.io/badge/Download_APK-v0.9-FF1A8C?style=for-the-badge" alt="Download the APK (v0.9)"></a>
+  &nbsp;&nbsp;
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.kriniks.kcam%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FMikalaiKryvusha%2FKrinikCam%22%2C%22author%22%3A%22MikalaiKryvusha%22%2C%22name%22%3A%22KrinikCam%22%2C%22additionalSettings%22%3A%22%7B%7D%22%7D"><img src="docs/get-it-on-obtainium-en.svg" height="72" alt="Get it on Obtainium"></a>
 </p>
 
 <p align="center">Android 13 or newer, 64-bit. Every version: <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases">Releases</a>.</p>
@@ -38,7 +40,7 @@ not with the camera's settings.
   <img src="assets/readme/03_layers.webp" width="49%" alt="Layers panel: a video capture layer (source: «No source») and the Add layer button">
 </p>
 
-Sections: [1 What it does](#en-1) · [2 Screens](#en-2) · [3 Two builds](#en-3) · [4 Install](#en-4) · [5 Quick start](#en-5) · [6 Build from source](#en-6) · [7 Under the hood](#en-7) · [8 Status and plans](#en-8) · [9 Author and licence](#en-9).
+Sections: [1 What it does](#en-1) · [2 Screens](#en-2) · [3 Two builds](#en-3) · [4 Install](#en-4) · [5 Quick start](#en-5) · [6 Build it yourself](#en-6) · [7 Under the hood](#en-7) · [8 Status and plans](#en-8) · [9 Author and licence](#en-9).
 
 <a name="en-1"></a>
 ### 1. What it does
@@ -120,8 +122,9 @@ and an OTG cable or adapter.
 **APK from GitHub.** Download the APK from [the latest release](https://github.com/MikalaiKryvusha/KrinikCam/releases/latest),
 open it, and when Android asks, allow your browser or file manager to install apps.
 
-**Obtainium.** In [Obtainium](https://github.com/ImranR98/Obtainium) add the app by the repository address
-`https://github.com/MikalaiKryvusha/KrinikCam` — it will take the APK from GitHub Releases and tell you about updates.
+**Obtainium.** Tap **Get it on Obtainium** at the top, or in [Obtainium](https://github.com/ImranR98/Obtainium) add
+the app by the repository address `https://github.com/MikalaiKryvusha/KrinikCam` — it will take the APK from GitHub
+Releases and keep KrinikCam updated.
 
 > ⚠️ **Updating from 0.8 or older: uninstall the old KrinikCam first.** Release 0.9 is signed with a new key, so Android
 > will not install it over a previous release. Your scenes and profiles stored in the old app are removed with it;
@@ -140,17 +143,62 @@ open it, and when Android asks, allow your browser or file manager to install ap
 > if you stream over mobile data — the stream will slow down instead of breaking.
 
 <a name="en-6"></a>
-### 6. Build from source
+### 6. Build it yourself
+
+#### Requirements
+
+- JDK 17: the modules compile with `jvmToolchain(17)`.
+- The Android SDK with platform 35.
+- Node.js 18+ for the scripts in `tools/`. `node tools/env.mjs` shows which Java, SDK and adb the tools pick.
+
+#### Get the code
 
 ```bash
 git clone https://github.com/MikalaiKryvusha/KrinikCam.git
 cd KrinikCam
 node tools/setup.mjs                      # first-time setup
-node tools/build.mjs --no-ui              # Debug KCAM
-node tools/build.mjs --no-ui --release    # KCAM (R8); signing keys stay outside git
 ```
 
-Requires JDK 17+, the Android SDK and Node.js 18+. `node tools/env.mjs` shows which Java, SDK and adb the tools pick.
+#### Build
+
+```bash
+node tools/build.mjs --no-ui              # Debug KCAM: app/build/outputs/apk/debug/
+node tools/build.mjs --no-ui --release    # KCAM (R8): app/build/outputs/apk/release/
+```
+
+`tools/build.mjs` wraps Gradle: `./gradlew assembleDebug` and `./gradlew assembleRelease` (`gradlew.bat` on Windows)
+give the same APKs.
+
+#### Signing a release
+
+The keys stay outside git: `.env` in the project root and the `keystores/` folder are both in `.gitignore`. Put your
+release keystore under `keystores/`; a new one can be made with `keytool`, for example:
+
+```bash
+keytool -genkeypair -keystore keystores/kcam-release.jks -storetype PKCS12 -alias <your-alias> -keyalg RSA -keysize 4096 -validity 10950
+```
+
+Then put the four variables the build reads into `.env` at the project root:
+
+```ini
+KCAM_RELEASE_STORE_FILE=keystores/kcam-release.jks
+KCAM_RELEASE_STORE_PASSWORD=<store password>
+KCAM_RELEASE_KEY_ALIAS=<your-alias>
+KCAM_RELEASE_KEY_PASSWORD=<key password>
+```
+
+The store path is relative to the project root or absolute, with forward slashes. An environment variable with the same
+name overrides `.env` (for CI). The same four `KCAM_DEBUG_*` values give Debug KCAM one shared key on every machine;
+without them, the debug build uses the machine's own debug key. Without `KCAM_RELEASE_*` the release build is signed
+with the debug key and Gradle prints a WARNING: such an APK is for local testing only, never for publishing. Keep a copy
+of the key outside the project: a release signed with another key does not install over the previous one.
+
+#### Project notes
+
+- AndroidUSBCamera, RootEncoder and FreeDroidWarn come from [JitPack](https://jitpack.io), so the first build needs
+  network access to it.
+- Two builds install side by side: Debug KCAM (`com.kriniks.kcam.debug`) and KCAM (`com.kriniks.kcam`), see
+  [3 Two builds](#en-3).
 
 <a name="en-7"></a>
 ### 7. Under the hood
@@ -216,7 +264,7 @@ KrinikCam is licensed under [MIT](LICENSE).
 
 <!-- tagline: from GOAL.md («аналог OBS для мобильных устройств на базе Android») -->
 <p align="center"><b>Мобильный OBS для Android</b><br>
-Открытый код · Для стримеров и блогеров · Коротко: KCam</p>
+Открытый код · Для стримеров и блогеров</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/%D0%BB%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-FF1A8C.svg" alt="лицензия: MIT"></a>
@@ -235,6 +283,8 @@ KrinikCam is licensed under [MIT](LICENSE).
 
 <p align="center">
   <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases/latest"><img src="https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C_APK-v0.9-FF1A8C?style=for-the-badge" alt="Скачать APK (v0.9)"></a>
+  &nbsp;&nbsp;
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.kriniks.kcam%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FMikalaiKryvusha%2FKrinikCam%22%2C%22author%22%3A%22MikalaiKryvusha%22%2C%22name%22%3A%22KrinikCam%22%2C%22additionalSettings%22%3A%22%7B%7D%22%7D"><img src="docs/get-it-on-obtainium-ru.svg" height="72" alt="Скачать через Obtainium"></a>
 </p>
 
 <p align="center">Android 13 и новее, 64 бита. Все версии: <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases">Releases</a>.</p>
@@ -244,7 +294,7 @@ KrinikCam is licensed under [MIT](LICENSE).
   <img src="assets/readme/03_layers.webp" width="49%" alt="Панель слоёв: слой устройства захвата видео (источник «Нет источника») и кнопка «Добавить слой»">
 </p>
 
-Разделы: [1 Что умеет](#ru-1) · [2 Экраны](#ru-2) · [3 Две сборки](#ru-3) · [4 Установка](#ru-4) · [5 Быстрый старт](#ru-5) · [6 Сборка из исходников](#ru-6) · [7 Как устроено](#ru-7) · [8 Состояние и планы](#ru-8) · [9 Автор и лицензия](#ru-9).
+Разделы: [1 Что умеет](#ru-1) · [2 Экраны](#ru-2) · [3 Две сборки](#ru-3) · [4 Установка](#ru-4) · [5 Быстрый старт](#ru-5) · [6 Собрать самому](#ru-6) · [7 Как устроено](#ru-7) · [8 Состояние и планы](#ru-8) · [9 Автор и лицензия](#ru-9).
 
 <a name="ru-1"></a>
 ### 1. Что умеет
@@ -326,8 +376,9 @@ OTG-кабель или переходник.
 **APK с GitHub.** Скачай APK из [последнего релиза](https://github.com/MikalaiKryvusha/KrinikCam/releases/latest),
 открой его, а когда Android спросит — разреши браузеру или файловому менеджеру устанавливать приложения.
 
-**Obtainium.** В [Obtainium](https://github.com/ImranR98/Obtainium) добавь приложение по адресу репозитория
-`https://github.com/MikalaiKryvusha/KrinikCam` — он сам возьмёт APK из GitHub Releases и сообщит об обновлениях.
+**Obtainium.** Нажми «Скачать через Obtainium» в начале страницы или добавь приложение в
+[Obtainium](https://github.com/ImranR98/Obtainium) по адресу репозитория `https://github.com/MikalaiKryvusha/KrinikCam`.
+Obtainium сам возьмёт APK из GitHub Releases и будет обновлять KrinikCam.
 
 > ⚠️ **Обновляешься с 0.8 или старее — сначала удали старый KrinikCam.** Релиз 0.9 подписан новым ключом, поверх
 > прежнего релиза Android его не поставит. Сцены и профили старого приложения удалятся вместе с ним; если они нужны,
@@ -346,17 +397,62 @@ OTG-кабель или переходник.
 > битрейта низким, если стримишь через мобильную сеть, — эфир замедлится, а не порвётся.
 
 <a name="ru-6"></a>
-### 6. Сборка из исходников
+### 6. Собрать самому
+
+#### Что нужно
+
+- JDK 17: модули собираются с `jvmToolchain(17)`.
+- Android SDK с платформой 35.
+- Node.js 18+ для скриптов в `tools/`. `node tools/env.mjs` покажет, какие Java, SDK и adb берут инструменты.
+
+#### Получить код
 
 ```bash
 git clone https://github.com/MikalaiKryvusha/KrinikCam.git
 cd KrinikCam
 node tools/setup.mjs                      # первичная настройка
-node tools/build.mjs --no-ui              # Debug KCAM
-node tools/build.mjs --no-ui --release    # KCAM (R8); ключи подписи живут вне git
 ```
 
-Нужны JDK 17+, Android SDK и Node.js 18+. `node tools/env.mjs` покажет, какие Java, SDK и adb берут инструменты.
+#### Собрать
+
+```bash
+node tools/build.mjs --no-ui              # Debug KCAM: app/build/outputs/apk/debug/
+node tools/build.mjs --no-ui --release    # KCAM (R8): app/build/outputs/apk/release/
+```
+
+`tools/build.mjs` запускает Gradle. Те же APK дают `./gradlew assembleDebug` и `./gradlew assembleRelease`
+(на Windows `gradlew.bat`).
+
+#### Подписать релиз
+
+Ключи живут вне git: `.env` в корне проекта и папка `keystores/` стоят в `.gitignore`. Положи хранилище ключа релиза
+в `keystores/`; новое можно сделать через `keytool`, например так:
+
+```bash
+keytool -genkeypair -keystore keystores/kcam-release.jks -storetype PKCS12 -alias <your-alias> -keyalg RSA -keysize 4096 -validity 10950
+```
+
+Потом впиши в `.env` в корне проекта четыре переменные, которые читает сборка:
+
+```ini
+KCAM_RELEASE_STORE_FILE=keystores/kcam-release.jks
+KCAM_RELEASE_STORE_PASSWORD=<пароль хранилища>
+KCAM_RELEASE_KEY_ALIAS=<your-alias>
+KCAM_RELEASE_KEY_PASSWORD=<пароль ключа>
+```
+
+Путь к хранилищу пишется от корня проекта или полностью, с прямыми слэшами. Переменная окружения с тем же именем
+перебивает `.env` (для CI). Такие же четыре значения `KCAM_DEBUG_*` дают Debug KCAM один общий ключ на всех машинах,
+а без них отладочная сборка подписывается машинным debug-ключом. Без `KCAM_RELEASE_*` релизная сборка подписывается
+debug-ключом, и Gradle печатает WARNING: такой APK годится только для проверки у себя, публиковать его нельзя. Храни
+копию ключа вне проекта: релиз с другим ключом не встанет поверх прежнего.
+
+#### Особенности проекта
+
+- AndroidUSBCamera, RootEncoder и FreeDroidWarn приходят с [JitPack](https://jitpack.io), поэтому первой сборке нужен
+  доступ к нему.
+- Две сборки ставятся рядом: Debug KCAM (`com.kriniks.kcam.debug`) и KCAM (`com.kriniks.kcam`), подробнее в
+  [3 Две сборки](#ru-3).
 
 <a name="ru-7"></a>
 ### 7. Как устроено
