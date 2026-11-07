@@ -139,6 +139,9 @@ kotlin {
 }
 
 dependencies {
+    // FreeDroidWarn — окно о верификации разработчиков Google (KAST plans/15; слово Криника 2026-11-07:
+    // «во все их нужно встроить FreeDroidWarn»). JitPack уже в settings.gradle.kts.
+    implementation(libs.free.droid.warn)
     implementation(project(":core:common"))
     implementation(project(":core:ui"))
     implementation(project(":core:logging"))

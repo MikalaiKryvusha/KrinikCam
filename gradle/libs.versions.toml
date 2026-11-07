@@ -18,6 +18,8 @@ coil = "2.7.0"
 androidUsbCamera = "3.2.7"
 rootEncoder = "2.4.7"
 junit = "4.13.2"
+# FreeDroidWarn (github.com/woheller69/FreeDroidWarn, Apache-2.0) — закреплённая версия.
+freeDroidWarn = "V1.14"
 
 [libraries]
 # Testing (plans/12 S6 — первая юнит-инфра проекта)
@@ -64,6 +66,7 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 android-usb-camera = { group = "com.github.jiangdongguo.AndroidUSBCamera", name = "libausbc", version.ref = "androidUsbCamera" }
 android-usb-camera-libuvc = { group = "com.github.jiangdongguo.AndroidUSBCamera", name = "libuvc", version.ref = "androidUsbCamera" }
 root-encoder = { group = "com.github.pedroSG94.RootEncoder", name = "library", version.ref = "rootEncoder" }
+free-droid-warn = { group = "com.github.woheller69", name = "FreeDroidWarn", version.ref = "freeDroidWarn" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

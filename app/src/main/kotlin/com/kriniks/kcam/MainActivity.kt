@@ -45,6 +45,7 @@ import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import org.woheller69.freeDroidWarn.FreeDroidWarn
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -86,6 +87,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         usbViewModel = androidx.lifecycle.ViewModelProvider(this)[UsbViewModel::class.java]
+
+        // FreeDroidWarn: раз на versionCode — окно о верификации разработчиков Google (слово Криника 2026-11-07:
+        // «во все их нужно встроить FreeDroidWarn», KAST plans/15). Не при пересоздании — пользователь уже видел.
+        if (savedInstanceState == null) FreeDroidWarn.showWarningOnUpgrade(this, BuildConfig.VERSION_CODE)
 
         setContent {
             KrinikCamTheme {
