@@ -1,7 +1,7 @@
-# Release workflow — triggered when release.mjs pushes a version tag (e.g. v0.2).
-# Builds a release APK and creates a GitHub Release with auto-generated notes.
-#
-# Triggered by: tools/release.mjs (git tag v*)
+# Release workflow — MANUAL run only (workflow_dispatch). It builds a release APK and creates a GitHub Release,
+# and it refuses to run unless the repository secrets KCAM_RELEASE_STORE_B64 (the keystore, base64) and
+# KCAM_RELEASE_STORE_PASSWORD / KCAM_RELEASE_KEY_ALIAS / KCAM_RELEASE_KEY_PASSWORD are set — never a debug-signed release.
+# Normal path: build and publish locally with the project's own key (.env KCAM_RELEASE_*), as for v0.9.1.
 # Output: GitHub Release with APK attached at
 #   github.com/MikalaiKryvusha/KrinikCam/releases
 
@@ -22,6 +22,17 @@ jobs:
       contents: write  # required to create GitHub Releases
 
     steps:
+      # Guard (KAST plans/17, 2026-11-07): without the release key the APK would be signed by the runner's debug key.
+      - name: Refuse without the release key
+        env:
+          STORE_B64: ${{ secrets.KCAM_RELEASE_STORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.KCAM_RELEASE_STORE_PASSWORD }}
+        run: |
+          if [ -z "$STORE_B64" ] || [ -z "$STORE_PASSWORD" ]; then
+            echo "No KCAM_RELEASE_* secrets: refusing to publish a debug-signed release. Publish locally with the own key."
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -40,9 +51,20 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      # Build release APK — signed with debug key for now.
-      # Production signing via keystore will be added when publishing to Play Store.
+      # The release key from the secrets; app/build.gradle.kts reads KCAM_RELEASE_* from the environment (envKey).
+      - name: Restore the release key
+        env:
+          STORE_B64: ${{ secrets.KCAM_RELEASE_STORE_B64 }}
+        run: |
+          mkdir -p keystores
+          echo "$STORE_B64" | base64 -d > keystores/kcam-release.jks
+
       - name: Build Release APK
+        env:
+          KCAM_RELEASE_STORE_FILE: keystores/kcam-release.jks
+          KCAM_RELEASE_STORE_PASSWORD: ${{ secrets.KCAM_RELEASE_STORE_PASSWORD }}
+          KCAM_RELEASE_KEY_ALIAS: ${{ secrets.KCAM_RELEASE_KEY_ALIAS }}
+          KCAM_RELEASE_KEY_PASSWORD: ${{ secrets.KCAM_RELEASE_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon
 
       # Rename APK to include version tag for clarity in the release

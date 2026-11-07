@@ -16,7 +16,7 @@ Open source · For streamers and bloggers</p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-FF1A8C.svg" alt="License: MIT"></a>
   <a href="#en-4"><img src="https://img.shields.io/badge/platform-Android_13%2B_·_64--bit-3DDC84.svg" alt="platform: Android 13+, 64-bit"></a>
   <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-Compose-7F52FF.svg" alt="Kotlin + Compose"></a>
-  <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases/latest"><img src="https://img.shields.io/badge/release-0.9-FF1A8C.svg" alt="release: 0.9"></a>
+  <a href="https://github.com/MikalaiKryvusha/KrinikCam/releases/latest"><img src="https://img.shields.io/badge/release-0.9.1-FF1A8C.svg" alt="release: 0.9.1"></a>
   <a href="https://github.com/MikalaiKryvusha/KAIF"><img src="https://img.shields.io/badge/Framework-KAIF%202.9-6E56CF.svg" alt="Framework: KAIF 2.9"></a>
 </p>
 
